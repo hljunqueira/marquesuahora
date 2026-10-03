@@ -16,7 +16,9 @@ import {
   Scissors,
   Palette,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  Camera
 } from 'lucide-react';
 import { InputMask } from '@/components/ui/InputMask';
 import { BusinessNiche, ThemeTemplate } from '@marquesuahora/shared';
@@ -99,10 +101,26 @@ export default function OnboardingPage() {
   const [services, setServices] = useState<Array<{ name: string; price: number; durationMinutes: number; category: string; selected: boolean }>>([]);
 
   // Identidade Visual e Usuário
+  const [logoUrl, setLogoUrl] = useState<string>('');
   const [themeTemplate, setThemeTemplate] = useState<ThemeTemplate>('PURPLE_GOLD');
   const [ownerName, setOwnerName] = useState('');
   const [ownerEmail, setOwnerEmail] = useState('');
   const [ownerPassword, setOwnerPassword] = useState('');
+
+  const handleLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        setErrorMessage('O arquivo de imagem da logo deve ter no máximo 2MB.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Ao trocar de nicho, recarrega sugestões
   const handleSelectNiche = (selectedNicheId: string) => {
@@ -215,15 +233,45 @@ export default function OnboardingPage() {
       const res = await axios.post('http://localhost:3333/tenants/onboarding', payload);
       const data = res.data;
 
-      // Armazena token JWT localmente
+      // Armazena token JWT e dados localmente
       if (data.accessToken) {
         localStorage.setItem('@marcatuahora:token', data.accessToken);
         localStorage.setItem('@marcatuahora:user', JSON.stringify(data.user));
-        localStorage.setItem('@marcatuahora:tenant', JSON.stringify(data.tenant));
+        localStorage.setItem(
+          '@marcatuahora:tenant',
+          JSON.stringify({
+            ...(data.tenant || {}),
+            name: name || data.tenant?.name,
+            logoUrl: logoUrl || data.tenant?.logoUrl
+          })
+        );
       }
 
-      // Redireciona para a vitrine recém-criada
-      router.push(`/${payload.slug}`);
+      if (logoUrl) {
+        localStorage.setItem('tenant_logo', logoUrl);
+      }
+      localStorage.setItem(
+        'tenant_data',
+        JSON.stringify({
+          name: name || 'Meu Estabelecimento',
+          slug,
+          phone,
+          logoUrl: logoUrl || ''
+        })
+      );
+      localStorage.setItem(
+        'user_data',
+        JSON.stringify({
+          name: ownerName,
+          email: ownerEmail,
+          role: 'ADMIN',
+          tenantName: name,
+          tenantLogo: logoUrl || null
+        })
+      );
+
+      // Redireciona para a vitrine recém-criada ou painel
+      router.push('/dashboard');
     } catch (err: any) {
       const msg = err.response?.data?.message || 'Não foi possível concluir seu cadastro. Verifique os dados informados.';
       setErrorMessage(msg);
@@ -740,6 +788,30 @@ export default function OnboardingPage() {
             </p>
 
             <div className="mt-6 flex flex-col gap-6">
+              {/* Logo do Estabelecimento / Assinante */}
+              <div className="p-4 rounded-2xl bg-purple-50/50 border border-purple-200/80 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-white border border-purple-200 shadow-2xs flex items-center justify-center overflow-hidden shrink-0">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
+                  ) : (
+                    <Building2 className="w-7 h-7 text-purple-400" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <label className="text-xs font-bold text-slate-800 uppercase tracking-wide block mb-0.5">
+                    Logo do Estabelecimento
+                  </label>
+                  <p className="text-[11px] text-slate-500 mb-2">
+                    Aparecerá no menu lateral do seu painel e na vitrine de agendamentos.
+                  </p>
+                  <label className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold cursor-pointer transition-colors shadow-2xs">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{logoUrl ? 'Alterar Logo' : 'Enviar Logo (PNG ou JPG)'}</span>
+                    <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+                  </label>
+                </div>
+              </div>
+
               {/* Seleção de Tema da Vitrine */}
               <div>
                 <label className="text-xs font-semibold uppercase text-slate-600 block mb-2">

@@ -56,6 +56,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
 
+  const [subscriberLogo, setSubscriberLogo] = useState<string | null>(null);
+  const [subscriberName, setSubscriberName] = useState<string>('Meu Estabelecimento');
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   // Determina título e subtítulo dinâmicos da rota atual para exibir no nav
   const pageInfo =
     PAGE_TITLES[pathname] ||
@@ -64,15 +68,57 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )?.[1] || { title: 'Painel', subtitle: '' };
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('user_data');
-    if (savedUser) {
-      try {
-        setUser(JSON.parse(savedUser));
-      } catch {
-        // ignore
+    const loadTenantData = () => {
+      // Carrega dados do usuário
+      const savedUser = localStorage.getItem('user_data');
+      if (savedUser) {
+        try {
+          const parsed = JSON.parse(savedUser);
+          setUser(parsed);
+          if (parsed.tenantName) setSubscriberName(parsed.tenantName);
+        } catch {
+          // ignore
+        }
       }
-    }
+
+      // Carrega dados do estabelecimento / assinante
+      const savedTenant =
+        localStorage.getItem('@marcatuahora:tenant') ||
+        localStorage.getItem('tenant_data');
+      if (savedTenant) {
+        try {
+          const parsed = JSON.parse(savedTenant);
+          if (parsed.name) setSubscriberName(parsed.name);
+          if (parsed.logoUrl) setSubscriberLogo(parsed.logoUrl);
+        } catch {
+          // ignore
+        }
+      }
+
+      // Logo customizada direta do assinante
+      const customLogo = localStorage.getItem('tenant_logo');
+      if (customLogo) {
+        setSubscriberLogo(customLogo);
+      }
+    };
+
+    loadTenantData();
+    window.addEventListener('storage', loadTenantData);
+    return () => window.removeEventListener('storage', loadTenantData);
   }, []);
+
+  const handleDirectLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        setSubscriberLogo(dataUrl);
+        localStorage.setItem('tenant_logo', dataUrl);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   const handleLogout = () => {
     localStorage.removeItem('auth_token');
@@ -82,27 +128,59 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="w-full min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col md:flex-row">
-      {/* SIDEBAR DESKTOP */}
-      <aside className="hidden md:flex flex-col w-64 bg-white text-slate-600 border-r border-slate-200/80 p-4 shrink-0 justify-between select-none shadow-[1px_0_10px_rgba(0,0,0,0.02)] min-h-screen sticky top-0 h-screen overflow-y-auto">
+      {/* SIDEBAR DESKTOP - Largura reduzida para abraçar os títulos */}
+      <aside className="hidden md:flex flex-col w-[214px] bg-white text-slate-600 border-r border-slate-200/80 px-2.5 py-3.5 shrink-0 justify-between select-none shadow-[1px_0_10px_rgba(0,0,0,0.02)] min-h-screen sticky top-0 h-screen overflow-y-auto">
         <div>
-          {/* Logo & Nome do Salão */}
-          <div className="px-2 pt-2 pb-5 mb-5 border-b border-slate-100 flex flex-col items-center text-center">
-            <Link href="/dashboard" className="block relative w-48 h-16">
-              <Image
-                src="/brand/logooficial-semfundo.png"
-                alt="Marque Sua Hora"
-                fill
-                className="object-contain object-center"
-                priority
-              />
-            </Link>
-            <span className="text-[10px] text-purple-700 font-bold uppercase tracking-widest block mt-2">
-              Painel do Assinante
-            </span>
+          {/* Logo do Assinante (Configurável no Onboarding ou por upload direto) */}
+          <div className="px-1 pt-1 pb-4 mb-3 border-b border-slate-100 flex flex-col items-center text-center">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              className="hidden"
+              onChange={handleDirectLogoUpload}
+            />
+            {subscriberLogo ? (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="group relative cursor-pointer flex flex-col items-center"
+                title="Clique para alterar a logo do estabelecimento"
+              >
+                <div className="relative w-36 h-12 flex items-center justify-center">
+                  <img
+                    src={subscriberLogo}
+                    alt={subscriberName}
+                    className="max-h-12 max-w-full object-contain object-center"
+                  />
+                  <div className="absolute inset-0 bg-slate-900/50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[10px] font-semibold">
+                    Trocar Logo
+                  </div>
+                </div>
+                <span className="text-xs font-bold text-slate-800 mt-1.5 block truncate max-w-[190px]">
+                  {subscriberName}
+                </span>
+              </div>
+            ) : (
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="group relative cursor-pointer flex flex-col items-center w-full py-1"
+                title="Clique para enviar a logo do seu espaço"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-purple-50 group-hover:bg-purple-100 border border-purple-200/80 flex items-center justify-center text-purple-700 font-bold text-base shadow-2xs transition-all">
+                  {subscriberName ? subscriberName.slice(0, 2).toUpperCase() : 'MH'}
+                </div>
+                <span className="text-xs font-bold text-slate-800 mt-1.5 block truncate max-w-[190px]">
+                  {subscriberName}
+                </span>
+                <span className="text-[10px] text-purple-600 font-medium group-hover:underline mt-0.5">
+                  + Adicionar logo
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Links de Navegação com espaçamento harmonioso */}
-          <nav className="space-y-1.5">
+          {/* Links de Navegação com Fonte Aumentada e Largura Ajustada */}
+          <nav className="space-y-1">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -114,18 +192,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all relative ${
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all relative ${
                     isActive
                       ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25'
-                      : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50/70'
+                      : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50/70 font-medium'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-purple-600'}`} />
-                  <span>{item.label}</span>
+                  <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-purple-600'}`} />
+                  <span className="whitespace-nowrap tracking-tight">{item.label}</span>
                   {isActive && (
                     <motion.div
                       layoutId="activeSidebarIndicator"
-                      className="absolute right-2.5 w-1.5 h-1.5 rounded-full bg-white"
+                      className="ml-auto w-1.5 h-1.5 rounded-full bg-white shrink-0"
                       transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                     />
                   )}
@@ -136,26 +214,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* Rodapé da Sidebar */}
-        <div className="pt-4 border-t border-slate-100 space-y-1.5 mt-6">
+        <div className="pt-3 border-t border-slate-100 space-y-1 mt-4">
           <a
             href="/"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-500 hover:text-purple-700 hover:bg-purple-50/60 transition-colors"
+            className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:text-purple-700 hover:bg-purple-50/60 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <ExternalLink className="w-3.5 h-3.5" />
-              <span>Ver Vitrine Pública</span>
+              <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+              <span>Ver Vitrine</span>
             </div>
-            <ChevronRight className="w-3.5 h-3.5 opacity-60" />
+            <ChevronRight className="w-3.5 h-3.5 opacity-60 shrink-0" />
           </a>
 
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-rose-600 hover:text-rose-700 hover:bg-rose-50 transition-colors text-left cursor-pointer"
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-3.5 h-3.5 shrink-0" />
             <span>Encerrar Sessão</span>
           </button>
         </div>
@@ -202,13 +280,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold ${
                       isActive
                         ? 'bg-purple-600 text-white'
                         : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50'
                     }`}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
+                    <Icon className="w-4.5 h-4.5 shrink-0" />
                     <span>{item.label}</span>
                   </Link>
                 );
@@ -216,9 +294,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <button
                 type="button"
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 rounded-xl cursor-pointer"
               >
-                <LogOut className="w-4 h-4 shrink-0" />
+                <LogOut className="w-4.5 h-4.5 shrink-0" />
                 <span>Encerrar Sessão</span>
               </button>
             </nav>
@@ -228,37 +306,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* ÁREA DE CONTEÚDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Barra Superior Interna com Título Dinâmico no Nav */}
-        <header className="min-h-[72px] px-6 sm:px-8 bg-white border-b border-slate-200/80 flex items-center justify-between shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)] sticky top-0 z-20">
-          <div className="flex items-center gap-5 sm:gap-6 min-w-0">
-            {/* Boas-vindas / Data */}
-            <div className="hidden sm:block shrink-0">
-              <span className="text-[11px] font-medium text-slate-400 block capitalize">
-                {new Date().toLocaleDateString('pt-BR', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'short'
-                })}
+        {/* Barra Superior Interna com Título Dinâmico no Nav (Data removida a pedido) */}
+        <header className="min-h-[64px] px-6 sm:px-8 bg-white border-b border-slate-200/80 flex items-center justify-between shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)] sticky top-0 z-20">
+          <div className="min-w-0 flex flex-col md:flex-row md:items-center md:gap-3">
+            <h1 className="text-sm sm:text-base font-display font-bold text-slate-800 tracking-tight shrink-0">
+              {pageInfo.title}
+            </h1>
+            {pageInfo.subtitle && (
+              <span className="text-xs text-slate-500 hidden md:inline-block truncate md:border-l md:border-slate-200 md:pl-3">
+                {pageInfo.subtitle}
               </span>
-              <h2 className="text-xs font-semibold text-slate-700 leading-none mt-0.5">
-                {user?.name ? user.name : 'Bem-vindo de volta'}
-              </h2>
-            </div>
-
-            {/* Separador vertical elegante */}
-            <div className="hidden sm:block h-8 w-[1px] bg-slate-200 shrink-0" />
-
-            {/* Título da Página no Nav (onde o usuário apontou na marcação vermelha!) */}
-            <div className="min-w-0 flex flex-col md:flex-row md:items-center md:gap-3">
-              <h1 className="text-sm sm:text-base font-display font-bold text-slate-800 tracking-tight shrink-0">
-                {pageInfo.title}
-              </h1>
-              {pageInfo.subtitle && (
-                <span className="text-xs text-slate-500 hidden md:inline-block truncate md:border-l md:border-slate-200 md:pl-3">
-                  {pageInfo.subtitle}
-                </span>
-              )}
-            </div>
+            )}
           </div>
 
           <div className="flex items-center gap-3 shrink-0">

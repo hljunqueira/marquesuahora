@@ -15,7 +15,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Clock,
-  Sparkles
+  Sparkles,
+  Upload,
+  Camera
 } from 'lucide-react';
 import { InputMask } from '@/components/ui/InputMask';
 
@@ -37,7 +39,27 @@ export default function DashboardConfiguracoesPage() {
   const [state, setState] = useState('SP');
 
   // Identidade Visual
+  const [logoUrl, setLogoUrl] = useState<string>('');
   const [themeTemplate, setThemeTemplate] = useState('PURPLE_IMPERIAL');
+
+  React.useEffect(() => {
+    const savedLogo = localStorage.getItem('tenant_logo');
+    if (savedLogo) setLogoUrl(savedLogo);
+  }, []);
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        setLogoUrl(dataUrl);
+        localStorage.setItem('tenant_logo', dataUrl);
+        window.dispatchEvent(new Event('storage'));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
 
   // Regras da Agenda
   const [openingTime, setOpeningTime] = useState('09:00');
@@ -313,12 +335,40 @@ export default function DashboardConfiguracoesPage() {
         {/* ABA 2: IDENTIDADE VISUAL */}
         {activeTab === 'THEME' && (
           <div className="space-y-4">
-            <h3 className="text-base font-bold text-slate-900 mb-1">
-              Template Editorial da Vitrine
-            </h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Escolha uma das 5 paletas de luxo desenhadas para o seu nicho:
-            </p>
+            {/* Logo do Estabelecimento */}
+            <div className="p-5 rounded-2xl bg-purple-50/50 border border-purple-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-16 h-16 rounded-2xl bg-white border border-purple-200 shadow-2xs flex items-center justify-center overflow-hidden shrink-0">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
+                  ) : (
+                    <Building2 className="w-7 h-7 text-purple-400" />
+                  )}
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                    Logo Oficial do Espaço
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Exibida no menu lateral do painel e no topo da vitrine pública para seus clientes.
+                  </p>
+                </div>
+              </div>
+              <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold cursor-pointer transition-colors shadow-2xs shrink-0">
+                <Upload className="w-3.5 h-3.5" />
+                <span>{logoUrl ? 'Alterar Logo' : 'Enviar Logo'}</span>
+                <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+              </label>
+            </div>
+
+            <div className="pt-2">
+              <h3 className="text-base font-bold text-slate-900 mb-1">
+                Template Editorial da Vitrine
+              </h3>
+              <p className="text-xs text-slate-500 mb-4">
+                Escolha uma das 5 paletas de luxo desenhadas para o seu nicho:
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {THEMES.map((theme) => {
