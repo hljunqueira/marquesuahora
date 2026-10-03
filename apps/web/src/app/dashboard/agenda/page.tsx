@@ -131,6 +131,21 @@ export default function DashboardAgendaPage() {
   const [blockEndTime, setBlockEndTime] = useState('13:00');
   const [blockReason, setBlockReason] = useState('Almoço / Descanso');
 
+  // Seletor de Status da Agenda (Abrir / Fechar Agenda Online)
+  const [isScheduleOpen, setIsScheduleOpen] = useState(true);
+  const [scheduleStatusMessage, setScheduleStatusMessage] = useState<string | null>(null);
+
+  const toggleScheduleStatus = () => {
+    const nextStatus = !isScheduleOpen;
+    setIsScheduleOpen(nextStatus);
+    setScheduleStatusMessage(
+      nextStatus
+        ? 'Agenda aberta com sucesso! Clientes podem agendar horários online.'
+        : 'Agenda fechada. Novos agendamentos online pausados temporariamente.'
+    );
+    setTimeout(() => setScheduleStatusMessage(null), 3500);
+  };
+
   const handleCreateBlock = (e: React.FormEvent) => {
     e.preventDefault();
     setIsBlockModalOpen(false);
@@ -167,7 +182,7 @@ export default function DashboardAgendaPage() {
               d.setDate(d.getDate() - 1);
               setSelectedDate(d.toISOString().slice(0, 10));
             }}
-            className="p-2 rounded-xl bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200 transition-colors"
+            className="p-2 rounded-xl bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200 transition-colors cursor-pointer"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -189,7 +204,7 @@ export default function DashboardAgendaPage() {
               d.setDate(d.getDate() + 1);
               setSelectedDate(d.toISOString().slice(0, 10));
             }}
-            className="p-2 rounded-xl bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200 transition-colors"
+            className="p-2 rounded-xl bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200 transition-colors cursor-pointer"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -197,24 +212,96 @@ export default function DashboardAgendaPage() {
           <button
             type="button"
             onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
-            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200/80 transition-all shadow-2xs"
+            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200/80 transition-all shadow-2xs cursor-pointer"
           >
             Hoje
           </button>
         </div>
 
-        {/* Botão de Bloqueio Rápido de Horário */}
-        <div className="flex items-center gap-2">
+        {/* Ações da Agenda: Seletor para Abrir/Fechar Agenda + Bloqueio */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Botão Seletor para Abrir / Fechar a Agenda */}
+          <button
+            type="button"
+            onClick={toggleScheduleStatus}
+            className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl border transition-all cursor-pointer select-none ${
+              isScheduleOpen
+                ? 'bg-emerald-50/80 border-emerald-200/90 text-emerald-800 hover:bg-emerald-100/70 shadow-2xs'
+                : 'bg-rose-50/80 border-rose-200/90 text-rose-800 hover:bg-rose-100/70 shadow-2xs'
+            }`}
+            title={isScheduleOpen ? 'Clique para fechar a agenda para agendamentos online' : 'Clique para abrir a agenda para agendamentos online'}
+          >
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                {isScheduleOpen && (
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                )}
+                <span
+                  className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                    isScheduleOpen ? 'bg-emerald-500' : 'bg-rose-500'
+                  }`}
+                />
+              </span>
+              <span className="text-xs font-semibold">
+                {isScheduleOpen ? 'Agenda Aberta' : 'Agenda Fechada'}
+              </span>
+            </div>
+
+            {/* Toggle Switch Pill */}
+            <div
+              className={`w-8 h-4.5 flex items-center rounded-full p-0.5 transition-colors ${
+                isScheduleOpen ? 'bg-emerald-600 justify-end' : 'bg-slate-300 justify-start'
+              }`}
+            >
+              <div className="w-3.5 h-3.5 rounded-full bg-white shadow-xs transition-transform" />
+            </div>
+          </button>
+
+          {/* Botão de Bloqueio Rápido de Horário */}
           <button
             type="button"
             onClick={() => setIsBlockModalOpen(true)}
-            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-md shadow-purple-600/20"
+            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-md shadow-purple-600/20 cursor-pointer"
           >
             <Ban className="w-4 h-4 text-purple-200" />
             <span>Bloquear Horário / Pausa</span>
           </button>
         </div>
       </div>
+
+      {/* Alerta de Agenda Fechada */}
+      {!isScheduleOpen && (
+        <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold shrink-0">
+              <Ban className="w-4 h-4 text-amber-700" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-amber-950">
+                A agenda online está fechada no momento
+              </h4>
+              <p className="text-[11px] text-amber-800">
+                Novos agendamentos pela vitrine pública estão pausados. A equipe continua podendo gerenciar horários internos normalmente.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={toggleScheduleStatus}
+            className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shrink-0 shadow-xs cursor-pointer transition-all"
+          >
+            Abrir Agenda Agora
+          </button>
+        </div>
+      )}
+
+      {/* Toast Notificação de Status */}
+      {scheduleStatusMessage && (
+        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-slate-900 text-white shadow-xl flex items-center gap-3 text-xs border border-slate-800 animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <span className={`w-2 h-2 rounded-full ${isScheduleOpen ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+          <span>{scheduleStatusMessage}</span>
+        </div>
+      )}
 
       {/* 2. Visualização Multi-Profissional em Colunas */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 overflow-x-auto pb-6">
