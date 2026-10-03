@@ -70,11 +70,11 @@ export const WaitlistModal: React.FC<WaitlistModalProps> = ({
             <UserPlus className="w-8 h-8" />
           </div>
 
-          <h3 className="text-2xl font-display font-bold text-slate-900">
-            Lista de Espera Inteligente
+          <h3 className="text-xl font-display font-semibold text-slate-800">
+            Lista de Espera
           </h3>
-          <p className="mt-1 text-xs text-slate-600">
-            Os horários estão preenchidos para esta data. Entre na fila de espera prioritária de {salonName}:
+          <p className="mt-1 text-xs text-slate-500">
+            Os horários estão preenchidos para esta data. Deixe seu contato para ser avisado se alguém desmarcar:
           </p>
 
           <form onSubmit={handleSubmit} className="mt-5 space-y-3.5 text-left">
@@ -127,11 +127,8 @@ export const WaitlistModal: React.FC<WaitlistModalProps> = ({
               </div>
             </div>
 
-            <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-[11px] text-indigo-900 flex items-start gap-2">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
-              <span>
-                Assim que um cliente desmarcar ou remarcar, você será avisado instantaneamente no seu WhatsApp com 10 minutos de preferência!
-              </span>
+            <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-[11px] text-indigo-900">
+              Se um horário for liberado, você receberá uma mensagem no WhatsApp com 10 minutos de preferência para confirmar o atendimento.
             </div>
 
             <button

@@ -47,12 +47,7 @@ export const SalonPatchTestNoticeModal: React.FC<SalonPatchTestNoticeModalProps>
             <ShieldAlert className="w-8 h-8" />
           </div>
 
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-violet-100 text-violet-900 mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Saúde e Segurança Capilar</span>
-          </span>
-
-          <h3 className="text-2xl font-display font-bold text-slate-900">
+          <h3 className="text-xl font-display font-semibold text-slate-800">
             Aviso de Teste de Mecha
           </h3>
 

@@ -5,329 +5,536 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { motion, AnimatePresence } from 'motion/react';
 import {
-  ShieldCheck,
-  Calendar,
-  Sparkles,
   ArrowRight,
-  CheckCircle2,
+  Calendar,
   Clock,
-  TrendingUp,
-  MessageSquare,
-  Users,
-  Smartphone,
+  Check,
+  Search,
   ChevronRight,
-  DollarSign
+  ShieldCheck
 } from 'lucide-react';
 
-const niches = [
+const NICHES = [
   {
-    id: 'BARBERSHOP',
+    id: 'barber',
     label: 'Barbearia',
-    icon: '💈',
-    headline: 'Para cavalheiros exigentes',
-    terminology: { prof: 'Barbeiro', space: 'Cadeira', service: 'Corte Degradê & Barba Terapia' },
-    accent: '#D4AF37',
-    tagline: 'Cerveja gelada, navalha afiada e zero atraso na bancada.'
+    headline: 'Atendimento ágil para barbearias',
+    tagline: 'Combos de corte e barba contínuos, encaixes rápidos e confirmação automática.',
+    terminology: {
+      prof: 'Barbeiro',
+      space: 'Cadeira de Barbeiro',
+      service: 'Corte Degradê + Barba Terapia'
+    }
   },
   {
-    id: 'BEAUTY_SALON',
+    id: 'salon',
     label: 'Salão de Beleza',
-    icon: '💇‍♀️',
-    headline: 'Elegância e cuidado capilar',
-    terminology: { prof: 'Cabeleireira(o)', space: 'Bancada', service: 'Mechas Criativas & Escova Modelada' },
-    accent: '#7C3AED',
-    tagline: 'Gestão de combos químicos sem sobreposição de horários.'
+    headline: 'Tempo de pausa e processos químicos',
+    tagline: 'Encaixe escova ou manicure durante o tempo de ação da coloração sem conflitos.',
+    terminology: {
+      prof: 'Cabeleireira / Colorista',
+      space: 'Lavatório & Bancada',
+      service: 'Coloração + Tratamento + Escova'
+    }
   },
   {
-    id: 'AESTHETICS_CLINIC',
-    label: 'Clínica de Estética',
-    icon: '🧴',
-    headline: 'Saúde, precisão e bem-estar',
-    terminology: { prof: 'Biomédica(o)', space: 'Cabine', service: 'Harmonização & Peeling Químico' },
-    accent: '#C07A65',
-    tagline: 'Ficha de anamnese digital integrada e controle de salas.'
+    id: 'aesthetics',
+    label: 'Estética & Saúde',
+    headline: 'Bloqueio de salas e equipamentos',
+    tagline: 'Controle de cabines esterilizadas e aparelhos compartilhados entre profissionais.',
+    terminology: {
+      prof: 'Biomédica / Esteticista',
+      space: 'Cabine Estéril',
+      service: 'Harmonização Facial & Laser'
+    }
   },
   {
-    id: 'PERSONAL_TRAINER',
+    id: 'lash-nails',
+    label: 'Unhas & Lash',
+    headline: 'Controle por ciclo de manutenção',
+    tagline: 'Diferenciação clara entre aplicação nova, manutenção periódica e remoção externa.',
+    terminology: {
+      prof: 'Lash Designer / Nail Artist',
+      space: 'Mesa de Manicure',
+      service: 'Extensão de Cílios Fio a Fio'
+    }
+  },
+  {
+    id: 'personal',
     label: 'Personal Trainer',
-    icon: '🏋️',
-    headline: 'Performance e evolução física',
-    terminology: { prof: 'Personal Trainer', space: 'Área de Treino', service: 'Consultoria VIP & Bioimpedância' },
-    accent: '#2563EB',
-    tagline: 'Gestão de pacotes de sessões e janela de deslocamento.'
-  },
-  {
-    id: 'NAIL_LASH_STUDIO',
-    label: 'Unhas & Cílios',
-    icon: '💅',
-    headline: 'Design refinado e durabilidade',
-    terminology: { prof: 'Lash / Nail Designer', space: 'Poltrona', service: 'Alongamento Fibra & Volume Russo' },
-    accent: '#E11D48',
-    tagline: 'Perguntas prévias de remoção e manutenção programada.'
+    headline: 'Treinos presenciais e condomínio',
+    tagline: 'Janela automática de trânsito entre aulas domiciliares e débito de pacotes.',
+    terminology: {
+      prof: 'Personal Trainer',
+      space: 'Studio / Condomínio',
+      service: 'Sessão Individualizada 60 min'
+    }
   }
 ];
 
 export default function LandingPage() {
-  const [selectedNiche, setSelectedNiche] = useState(niches[0]);
+  const [selectedNiche, setSelectedNiche] = useState(NICHES[0]);
+  const [activePreviewTab, setActivePreviewTab] = useState<'dashboard' | 'mobile'>('dashboard');
 
-  // Calculadora de No-Show
-  const [dailyAppointments, setDailyAppointments] = useState(10);
-  const [averageTicket, setAverageTicket] = useState(70);
+  // Calculadora No-Show
+  const [dailyAppointments, setDailyAppointments] = useState(12);
+  const [averageTicket, setAverageTicket] = useState(85);
   const [noShowRate, setNoShowRate] = useState(15);
 
-  const monthlyTotalClients = dailyAppointments * 24;
-  const lostAppointments = Math.round(monthlyTotalClients * (noShowRate / 100));
+  const monthlyAppointments = dailyAppointments * 26;
+  const lostAppointments = Math.round(monthlyAppointments * (noShowRate / 100));
   const lostRevenue = lostAppointments * averageTicket;
-  const recoveredRevenue = Math.round(lostRevenue * 0.92);
+  const recoveredRevenue = Math.round(lostRevenue * 0.9);
 
   return (
-    <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 selection:bg-brand-purple/20 selection:text-brand-purple">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 w-full glass-panel border-b border-slate-200/60 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative w-48 h-14 flex items-center">
+    <div className="w-full min-h-screen bg-[#FBFBFA] text-slate-900 selection:bg-purple-900/10 selection:text-purple-900 font-sans">
+      {/* 1. NAVEGAÇÃO SUPERIOR */}
+      <header className="sticky top-0 z-50 w-full bg-white/80 border-b border-slate-200/70 backdrop-blur-md">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between">
+          <Link href="/" className="flex items-center">
+            <div className="relative w-44 h-12">
               <Image
                 src="/brand/logooficial-semfundo.png"
-                alt="Marque Sua Hora Logo"
+                alt="Marque Sua Hora"
                 fill
-                className="object-contain object-left group-hover:scale-[1.02] transition-transform duration-300"
+                className="object-contain object-left"
                 priority
               />
             </div>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
-            <a href="#simulator" className="hover:text-brand-purple transition-colors">
-              Simulador por Nicho
+          <nav className="hidden md:flex items-center gap-8 text-sm text-slate-600">
+            <a href="#preview" className="hover:text-slate-900 transition-colors">
+              Como funciona
             </a>
-            <a href="#calculator" className="hover:text-brand-purple transition-colors">
-              Calculadora No-Show
+            <a href="#simulator" className="hover:text-slate-900 transition-colors">
+              Para seu setor
             </a>
-            <a href="#pillars" className="hover:text-brand-purple transition-colors">
-              Diferenciais
+            <a href="#calculator" className="hover:text-slate-900 transition-colors">
+              Calculadora de faltas
             </a>
-            <a href="#pricing" className="hover:text-brand-purple transition-colors">
+            <a href="#pricing" className="hover:text-slate-900 transition-colors">
               Planos
             </a>
           </nav>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <Link
+              href="/login"
+              className="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-2 transition-colors"
+            >
+              Entrar
+            </Link>
             <Link
               href="/onboarding"
-              className="px-5 py-2.5 text-sm font-semibold text-white bg-brand-purple hover:bg-purple-700 active:scale-95 rounded-xl shadow-lg shadow-brand-purple/20 transition-all flex items-center gap-2"
+              className="px-4 py-2.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-all shadow-sm"
             >
-              <span>Experimentar Grátis</span>
-              <ArrowRight className="w-4 h-4" />
+              Criar conta grátis
             </Link>
           </div>
         </div>
       </header>
 
-      {/* Hero Section */}
-      <section className="relative pt-16 pb-24 lg:pt-24 lg:pb-32 overflow-hidden">
-        {/* Glow de Fundo */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-gradient-to-tr from-brand-purple/15 to-amber-200/20 blur-[120px] rounded-full pointer-events-none" />
+      {/* 2. HERO SECTION */}
+      <section className="pt-16 pb-20 lg:pt-24 lg:pb-28">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold text-slate-900 tracking-tight leading-[1.12]">
+            Sua agenda cheia, sem faltas e organizada direto no celular.
+          </h1>
 
-        <div className="relative max-w-5xl mx-auto px-4 sm:px-6 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-purple/10 text-brand-purple border border-brand-purple/20 text-xs font-semibold tracking-wide uppercase mb-6"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-brand-purple" />
-            <span>Plataforma Premium de Agendamentos & Gestão</span>
-          </motion.div>
+          <p className="mt-6 text-lg sm:text-xl text-slate-600 max-w-2xl mx-auto leading-relaxed">
+            Seus clientes escolhem o serviço e o horário livre em segundos, pelo navegador ou WhatsApp.
+            Você atende com calma enquanto o sistema confirma presenças e organiza o caixa.
+          </p>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-4xl sm:text-5xl lg:text-6xl font-display font-extrabold text-slate-900 tracking-tight leading-[1.15]"
-          >
-            A experiência de agendamento que seu cliente de{' '}
-            <span className="bg-gradient-to-r from-brand-purple via-indigo-600 to-amber-600 bg-clip-text text-transparent">
-              alto padrão
-            </span>{' '}
-            merece.
-          </motion.h1>
-
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="mt-6 text-lg sm:text-xl text-slate-600 font-serif italic max-w-3xl mx-auto leading-relaxed"
-          >
-            Elimine as faltas que corroem seu faturamento com o No-Show Shield, encante sua clientela
-            com uma vitrine rápida sem login forçado e ganhe tempo para focar no que você faz de melhor.
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
-          >
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3.5">
             <Link
               href="/onboarding"
-              className="w-full sm:w-auto px-8 py-4 text-base font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-2xl shadow-xl shadow-slate-900/10 active:scale-95 transition-all flex items-center justify-center gap-3 group"
+              className="w-full sm:w-auto px-7 py-3.5 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl shadow-lg shadow-slate-900/10 active:scale-95 transition-all flex items-center justify-center gap-2 group"
             >
-              <span>Criar Loja em 2 Minutos</span>
-              <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              <span>Começar teste de 7 dias</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </Link>
 
             <a
-              href="#simulator"
-              className="w-full sm:w-auto px-7 py-4 text-base font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-2xl shadow-sm transition-all"
+              href="#preview"
+              className="w-full sm:w-auto px-6 py-3.5 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl shadow-sm transition-all text-center"
             >
-              Conhecer por Nicho
+              Ver demonstração interativa
             </a>
-          </motion.div>
-
-          {/* Social Proof Badges */}
-          <div className="mt-12 flex flex-wrap items-center justify-center gap-6 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" /> 7 dias de teste grátis
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Sem cartão para começar
-            </span>
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Sinal PIX anti-faltas
-            </span>
           </div>
 
-          {/* Vitrine Visual da Plataforma */}
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.4 }}
-            className="mt-12 relative max-w-5xl mx-auto rounded-3xl p-2 sm:p-3 bg-gradient-to-b from-purple-500/20 via-slate-200/40 to-white/90 shadow-2xl shadow-purple-950/15 border border-purple-200/60 backdrop-blur-xl"
-          >
-            <div className="relative rounded-2xl overflow-hidden shadow-inner bg-slate-950 border border-slate-800/40">
-              <Image
-                src="/brand/Apresentação da Marca Marque Sua Hora.png"
-                alt="Apresentação da Plataforma Marque Sua Hora"
-                width={1920}
-                height={1080}
-                className="w-full h-auto object-cover hover:scale-[1.01] transition-transform duration-700"
-                priority
-              />
+          <p className="mt-4 text-xs text-slate-500">
+            Não é necessário cartão de crédito. Configuração em menos de 2 minutos.
+          </p>
+        </div>
+
+        {/* 3. SHOWCASE INTERATIVO DO PRODUTO (REPLACE ESTÁTICO DE BRANDING POR CÓDIGO & MOTION) */}
+        <div id="preview" className="mt-14 max-w-5xl mx-auto px-4 sm:px-6">
+          {/* Seletor de Modo do Showcase */}
+          <div className="flex items-center justify-center mb-6">
+            <div className="inline-flex p-1 bg-slate-200/70 rounded-2xl border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setActivePreviewTab('dashboard')}
+                className={`relative px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activePreviewTab === 'dashboard'
+                    ? 'text-slate-900'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {activePreviewTab === 'dashboard' && (
+                  <motion.div
+                    layoutId="previewTabHighlight"
+                    className="absolute inset-0 bg-white rounded-xl shadow-sm"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10">Painel da Recepção</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActivePreviewTab('mobile')}
+                className={`relative px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activePreviewTab === 'mobile'
+                    ? 'text-slate-900'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {activePreviewTab === 'mobile' && (
+                  <motion.div
+                    layoutId="previewTabHighlight"
+                    className="absolute inset-0 bg-white rounded-xl shadow-sm"
+                    transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10">Agendamento do Cliente (Celular)</span>
+              </button>
             </div>
-          </motion.div>
+          </div>
+
+          {/* Janela de Demonstração */}
+          <div className="relative rounded-3xl bg-white border border-slate-200/90 shadow-2xl shadow-slate-900/5 p-4 sm:p-6 overflow-hidden">
+            <AnimatePresence mode="wait">
+              {activePreviewTab === 'dashboard' ? (
+                <motion.div
+                  key="dashboard-view"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-6"
+                >
+                  {/* Top Bar da Janela */}
+                  <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-slate-200" />
+                      <span className="w-3 h-3 rounded-full bg-slate-200" />
+                      <span className="w-3 h-3 rounded-full bg-slate-200" />
+                      <span className="ml-2 text-xs font-mono text-slate-400">
+                        marquesuahora.com.br/dashboard
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
+                        Atendimento em andamento
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* 4 Cards de Métricas Reais com Mini Sparklines */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+                    <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-100">
+                      <span className="text-xs text-slate-500 font-medium">Agendamentos hoje</span>
+                      <div className="mt-1 text-2xl font-bold font-display text-slate-900">12</div>
+                      <span className="text-[11px] font-semibold text-emerald-600 mt-1 block">
+                        +20% vs ontem
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-100">
+                      <span className="text-xs text-slate-500 font-medium">Clientes ativos</span>
+                      <div className="mt-1 text-2xl font-bold font-display text-slate-900">86</div>
+                      <span className="text-[11px] font-semibold text-emerald-600 mt-1 block">
+                        +12% no mês
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-100">
+                      <span className="text-xs text-slate-500 font-medium">Faturamento hoje</span>
+                      <div className="mt-1 text-2xl font-bold font-display text-slate-900">
+                        R$ 2.480,00
+                      </div>
+                      <span className="text-[11px] font-semibold text-emerald-600 mt-1 block">
+                        +18% no dia
+                      </span>
+                    </div>
+
+                    <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-100">
+                      <span className="text-xs text-slate-500 font-medium">Presença confirmada</span>
+                      <div className="mt-1 text-2xl font-bold font-display text-slate-900">96%</div>
+                      <span className="text-[11px] font-semibold text-emerald-600 mt-1 block">
+                        Faltas zeradas
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Lista de Atendimentos do Dia com Status */}
+                  <div className="rounded-2xl border border-slate-100 overflow-hidden">
+                    <div className="px-4 py-3 bg-slate-50/60 border-b border-slate-100 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-700">
+                        Próximos atendimentos da bancada
+                      </span>
+                      <span className="text-xs text-slate-500">Hoje</span>
+                    </div>
+
+                    <div className="divide-y divide-slate-100 text-xs">
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/40 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-bold text-slate-700 w-12">09:00</span>
+                          <div>
+                            <strong className="text-slate-900 font-semibold">Juliana Costa</strong>
+                            <span className="text-slate-500 ml-2">Corte &amp; Escova Modelada</span>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Confirmado
+                        </span>
+                      </div>
+
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/40 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-bold text-slate-700 w-12">10:30</span>
+                          <div>
+                            <strong className="text-slate-900 font-semibold">Mariana Lima</strong>
+                            <span className="text-slate-500 ml-2">Coloração &amp; Tratamento</span>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Confirmado
+                        </span>
+                      </div>
+
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/40 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-bold text-slate-700 w-12">14:00</span>
+                          <div>
+                            <strong className="text-slate-900 font-semibold">Fernanda Alves</strong>
+                            <span className="text-slate-500 ml-2">Manicure e Spa dos Pés</span>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
+                          Na cadeira
+                        </span>
+                      </div>
+
+                      <div className="px-4 py-3 flex items-center justify-between hover:bg-slate-50/40 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-bold text-slate-700 w-12">16:30</span>
+                          <div>
+                            <strong className="text-slate-900 font-semibold">Camila Rodrigues</strong>
+                            <span className="text-slate-500 ml-2">Limpeza de Pele Profunda</span>
+                          </div>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Confirmado
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="mobile-view"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                  className="flex items-center justify-center py-6"
+                >
+                  {/* Smartphone Frame em código puro */}
+                  <div className="w-full max-w-sm rounded-[36px] bg-slate-900 p-3 shadow-2xl border-4 border-slate-800">
+                    <div className="rounded-[28px] bg-[#FAF9F6] p-5 text-slate-900 space-y-4 text-left">
+                      {/* Topo do Celular */}
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+                        <div>
+                          <h4 className="font-display font-bold text-sm text-slate-900">
+                            Studio Elegance
+                          </h4>
+                          <span className="text-[11px] text-slate-500">Agendamento online</span>
+                        </div>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                      </div>
+
+                      {/* Escolha do Serviço */}
+                      <div>
+                        <span className="text-xs font-semibold text-slate-700 block mb-2">
+                          1. Escolha o procedimento
+                        </span>
+                        <div className="p-3 rounded-xl bg-white border-2 border-purple-600 shadow-sm flex items-center justify-between">
+                          <div>
+                            <strong className="text-xs text-slate-900 block font-semibold">
+                              Corte &amp; Escova Modelada
+                            </strong>
+                            <span className="text-[11px] text-slate-500">45 minutos</span>
+                          </div>
+                          <span className="text-xs font-mono font-bold text-purple-700">
+                            R$ 95,00
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Horário */}
+                      <div>
+                        <span className="text-xs font-semibold text-slate-700 block mb-2">
+                          2. Horários disponíveis hoje
+                        </span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            className="py-2 rounded-lg bg-white border border-slate-200 text-xs font-mono text-slate-600 hover:border-purple-600"
+                          >
+                            14:00
+                          </button>
+                          <button
+                            type="button"
+                            className="py-2 rounded-lg bg-purple-600 text-white text-xs font-mono font-bold shadow-sm"
+                          >
+                            15:30
+                          </button>
+                          <button
+                            type="button"
+                            className="py-2 rounded-lg bg-white border border-slate-200 text-xs font-mono text-slate-600 hover:border-purple-600"
+                          >
+                            17:00
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Botão de confirmação sem fricção */}
+                      <div className="pt-2">
+                        <div className="w-full py-3 rounded-xl bg-slate-900 text-white text-xs font-semibold text-center shadow-md">
+                          Confirmar em 1 toque
+                        </div>
+                        <span className="text-[10px] text-center text-slate-400 block mt-1.5">
+                          Sem cadastro prévio • Aviso enviado no WhatsApp
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </section>
 
-      {/* Simulador Interativo por Nicho */}
+      {/* 4. SIMULADOR POR NICHO (SEM BADGES ARTIFICIAIS) */}
       <section id="simulator" className="py-20 bg-white border-y border-slate-200/80">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-3xl mx-auto mb-12">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-brand-purple">
-              Terminologia & Atmosfera Sob Medida
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="text-center max-w-2xl mx-auto mb-10">
+            <h2 className="text-3xl sm:text-4xl font-display font-bold text-slate-900 tracking-tight">
+              Adaptado para a rotina de cada nicho
             </h2>
-            <p className="mt-2 text-3xl sm:text-4xl font-display font-bold text-slate-900">
-              Nada de sistema genérico. A plataforma fala a língua do seu negócio.
-            </p>
             <p className="mt-3 text-slate-600 text-sm">
-              Clique nos nichos abaixo e veja a vitrine e o painel mudarem instantaneamente.
+              Cada setor possui regras próprias de escala, tempo de atendimento e terminologia.
             </p>
           </div>
 
-          {/* Pill Selector */}
-          <div className="flex flex-wrap items-center justify-center gap-3 mb-10">
-            {niches.map((niche) => {
+          {/* Abas dos Nichos */}
+          <div className="flex flex-wrap items-center justify-center gap-2 mb-10">
+            {NICHES.map((niche) => {
               const isSelected = selectedNiche.id === niche.id;
               return (
                 <button
                   key={niche.id}
+                  type="button"
                   onClick={() => setSelectedNiche(niche)}
-                  className={`relative px-5 py-3 rounded-2xl text-sm font-semibold transition-all flex items-center gap-2.5 ${
+                  className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-all ${
                     isSelected
-                      ? 'bg-slate-900 text-white shadow-md'
+                      ? 'bg-slate-900 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200/70'
                   }`}
                 >
-                  <span>{niche.icon}</span>
-                  <span>{niche.label}</span>
+                  {niche.label}
                 </button>
               );
             })}
           </div>
 
-          {/* Dynamic Card Display */}
-          <div className="relative max-w-4xl mx-auto bg-[#FDFBF9] border border-slate-200 rounded-3xl p-6 sm:p-10 shadow-luxury overflow-hidden">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-6 border-b border-slate-200">
+          {/* Card Detalhado do Nicho */}
+          <div className="bg-[#FAF9F7] border border-slate-200/90 rounded-3xl p-6 sm:p-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-200">
               <div>
-                <span className="text-2xl mr-2">{selectedNiche.icon}</span>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  {selectedNiche.label}
-                </span>
-                <h3 className="text-2xl font-display font-bold text-slate-900 mt-1">
+                <h3 className="text-xl font-display font-bold text-slate-900">
                   {selectedNiche.headline}
                 </h3>
-                <p className="text-sm text-slate-600 mt-1">{selectedNiche.tagline}</p>
+                <p className="text-xs text-slate-600 mt-1 max-w-xl">{selectedNiche.tagline}</p>
               </div>
 
               <Link
                 href={`/onboarding?niche=${selectedNiche.id}`}
-                className="px-5 py-2.5 text-sm font-semibold text-slate-900 bg-white border border-slate-300 hover:border-slate-400 rounded-xl shadow-sm transition-all"
+                className="px-4 py-2 text-xs font-semibold text-slate-900 bg-white border border-slate-300 hover:border-slate-400 rounded-xl transition-colors self-start md:self-auto"
               >
-                Configurar para meu salão →
+                Ativar para meu negócio →
               </Link>
             </div>
 
-            <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <span className="text-xs uppercase font-semibold text-slate-400">Profissional</span>
-                <p className="text-lg font-bold text-slate-900 mt-1">
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/70">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Profissional
+                </span>
+                <p className="text-base font-bold text-slate-900 mt-1">
                   {selectedNiche.terminology.prof}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">Termo usado no catálogo e na escala</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Adaptado na vitrine e escala</p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <span className="text-xs uppercase font-semibold text-slate-400">Espaço Físico</span>
-                <p className="text-lg font-bold text-slate-900 mt-1">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/70">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Espaço ou Equipamento
+                </span>
+                <p className="text-base font-bold text-slate-900 mt-1">
                   {selectedNiche.terminology.space}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">Evita conflitos de sala ou bancada</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Evita conflito de máquina ou sala</p>
               </div>
 
-              <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
-                <span className="text-xs uppercase font-semibold text-slate-400">Serviço Sugerido</span>
-                <p className="text-lg font-bold text-slate-900 mt-1">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/70">
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Procedimento Típico
+                </span>
+                <p className="text-base font-bold text-slate-900 mt-1">
                   {selectedNiche.terminology.service}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">Com duração e intervalo contínuo</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">Com intervalo contínuo</p>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Calculadora de Perdas por No-Show */}
-      <section id="calculator" className="py-20 bg-[#FAF9F6]">
+      {/* 5. CALCULADORA DE NO-SHOW (SEM BADGES ARTIFICIAIS) */}
+      <section id="calculator" className="py-20 bg-[#FBFBFA]">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-3xl mx-auto mb-12">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-emerald-600">
-              Impacto Financeiro Real
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-display font-bold text-slate-900 tracking-tight">
+              Calcule quanto as faltas custam no mês
             </h2>
-            <p className="mt-2 text-3xl sm:text-4xl font-display font-bold text-slate-900">
-              Quanto dinheiro as faltas de clientes tiram do seu bolso todo mês?
-            </p>
             <p className="mt-3 text-slate-600 text-sm">
-              Ajuste os controles abaixo de acordo com a realidade do seu espaço.
+              Clientes que faltam sem desmarcar deixam a cadeira ociosa e geram prejuízo na escala.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center bg-white p-8 sm:p-10 rounded-3xl border border-slate-200/90 shadow-card">
-            {/* Sliders */}
-            <div className="lg:col-span-7 flex flex-col gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm">
+            {/* Controles de Sliders */}
+            <div className="lg:col-span-7 space-y-6">
               <div>
-                <div className="flex justify-between items-center text-sm font-semibold text-slate-700 mb-2">
-                  <span>Atendimentos por dia</span>
-                  <span className="font-mono text-brand-purple font-bold text-base">
+                <div className="flex justify-between items-center text-xs font-semibold text-slate-700 mb-2">
+                  <span>Atendimentos diários na equipe</span>
+                  <span className="font-mono text-slate-900 font-bold">
                     {dailyAppointments} clientes/dia
                   </span>
                 </div>
@@ -337,14 +544,14 @@ export default function LandingPage() {
                   max="40"
                   value={dailyAppointments}
                   onChange={(e) => setDailyAppointments(Number(e.target.value))}
-                  className="w-full accent-brand-purple cursor-pointer h-2 bg-slate-100 rounded-lg"
+                  className="w-full accent-slate-900 cursor-pointer h-2 bg-slate-100 rounded-lg"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between items-center text-sm font-semibold text-slate-700 mb-2">
-                  <span>Ticket médio do serviço</span>
-                  <span className="font-mono text-brand-purple font-bold text-base">
+                <div className="flex justify-between items-center text-xs font-semibold text-slate-700 mb-2">
+                  <span>Valor médio por atendimento</span>
+                  <span className="font-mono text-slate-900 font-bold">
                     R$ {averageTicket},00
                   </span>
                 </div>
@@ -355,15 +562,15 @@ export default function LandingPage() {
                   step="5"
                   value={averageTicket}
                   onChange={(e) => setAverageTicket(Number(e.target.value))}
-                  className="w-full accent-brand-purple cursor-pointer h-2 bg-slate-100 rounded-lg"
+                  className="w-full accent-slate-900 cursor-pointer h-2 bg-slate-100 rounded-lg"
                 />
               </div>
 
               <div>
-                <div className="flex justify-between items-center text-sm font-semibold text-slate-700 mb-2">
-                  <span>Taxa média de faltas (No-Show)</span>
-                  <span className="font-mono text-red-600 font-bold text-base">
-                    {noShowRate}% dos clientes
+                <div className="flex justify-between items-center text-xs font-semibold text-slate-700 mb-2">
+                  <span>Média de ausências sem aviso</span>
+                  <span className="font-mono text-rose-600 font-bold">
+                    {noShowRate}% dos agendamentos
                   </span>
                 </div>
                 <input
@@ -372,254 +579,232 @@ export default function LandingPage() {
                   max="35"
                   value={noShowRate}
                   onChange={(e) => setNoShowRate(Number(e.target.value))}
-                  className="w-full accent-red-600 cursor-pointer h-2 bg-slate-100 rounded-lg"
+                  className="w-full accent-rose-600 cursor-pointer h-2 bg-slate-100 rounded-lg"
                 />
-                <p className="text-xs text-slate-400 mt-1">
-                  Média brasileira em salões e clínicas varia entre 12% e 22%.
-                </p>
               </div>
             </div>
 
-            {/* Resultado em Destaque */}
-            <div className="lg:col-span-5 bg-gradient-to-br from-slate-900 to-slate-800 text-white p-7 rounded-2xl flex flex-col justify-between shadow-xl">
+            {/* Resultado Contábil */}
+            <div className="lg:col-span-5 bg-slate-900 text-white p-6 rounded-2xl flex flex-col justify-between">
               <div>
-                <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
-                  Prejuízo Mensal Atual
+                <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block">
+                  Perda estimada no mês
                 </span>
-                <p className="text-3xl font-mono font-extrabold text-red-400 mt-1">
+                <p className="text-2xl sm:text-3xl font-mono font-bold text-rose-400 mt-1">
                   - R$ {lostRevenue.toLocaleString('pt-BR')},00
                 </p>
                 <p className="text-xs text-slate-400 mt-1">
-                  Aproximadamente {lostAppointments} horários vagos sem faturamento.
+                  Cerca de {lostAppointments} horários perdidos na grade.
                 </p>
               </div>
 
-              <div className="my-6 border-t border-slate-700 pt-6">
-                <span className="text-xs uppercase tracking-wider text-emerald-400 font-semibold flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" /> Recuperável com Sinal PIX
+              <div className="my-6 border-t border-slate-800 pt-5">
+                <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wider block">
+                  Valor recuperável com Sinal PIX
                 </span>
-                <p className="text-3xl font-mono font-extrabold text-emerald-300 mt-1">
+                <p className="text-2xl sm:text-3xl font-mono font-bold text-emerald-300 mt-1">
                   + R$ {recoveredRevenue.toLocaleString('pt-BR')},00
                 </p>
                 <p className="text-xs text-slate-400 mt-1">
-                  O sinal PIX compromete o cliente e reduz a ausência em mais de 90%.
+                  O adiantamento via PIX reduz ausências em até 90% porque formaliza o compromisso do horário.
                 </p>
               </div>
 
               <Link
                 href="/onboarding"
-                className="w-full py-3 text-center text-sm font-semibold text-slate-900 bg-white hover:bg-slate-100 rounded-xl transition-all shadow-md active:scale-95"
+                className="w-full py-3 text-center text-xs font-semibold text-slate-900 bg-white hover:bg-slate-100 rounded-xl transition-all"
               >
-                Blindar Meus Agendamentos
+                Proteger minha agenda
               </Link>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 5 Pilares de Diferenciais */}
-      <section id="pillars" className="py-20 bg-white border-t border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-brand-purple">
-              Tecnologia que Gera Resultado
+      {/* 6. PILARES ESSENCIAIS (EDITORIAL LIMPO, SEM BADGES ARTIFICIAIS) */}
+      <section className="py-20 bg-white border-t border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="text-center max-w-2xl mx-auto mb-14">
+            <h2 className="text-3xl sm:text-4xl font-display font-bold text-slate-900 tracking-tight">
+              Recursos pensados para o dia a dia
             </h2>
-            <p className="mt-2 text-3xl sm:text-4xl font-display font-bold text-slate-900">
-              Tudo o que sua recepção e seus clientes precisam em um só lugar.
+            <p className="mt-3 text-slate-600 text-sm">
+              Ferramentas diretas para a recepção e a equipe de atendimento.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="bg-[#FAF9F6] p-8 rounded-3xl border border-slate-200/80 hover:shadow-card transition-shadow">
-              <div className="w-12 h-12 rounded-2xl bg-brand-purple/10 text-brand-purple flex items-center justify-center mb-6">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-display font-bold text-slate-900">
-                No-Show Shield via PIX
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="p-6 rounded-2xl bg-[#FAF9F7] border border-slate-200/80">
+              <h3 className="text-base font-display font-bold text-slate-900">
+                Sinal de reserva no PIX
               </h3>
-              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-                Exija uma taxa de reserva simbólica (fixa ou percentual) para novos clientes. O código
-                PIX com expiração de 15 minutos garante o comparecimento real.
+              <p className="mt-2 text-xs text-slate-600 leading-relaxed">
+                Cobre uma taxa de reserva nos horários mais concorridos. O valor entra como sinal e é
+                abatido no pagamento final no balcão.
               </p>
             </div>
 
-            <div className="bg-[#FAF9F6] p-8 rounded-3xl border border-slate-200/80 hover:shadow-card transition-shadow">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center mb-6">
-                <Smartphone className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-display font-bold text-slate-900">
-                Vitrine Editorial Fluida
+            <div className="p-6 rounded-2xl bg-[#FAF9F7] border border-slate-200/80">
+              <h3 className="text-base font-display font-bold text-slate-900">
+                Agendamento em 30 segundos
               </h3>
-              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-                Seu cliente agenda em menos de 45 segundos direto do smartphone. Sem login obrigatório,
-                com seleção de múltiplos serviços e gaveta contínua de horário.
+              <p className="mt-2 text-xs text-slate-600 leading-relaxed">
+                O cliente escolhe o serviço, o profissional e o horário direto pelo navegador, sem
+                precisar instalar aplicativo ou cadastrar senha.
               </p>
             </div>
 
-            <div className="bg-[#FAF9F6] p-8 rounded-3xl border border-slate-200/80 hover:shadow-card transition-shadow">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center mb-6">
-                <Users className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-display font-bold text-slate-900">
-                Lista de Espera Inteligente
+            <div className="p-6 rounded-2xl bg-[#FAF9F7] border border-slate-200/80">
+              <h3 className="text-base font-display font-bold text-slate-900">
+                Fila de espera automática
               </h3>
-              <p className="mt-3 text-sm text-slate-600 leading-relaxed">
-                Teve um cancelamento de última hora? A plataforma avisa automaticamente os clientes na
-                fila de espera pelo WhatsApp, preenchendo a vaga sem perda.
+              <p className="mt-2 text-xs text-slate-600 leading-relaxed">
+                Se houver uma desistência, os clientes da lista de espera recebem um aviso automático
+                pelo WhatsApp para ocupar o horário vago.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Tabela de Planos Customizados */}
-      <section id="pricing" className="py-20 bg-[#FAF9F6] border-t border-slate-200">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
-          <h2 className="text-xs font-bold uppercase tracking-widest text-brand-purple">
-            Planos Transparentes
-          </h2>
-          <p className="mt-2 text-3xl sm:text-4xl font-display font-bold text-slate-900">
-            Escolha o plano ideal para a escala do seu negócio
-          </p>
-          <p className="mt-3 text-slate-600 text-sm max-w-xl mx-auto">
-            Todos os planos incluem 7 dias de teste grátis com suporte dedicado e vitrine personalizada.
-          </p>
+      {/* 7. PLANOS SIMPLES (SEM BADGES POLUÍDOS) */}
+      <section id="pricing" className="py-20 bg-[#FBFBFA] border-t border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="text-center max-w-2xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-display font-bold text-slate-900 tracking-tight">
+              Planos claros para cada fase
+            </h2>
+            <p className="mt-3 text-slate-600 text-sm">
+              Todos os planos contam com 7 dias de teste completo e suporte humano.
+            </p>
+          </div>
 
-          <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
-            {/* Plano Solo */}
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-left">
+            {/* Solo */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Profissional Solo
-                </span>
-                <h3 className="text-2xl font-display font-bold text-slate-900 mt-1">Solo VIP</h3>
-                <p className="text-xs text-slate-500 mt-1">Para quem trabalha sozinho e quer agilidade</p>
-                <div className="mt-6 font-mono font-extrabold text-3xl text-slate-900">
-                  R$ 49,90<span className="text-xs font-sans text-slate-400 font-normal">/mês</span>
+                <span className="text-xs font-semibold text-slate-500">Individual</span>
+                <h3 className="text-xl font-display font-bold text-slate-900 mt-1">Solo</h3>
+                <p className="text-xs text-slate-500 mt-1">Para quem atende sozinho</p>
+                <div className="mt-4 font-mono font-bold text-3xl text-slate-900">
+                  R$ 49,90<span className="text-xs font-normal text-slate-400">/mês</span>
                 </div>
-                <ul className="mt-6 flex flex-col gap-3 text-sm text-slate-600">
+                <ul className="mt-6 space-y-2.5 text-xs text-slate-600">
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> 1 Profissional Ativo
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> 1 profissional ativo
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Agendamentos Ilimitados
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Agendamentos ilimitados
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Vitrine Personalizada
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Vitrine no celular
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Sinal PIX Anti-Faltas
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Sinal de reserva PIX
                   </li>
                 </ul>
               </div>
               <Link
                 href="/onboarding"
-                className="mt-8 w-full py-3 text-center text-sm font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+                className="mt-8 w-full py-2.5 text-center text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
               >
-                Começar Teste Grátis
+                Testar por 7 dias
               </Link>
             </div>
 
-            {/* Plano Equipe Pro */}
-            <div className="relative bg-white p-8 rounded-3xl border-2 border-brand-purple shadow-luxury flex flex-col justify-between">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-brand-purple text-white text-[10px] font-bold uppercase tracking-widest rounded-full">
-                Mais Escolhido
-              </div>
+            {/* Equipe Pro */}
+            <div className="bg-white p-6 rounded-3xl border-2 border-slate-900 shadow-md flex flex-col justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-brand-purple">
-                  Salões & Clínicas
-                </span>
-                <h3 className="text-2xl font-display font-bold text-slate-900 mt-1">Equipe Pro</h3>
-                <p className="text-xs text-slate-500 mt-1">Gestão completa para equipes em crescimento</p>
-                <div className="mt-6 font-mono font-extrabold text-3xl text-slate-900">
-                  R$ 99,90<span className="text-xs font-sans text-slate-400 font-normal">/mês</span>
+                <span className="text-xs font-semibold text-purple-700">Espaços e Salões</span>
+                <h3 className="text-xl font-display font-bold text-slate-900 mt-1">Equipe Pro</h3>
+                <p className="text-xs text-slate-500 mt-1">Para equipes em crescimento</p>
+                <div className="mt-4 font-mono font-bold text-3xl text-slate-900">
+                  R$ 99,90<span className="text-xs font-normal text-slate-400">/mês</span>
                 </div>
-                <ul className="mt-6 flex flex-col gap-3 text-sm text-slate-600">
+                <ul className="mt-6 space-y-2.5 text-xs text-slate-600">
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Até 5 Profissionais
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Até 5 profissionais
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Agendamentos Ilimitados
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Fila de espera automática
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Lista de Espera Inteligente
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Cálculo de comissões
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Gestão de Comissões
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Gestão de Salas & Cabines
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Controle de salas e cabines
                   </li>
                 </ul>
               </div>
               <Link
                 href="/onboarding"
-                className="mt-8 w-full py-3 text-center text-sm font-semibold text-white bg-brand-purple hover:bg-purple-700 rounded-xl shadow-md shadow-brand-purple/20 transition-all"
+                className="mt-8 w-full py-2.5 text-center text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-xl transition-colors"
               >
-                Começar Teste Grátis
+                Testar por 7 dias
               </Link>
             </div>
 
-            {/* Plano VIP + IA */}
-            <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+            {/* VIP + IA */}
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                  Alta Escala
-                </span>
-                <h3 className="text-2xl font-display font-bold text-slate-900 mt-1">VIP + Atendente IA</h3>
-                <p className="text-xs text-slate-500 mt-1">Automação total via WhatsApp e equipes grandes</p>
-                <div className="mt-6 font-mono font-extrabold text-3xl text-slate-900">
-                  R$ 199,90<span className="text-xs font-sans text-slate-400 font-normal">/mês</span>
+                <span className="text-xs font-semibold text-slate-500">Automação total</span>
+                <h3 className="text-xl font-display font-bold text-slate-900 mt-1">VIP + IA</h3>
+                <p className="text-xs text-slate-500 mt-1">Para operações com alto fluxo</p>
+                <div className="mt-4 font-mono font-bold text-3xl text-slate-900">
+                  R$ 199,90<span className="text-xs font-normal text-slate-400">/mês</span>
                 </div>
-                <ul className="mt-6 flex flex-col gap-3 text-sm text-slate-600">
+                <ul className="mt-6 space-y-2.5 text-xs text-slate-600">
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Profissionais Ilimitados
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Profissionais ilimitados
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Atendente Virtual WhatsApp
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Atendente Virtual WhatsApp
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Ficha de Anamnese com Fotos
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Ficha de anamnese com fotos
                   </li>
                   <li className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Suporte Prioritário por Ticket
+                    <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0" /> Suporte prioritário
                   </li>
                 </ul>
               </div>
               <Link
                 href="/onboarding"
-                className="mt-8 w-full py-3 text-center text-sm font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"
+                className="mt-8 w-full py-2.5 text-center text-xs font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
               >
-                Começar Teste Grátis
+                Testar por 7 dias
               </Link>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-slate-900 text-white py-16 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div className="flex items-center gap-4">
-            <div className="relative w-44 h-12">
+      {/* 8. RODAPÉ SÓBRIO E ELEGANTE */}
+      <footer className="bg-slate-900 text-white py-12 border-t border-slate-800">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-3">
+            <div className="relative w-36 h-10">
               <Image
                 src="/brand/logooficial-semfundo.png"
-                alt="Marque Sua Hora Logo"
+                alt="Marque Sua Hora"
                 fill
                 className="object-contain brightness-0 invert"
               />
             </div>
-            <p className="text-xs text-slate-400">
-              © {new Date().getFullYear()} Marque Sua Hora. Todos os direitos reservados.
-            </p>
+            <span className="text-xs text-slate-400">
+              © {new Date().getFullYear()} Marque Sua Hora.
+            </span>
           </div>
 
-          <div className="flex items-center gap-6 text-sm text-slate-400">
+          <div className="flex items-center gap-6 text-xs text-slate-400">
             <Link href="/onboarding" className="hover:text-white transition-colors">
-              Cadastrar Salão
+              Cadastrar negócio
             </Link>
-            <a href="#simulator" className="hover:text-white transition-colors">
-              Nossos Nichos
+            <Link href="/login" className="hover:text-white transition-colors">
+              Acesso assinante
+            </Link>
+            <a href="#calculator" className="hover:text-white transition-colors">
+              Calculadora
             </a>
             <a href="#pricing" className="hover:text-white transition-colors">
               Planos

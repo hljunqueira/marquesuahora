@@ -53,12 +53,7 @@ export const BarberExpressUpsellModal: React.FC<BarberExpressUpsellModalProps> =
             <Scissors className="w-8 h-8" />
           </div>
 
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-900 mb-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Sugestão de Combo Express</span>
-          </span>
-
-          <h3 className="text-2xl font-display font-bold text-slate-900">
+          <h3 className="text-xl font-display font-semibold text-slate-800">
             Completar com a Barba?
           </h3>
 

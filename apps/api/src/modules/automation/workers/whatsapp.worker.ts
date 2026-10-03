@@ -39,7 +39,7 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
         ? `${tenant.addressStreet}, ${tenant.addressNumber} - ${tenant.addressNeighborhood}, ${tenant.addressCity}`
         : 'Consulte nossa recepção';
 
-      const message = `Olá, ${client.name}! ✨\n\nSeu horário no *${tenant.name}* está confirmado com sucesso!\n\n📅 *Data:* ${formattedDate}\n⏰ *Horário:* ${schedule.startTime}\n✂️ *Procedimento:* ${service.name}\n👤 *Profissional:* ${professional.name}\n📍 *Endereço:* ${addressDisplay}\n\nCaso precise remarcar com antecedência, basta nos responder por aqui. Estamos preparando tudo para receber você com muito carinho!`;
+      const message = `Olá, ${client.name}. Seu horário no ${tenant.name} está confirmado.\n\nData: ${formattedDate}\nHorário: ${schedule.startTime}\nServiço: ${service.name}\nProfissional: ${professional.name}\nEndereço: ${addressDisplay}\n\nSe precisar remarcar, basta responder por aqui. Até logo!`;
 
       await EvolutionService.sendTextMessage(tenant.id, client.phone, message);
 
@@ -52,7 +52,7 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
     }
 
     if (type === 'REMINDER_24H') {
-      const message = `Olá, ${client.name}! ☀️\n\nPassando para lembrar do seu compromisso amanhã no *${tenant.name}*:\n\n⏰ *Horário:* ${schedule.startTime}\n✂️ *Procedimento:* ${service.name}\n👤 *Com:* ${professional.name}\n\nPodemos confirmar sua presença?\n\nResponda *1* para Confirmar ou *2* se precisar remarcar.`;
+      const message = `Olá, ${client.name}. Lembramos do seu horário amanhã no ${tenant.name}:\n\nHorário: ${schedule.startTime}\nServiço: ${service.name}\nProfissional: ${professional.name}\n\nPodemos confirmar sua presença?\nResponda 1 para confirmar ou 2 se precisar remarcar.`;
 
       await EvolutionService.sendTextMessage(tenant.id, client.phone, message);
 
@@ -65,7 +65,7 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
     }
 
     if (type === 'REMINDER_12H') {
-      const message = `Olá, ${client.name}! ✨\n\nSeu atendimento no *${tenant.name}* é hoje às *${schedule.startTime}* com *${professional.name}*.\n\nEstamos esperando por você! Qualquer imprevisto, nos avise o quanto antes.`;
+      const message = `Olá, ${client.name}. Seu atendimento no ${tenant.name} é hoje às ${schedule.startTime} com ${professional.name}. Se tiver qualquer imprevisto, avise por aqui.`;
 
       await EvolutionService.sendTextMessage(tenant.id, client.phone, message);
 

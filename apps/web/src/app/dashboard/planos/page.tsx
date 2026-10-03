@@ -56,18 +56,8 @@ export default function DashboardPlanosPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
-          Planos & Assinatura
-        </h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Consulte os detalhes da sua assinatura e recursos disponíveis no seu espaço.
-        </p>
-      </div>
-
       {/* Card do Plano Atual */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-slate-900 text-white shadow-xl relative overflow-hidden">
+      <div className="p-6 sm:p-8 rounded-3xl bg-slate-900 text-white shadow-xl relative overflow-hidden border border-slate-800">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
           <div>
             <span className="text-[11px] font-bold uppercase tracking-wider text-brand-gold bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
@@ -108,7 +98,7 @@ export default function DashboardPlanosPage() {
 
       {/* Comparativo de Planos */}
       <div className="space-y-4">
-        <h3 className="text-base font-display font-bold text-slate-900">
+        <h3 className="text-base font-display font-bold text-slate-800">
           Planos Disponíveis para Mudança
         </h3>
 
@@ -119,7 +109,7 @@ export default function DashboardPlanosPage() {
               className={`p-6 rounded-3xl border transition-all flex flex-col justify-between ${
                 plan.current
                   ? 'bg-purple-50/50 border-purple-300 ring-2 ring-purple-600/10'
-                  : 'bg-white border-slate-200/80 shadow-sm'
+                  : 'bg-white border-slate-200/80 shadow-xs'
               }`}
             >
               <div>
@@ -128,9 +118,9 @@ export default function DashboardPlanosPage() {
                     Seu Plano Atual
                   </span>
                 )}
-                <h4 className="text-base font-bold text-slate-900">{plan.name}</h4>
+                <h4 className="text-base font-bold text-slate-800">{plan.name}</h4>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-2xl font-mono font-bold text-slate-900">
+                  <span className="text-2xl font-mono font-bold text-slate-800">
                     R$ {plan.price.toFixed(2).replace('.', ',')}
                   </span>
                   <span className="text-xs text-slate-500">/mês</span>
@@ -162,7 +152,7 @@ export default function DashboardPlanosPage() {
                 ) : (
                   <button
                     type="button"
-                    className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+                    className="w-full py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 transition-all cursor-pointer"
                   >
                     Mudar para este Plano
                   </button>

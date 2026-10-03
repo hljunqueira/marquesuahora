@@ -135,21 +135,12 @@ export default function DashboardServicosPage() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
-            Serviços & Catálogo
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Cadastre seus serviços, combos e tempos de pausa química para o agendamento contínuo.
-          </p>
-        </div>
-
+      {/* Top Action Bar */}
+      <div className="flex items-center justify-end">
         <button
           type="button"
           onClick={handleOpenCreate}
-          className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all active:scale-95"
+          className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>Cadastrar Novo Serviço</span>

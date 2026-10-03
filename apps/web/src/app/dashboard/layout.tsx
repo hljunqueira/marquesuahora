@@ -37,11 +37,31 @@ const NAV_ITEMS = [
   { href: '/dashboard/suporte', label: 'Suporte & Ajuda', icon: HelpCircle }
 ];
 
+const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
+  '/dashboard': { title: 'Visão Geral', subtitle: 'Acompanhe o desempenho do seu negócio em tempo real' },
+  '/dashboard/agenda': { title: 'Agenda do Espaço', subtitle: 'Grade de horários da equipe e agendamentos' },
+  '/dashboard/clientes': { title: 'Clientes & CRM', subtitle: 'Histórico completo, aniversariantes e retenção' },
+  '/dashboard/reputacao': { title: 'Reputação & Google', subtitle: 'Pesquisa NPS automática e avaliações no Google Maps' },
+  '/dashboard/servicos': { title: 'Serviços & Catálogo', subtitle: 'Procedimentos, valores e pausas químicas' },
+  '/dashboard/equipe': { title: 'Equipe & Profissionais', subtitle: 'Colaboradores, comissões e cores da agenda' },
+  '/dashboard/financeiro': { title: 'Financeiro & Caixa', subtitle: 'Faturamento bruto, repasse de comissões e sinais PIX' },
+  '/dashboard/planos': { title: 'Planos & Assinatura', subtitle: 'Consulte os recursos contratados e detalhes da assinatura' },
+  '/dashboard/configuracoes': { title: 'Configurações do Espaço', subtitle: 'Ajuste os dados da sua empresa, vitrine e regras da agenda' },
+  '/dashboard/suporte': { title: 'Suporte & Ajuda', subtitle: 'Atendimento técnico ao proprietário via chat e áudio' }
+};
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [user, setUser] = useState<any>(null);
+
+  // Determina título e subtítulo dinâmicos da rota atual para exibir no nav
+  const pageInfo =
+    PAGE_TITLES[pathname] ||
+    Object.entries(PAGE_TITLES).find(
+      ([key]) => key !== '/dashboard' && pathname?.startsWith(key)
+    )?.[1] || { title: 'Painel', subtitle: '' };
 
   useEffect(() => {
     const savedUser = localStorage.getItem('user_data');
@@ -63,26 +83,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="w-full min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col md:flex-row">
       {/* SIDEBAR DESKTOP */}
-      <aside className="hidden md:flex flex-col w-64 bg-slate-900 text-slate-300 border-r border-slate-800 p-4 shrink-0 justify-between select-none">
+      <aside className="hidden md:flex flex-col w-64 bg-white text-slate-600 border-r border-slate-200/80 p-4 shrink-0 justify-between select-none shadow-[1px_0_10px_rgba(0,0,0,0.02)] min-h-screen sticky top-0 h-screen overflow-y-auto">
         <div>
           {/* Logo & Nome do Salão */}
-          <div className="px-2 py-3 mb-6 border-b border-slate-800/80">
-            <div className="relative w-44 h-12 mb-1">
+          <div className="px-2 pt-2 pb-5 mb-5 border-b border-slate-100 flex flex-col items-center text-center">
+            <Link href="/dashboard" className="block relative w-48 h-16">
               <Image
                 src="/brand/logooficial-semfundo.png"
                 alt="Marque Sua Hora"
                 fill
-                className="object-contain object-left brightness-0 invert"
+                className="object-contain object-center"
                 priority
               />
-            </div>
-            <span className="text-[10px] text-purple-400 font-semibold uppercase tracking-wider block">
+            </Link>
+            <span className="text-[10px] text-purple-700 font-bold uppercase tracking-widest block mt-2">
               Painel do Assinante
             </span>
           </div>
 
-          {/* Links de Navegação */}
-          <nav className="space-y-1">
+          {/* Links de Navegação com espaçamento harmonioso */}
+          <nav className="space-y-1.5">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -94,18 +114,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all relative ${
+                  className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all relative ${
                     isActive
-                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/25'
+                      : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50/70'
                   }`}
                 >
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-purple-600'}`} />
                   <span>{item.label}</span>
                   {isActive && (
                     <motion.div
                       layoutId="activeSidebarIndicator"
-                      className="absolute right-2 w-1.5 h-1.5 rounded-full bg-white"
+                      className="absolute right-2.5 w-1.5 h-1.5 rounded-full bg-white"
                       transition={{ type: 'spring', stiffness: 350, damping: 30 }}
                     />
                   )}
@@ -116,13 +136,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* Rodapé da Sidebar */}
-        <div className="pt-4 border-t border-slate-800/80 space-y-2">
-          {/* Link para vitrine pública */}
+        <div className="pt-4 border-t border-slate-100 space-y-1.5 mt-6">
           <a
             href="/"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-brand-gold hover:bg-slate-800/60 transition-colors"
+            className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-500 hover:text-purple-700 hover:bg-purple-50/60 transition-colors"
           >
             <div className="flex items-center gap-2">
               <ExternalLink className="w-3.5 h-3.5" />
@@ -131,11 +150,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <ChevronRight className="w-3.5 h-3.5 opacity-60" />
           </a>
 
-          {/* Botão de Logout */}
           <button
             type="button"
             onClick={handleLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors text-left"
+            className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-medium text-rose-600 hover:text-rose-700 hover:bg-rose-50 transition-colors text-left"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Encerrar Sessão</span>
@@ -144,19 +162,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* CABEÇALHO MOBILE */}
-      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-40">
-        <div className="relative w-36 h-9">
+      <header className="md:hidden flex items-center justify-between px-4 py-3 bg-white text-slate-800 border-b border-slate-200/80 sticky top-0 z-40">
+        <div className="relative w-36 h-10">
           <Image
             src="/brand/logooficial-semfundo.png"
             alt="Marque Sua Hora"
             fill
-            className="object-contain object-left brightness-0 invert"
+            className="object-contain object-left"
           />
         </div>
         <button
           type="button"
           onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 text-slate-400 hover:text-white"
+          className="p-2 text-slate-600 hover:text-purple-600"
         >
           {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
@@ -169,7 +187,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="md:hidden fixed inset-x-0 top-14 bg-slate-900 text-slate-300 border-b border-slate-800 z-30 p-4 shadow-2xl"
+            className="md:hidden fixed inset-x-0 top-14 bg-white text-slate-700 border-b border-slate-200 z-30 p-4 shadow-2xl"
           >
             <nav className="space-y-1">
               {NAV_ITEMS.map((item) => {
@@ -187,7 +205,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold ${
                       isActive
                         ? 'bg-purple-600 text-white'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                        : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50'
                     }`}
                   >
                     <Icon className="w-4 h-4 shrink-0" />
@@ -198,7 +216,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <button
                 type="button"
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold text-rose-400"
+                className="w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-xl"
               >
                 <LogOut className="w-4 h-4 shrink-0" />
                 <span>Encerrar Sessão</span>
@@ -210,34 +228,52 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* ÁREA DE CONTEÚDO PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Barra Superior Interna com Boas-vindas */}
-        <div className="h-16 px-6 bg-white border-b border-slate-200/80 flex items-center justify-between shrink-0 shadow-sm">
-          <div>
-            <span className="text-xs font-medium text-slate-500">
-              {new Date().toLocaleDateString('pt-BR', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long'
-              })}
-            </span>
-            <h2 className="text-sm font-bold text-slate-900 leading-none mt-0.5">
-              {user?.name ? `Olá, ${user.name}` : 'Bem-vindo de volta'}
-            </h2>
+        {/* Barra Superior Interna com Título Dinâmico no Nav */}
+        <header className="min-h-[72px] px-6 sm:px-8 bg-white border-b border-slate-200/80 flex items-center justify-between shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)] sticky top-0 z-20">
+          <div className="flex items-center gap-5 sm:gap-6 min-w-0">
+            {/* Boas-vindas / Data */}
+            <div className="hidden sm:block shrink-0">
+              <span className="text-[11px] font-medium text-slate-400 block capitalize">
+                {new Date().toLocaleDateString('pt-BR', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short'
+                })}
+              </span>
+              <h2 className="text-xs font-semibold text-slate-700 leading-none mt-0.5">
+                {user?.name ? user.name : 'Bem-vindo de volta'}
+              </h2>
+            </div>
+
+            {/* Separador vertical elegante */}
+            <div className="hidden sm:block h-8 w-[1px] bg-slate-200 shrink-0" />
+
+            {/* Título da Página no Nav (onde o usuário apontou na marcação vermelha!) */}
+            <div className="min-w-0 flex flex-col md:flex-row md:items-center md:gap-3">
+              <h1 className="text-sm sm:text-base font-display font-bold text-slate-800 tracking-tight shrink-0">
+                {pageInfo.title}
+              </h1>
+              {pageInfo.subtitle && (
+                <span className="text-xs text-slate-500 hidden md:inline-block truncate md:border-l md:border-slate-200 md:pl-3">
+                  {pageInfo.subtitle}
+                </span>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <Link
               href="/dashboard/suporte"
-              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors text-xs flex items-center gap-1.5 font-medium"
+              className="px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200/70 transition-colors text-xs flex items-center gap-2 font-semibold shadow-2xs"
             >
               <HelpCircle className="w-4 h-4 text-purple-600" />
-              <span className="hidden sm:inline">Ajuda</span>
+              <span>Ajuda</span>
             </Link>
           </div>
-        </div>
+        </header>
 
-        {/* View renderizada */}
-        <div className="p-4 sm:p-6 lg:p-8 flex-1">{children}</div>
+        {/* View renderizada dentro do container com espaçamento aprimorado */}
+        <div className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto">{children}</div>
       </main>
     </div>
   );

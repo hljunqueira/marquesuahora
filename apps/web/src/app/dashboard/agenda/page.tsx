@@ -157,7 +157,7 @@ export default function DashboardAgendaPage() {
   return (
     <div className="space-y-6 max-w-full">
       {/* 1. Barra de Ações da Agenda */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs">
         {/* Navegador de Data */}
         <div className="flex items-center gap-2">
           <button
@@ -167,18 +167,18 @@ export default function DashboardAgendaPage() {
               d.setDate(d.getDate() - 1);
               setSelectedDate(d.toISOString().slice(0, 10));
             }}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+            className="p-2 rounded-xl bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white border border-purple-200/80 rounded-xl shadow-2xs">
             <CalendarIcon className="w-4 h-4 text-purple-600" />
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-transparent text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+              className="bg-transparent text-xs font-semibold text-slate-700 outline-none cursor-pointer"
             />
           </div>
 
@@ -189,7 +189,7 @@ export default function DashboardAgendaPage() {
               d.setDate(d.getDate() + 1);
               setSelectedDate(d.toISOString().slice(0, 10));
             }}
-            className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+            className="p-2 rounded-xl bg-white hover:bg-purple-50 text-slate-600 hover:text-purple-700 border border-slate-200 transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -197,7 +197,7 @@ export default function DashboardAgendaPage() {
           <button
             type="button"
             onClick={() => setSelectedDate(new Date().toISOString().slice(0, 10))}
-            className="px-3 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+            className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200/80 transition-all shadow-2xs"
           >
             Hoje
           </button>
@@ -208,9 +208,9 @@ export default function DashboardAgendaPage() {
           <button
             type="button"
             onClick={() => setIsBlockModalOpen(true)}
-            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all active:scale-95"
+            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-all active:scale-95 shadow-md shadow-purple-600/20"
           >
-            <Ban className="w-4 h-4 text-amber-600" />
+            <Ban className="w-4 h-4 text-purple-200" />
             <span>Bloquear Horário / Pausa</span>
           </button>
         </div>
@@ -221,20 +221,20 @@ export default function DashboardAgendaPage() {
         {professionals.map((prof) => (
           <div
             key={prof.id}
-            className="bg-slate-50/60 rounded-3xl border border-slate-200/80 p-4 flex flex-col min-w-[280px]"
+            className="bg-slate-50/70 rounded-3xl border border-slate-200/80 p-4 flex flex-col min-w-[280px]"
           >
             {/* Header da Coluna do Profissional */}
-            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/80">
+            <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-200/70">
               <div className="flex items-center gap-2.5">
                 <span
-                  className="w-3 h-3 rounded-full"
+                  className="w-3 h-3 rounded-full shrink-0"
                   style={{ backgroundColor: prof.color }}
                 />
-                <h3 className="text-sm font-display font-bold text-slate-900">
+                <h3 className="text-sm font-semibold text-slate-800">
                   {prof.name}
                 </h3>
               </div>
-              <span className="text-xs font-mono font-bold text-slate-500 bg-white px-2 py-0.5 rounded-lg border border-slate-200">
+              <span className="text-xs font-mono font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-200/70">
                 {prof.appointments.length}
               </span>
             </div>
@@ -254,7 +254,7 @@ export default function DashboardAgendaPage() {
                     <motion.div
                       key={app.id}
                       layout
-                      className={`p-4 rounded-2xl bg-white border transition-all shadow-sm ${
+                      className={`p-4 rounded-2xl bg-white border transition-all shadow-xs ${
                         app.status === 'IN_SERVICE'
                           ? 'border-emerald-400 ring-2 ring-emerald-400/20'
                           : app.status === 'COMPLETED'
@@ -264,7 +264,7 @@ export default function DashboardAgendaPage() {
                     >
                       {/* Horário & Status */}
                       <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-800">
+                        <div className="flex items-center gap-1.5 text-xs font-mono font-medium text-slate-700">
                           <Clock className="w-3.5 h-3.5 text-slate-400" />
                           <span>
                             {app.startTime} - {app.endTime}
@@ -272,59 +272,59 @@ export default function DashboardAgendaPage() {
                         </div>
 
                         <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
                             app.status === 'IN_SERVICE'
-                              ? 'bg-emerald-100 text-emerald-800 font-bold'
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                               : app.status === 'CONFIRMED'
-                              ? 'bg-purple-50 text-purple-700'
+                              ? 'bg-purple-50 text-purple-700 border-purple-200'
                               : app.status === 'COMPLETED'
-                              ? 'bg-slate-100 text-slate-700'
-                              : 'bg-amber-50 text-amber-700'
+                              ? 'bg-slate-100 text-slate-700 border-slate-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
                           }`}
                         >
                           {app.status === 'IN_SERVICE'
-                            ? '🟢 Em Atendimento'
+                            ? 'Em Atendimento'
                             : app.status === 'CONFIRMED'
                             ? 'Confirmado'
                             : app.status === 'COMPLETED'
-                            ? 'Atendido ✅'
+                            ? 'Atendido'
                             : 'Pendente'}
                         </span>
                       </div>
 
                       {/* Nome do Cliente & Aniversário */}
                       <div className="flex items-center gap-2 mb-1">
-                        <strong className="text-sm font-bold text-slate-900 truncate">
+                        <strong className="text-sm font-semibold text-slate-800 truncate">
                           {app.clientName}
                         </strong>
                         {app.isBirthday && (
                           <span
                             title="Aniversariante do dia!"
-                            className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 font-semibold"
+                            className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-800 font-semibold border border-amber-200/80"
                           >
                             🎂
                           </span>
                         )}
                       </div>
 
-                      <p className="text-xs text-slate-600 mb-3">{app.serviceName}</p>
+                      <p className="text-xs text-slate-500 mb-3">{app.serviceName}</p>
 
                       {/* Badges de Sinal PIX */}
                       <div className="flex flex-wrap gap-1.5 mb-3 text-[10px] font-mono">
                         {app.depositPaid ? (
                           <>
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
-                              🟢 Sinal: R$ {app.depositAmount.toFixed(2)}
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-medium border border-emerald-200/80">
+                              Sinal: R$ {app.depositAmount.toFixed(2)}
                             </span>
                             {isDepositRemaining && (
-                              <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 font-semibold border border-amber-200">
-                                🟡 Restante: R${' '}
+                              <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 font-medium border border-amber-200/80">
+                                Restante: R${' '}
                                 {(app.totalPrice - app.depositAmount).toFixed(2)}
                               </span>
                             )}
                           </>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold">
+                          <span className="px-2 py-0.5 rounded-md bg-purple-50/60 text-purple-800 font-medium border border-purple-200/60">
                             Total: R$ {app.totalPrice.toFixed(2)}
                           </span>
                         )}
@@ -332,7 +332,7 @@ export default function DashboardAgendaPage() {
 
                       {/* Ações da Bancada (1 toque) */}
                       <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-1">
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           {app.status !== 'IN_SERVICE' && app.status !== 'COMPLETED' && (
                             <button
                               type="button"
@@ -340,9 +340,9 @@ export default function DashboardAgendaPage() {
                                 handleUpdateStatus(prof.id, app.id, 'IN_SERVICE')
                               }
                               title="Sentou na Cadeira"
-                              className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                              className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
                             >
-                              <Play className="w-3.5 h-3.5" />
+                              <Play className="w-3.5 h-3.5 fill-current" />
                               <span className="text-[11px]">Iniciar</span>
                             </button>
                           )}
@@ -354,7 +354,7 @@ export default function DashboardAgendaPage() {
                                 handleUpdateStatus(prof.id, app.id, 'COMPLETED')
                               }
                               title="Concluir Atendimento"
-                              className="p-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                              className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm shadow-purple-600/20"
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
                               <span className="text-[11px]">Concluir</span>
@@ -367,7 +367,7 @@ export default function DashboardAgendaPage() {
                               handleUpdateStatus(prof.id, app.id, 'NO_SHOW')
                             }
                             title="Registrar Falta (No-show)"
-                            className="p-1.5 bg-slate-100 hover:bg-rose-50 text-slate-500 hover:text-rose-600 rounded-lg text-xs transition-colors"
+                            className="p-1.5 bg-slate-50 hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-slate-200 hover:border-rose-200 rounded-lg text-xs transition-colors"
                           >
                             <XCircle className="w-3.5 h-3.5" />
                           </button>
@@ -378,7 +378,7 @@ export default function DashboardAgendaPage() {
                           href={`https://wa.me/55${app.clientPhone.replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 transition-colors"
+                          className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 transition-colors"
                           title="Chamar no WhatsApp"
                         >
                           <Phone className="w-3.5 h-3.5" />
@@ -419,7 +419,7 @@ export default function DashboardAgendaPage() {
                 <X className="w-4 h-4" />
               </button>
 
-              <h3 className="text-xl font-display font-bold text-slate-900">
+              <h3 className="text-xl font-display font-semibold text-slate-800">
                 Bloquear Horário na Agenda
               </h3>
               <p className="text-xs text-slate-500 mt-1">

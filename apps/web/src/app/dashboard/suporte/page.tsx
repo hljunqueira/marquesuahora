@@ -124,9 +124,9 @@ export default function DashboardSuportePage() {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold text-slate-900">
+              <h2 className="text-sm font-bold text-slate-800">
                 Atendimento Técnico ao Dono
-              </h1>
+              </h2>
               <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-md bg-purple-100 text-purple-800">
                 #TK-2026-0842
               </span>

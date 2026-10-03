@@ -49,24 +49,17 @@ export default function DashboardFinanceiroPage() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
-            Financeiro & Fechamento de Caixa
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Entradas separadas por método de pagamento, abatimento de sinal PIX e cálculo de comissões.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-1.5 bg-white p-1 rounded-2xl border border-slate-200 shadow-sm text-xs font-semibold">
+      {/* Top Period Selector */}
+      <div className="flex items-center justify-end">
+        <div className="flex items-center gap-1.5 bg-white p-1 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-semibold">
           {['HOJE', 'ESTA SEMANA', 'ESTE MÊS'].map((p) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
-              className={`px-3 py-1.5 rounded-xl transition-all ${
-                period === p ? 'bg-slate-900 text-white' : 'text-slate-600 hover:text-slate-900'
+              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                period === p
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50/60'
               }`}
             >
               {p}
@@ -77,11 +70,11 @@ export default function DashboardFinanceiroPage() {
 
       {/* Grid de Cards de Receita */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm">
+        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
             Faturamento Bruto
           </span>
-          <span className="text-2xl font-mono font-bold text-slate-900 mt-2 block">
+          <span className="text-2xl font-mono font-bold text-slate-800 mt-2 block">
             R$ {summary.grossTotal.toFixed(2).replace('.', ',')}
           </span>
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -92,11 +85,11 @@ export default function DashboardFinanceiroPage() {
           </div>
         </div>
 
-        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm">
+        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
           <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
             Comissões da Equipe
           </span>
-          <span className="text-2xl font-mono font-bold text-slate-900 mt-2 block">
+          <span className="text-2xl font-mono font-bold text-slate-800 mt-2 block">
             R$ {summary.commissionsTotal.toFixed(2).replace('.', ',')}
           </span>
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
@@ -105,14 +98,14 @@ export default function DashboardFinanceiroPage() {
           </div>
         </div>
 
-        <div className="p-5 rounded-3xl bg-slate-900 text-white shadow-xl">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-slate-900 to-purple-950 text-white shadow-xl border border-purple-900/30">
+          <span className="text-xs font-semibold text-purple-200 uppercase tracking-wider block">
             Lucro Líquido do Salão
           </span>
           <span className="text-2xl font-mono font-bold text-brand-gold mt-2 block">
             R$ {summary.netProfit.toFixed(2).replace('.', ',')}
           </span>
-          <div className="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
+          <div className="mt-4 pt-3 border-t border-purple-900/40 flex items-center justify-between text-xs text-purple-200">
             <span>Margem da casa:</span>
             <span className="font-semibold text-white">53.6%</span>
           </div>

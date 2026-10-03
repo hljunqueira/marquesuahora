@@ -89,25 +89,25 @@ export default function DashboardOverviewPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-      {/* 1. Header do Dashboard */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* 1. Barra de Ações Rápidas do Topo */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs">
         <div>
-          <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
-            Dashboard
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Acompanhe o desempenho do seu negócio em tempo real.
+          <h2 className="text-sm font-bold text-slate-800 tracking-tight">
+            Resumo Operacional
+          </h2>
+          <p className="text-xs text-slate-500">
+            Métricas de agendamentos e faturamento em tempo real
           </p>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="px-3.5 py-1.5 bg-white border border-slate-200/80 rounded-xl text-xs font-semibold text-slate-700 shadow-sm flex items-center gap-2">
+          <div className="px-3.5 py-1.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs font-semibold text-slate-700 flex items-center gap-2">
             <Calendar className="w-3.5 h-3.5 text-purple-600" />
             <span>Hoje, {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
           </div>
           <Link
             href="/dashboard/agenda"
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all active:scale-95"
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
           >
             <span>Ver Agenda</span>
             <ChevronRight className="w-4 h-4" />
@@ -117,11 +117,7 @@ export default function DashboardOverviewPage() {
 
       {/* 2. Banner de Aniversariantes */}
       {stats.birthdayCount > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/70 flex items-center justify-between shadow-sm"
-        >
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/70 flex items-center justify-between shadow-xs">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
               <Cake className="w-5 h-5 text-amber-600" />
@@ -131,7 +127,7 @@ export default function DashboardOverviewPage() {
                 🎂 {stats.birthdayCount} clientes comemoram aniversário hoje!
               </h4>
               <p className="text-[11px] text-amber-700">
-                Mensagens calorosas pelo padrão Humanizer disparadas às 09:00 via WhatsApp.
+                Mensagens cordiais automáticas programadas pelo padrão Humanizer via WhatsApp.
               </p>
             </div>
           </div>
@@ -142,17 +138,13 @@ export default function DashboardOverviewPage() {
             <span>Ver aniversariantes</span>
             <ArrowUpRight className="w-3.5 h-3.5" />
           </Link>
-        </motion.div>
+        </div>
       )}
 
       {/* 3. 4 KPIs com Sparklines Oficiais */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* KPI 1: Agendamentos Hoje */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm relative overflow-hidden"
-        >
+        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Agendamentos hoje</span>
             <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -160,7 +152,7 @@ export default function DashboardOverviewPage() {
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-display font-extrabold text-slate-900">
+            <span className="text-3xl font-display font-extrabold text-slate-800">
               {stats.todayBookings}
             </span>
           </div>
@@ -179,15 +171,10 @@ export default function DashboardOverviewPage() {
               />
             </svg>
           </div>
-        </motion.div>
+        </div>
 
         {/* KPI 2: Clientes Ativos */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05 }}
-          className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm relative overflow-hidden"
-        >
+        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Clientes ativos</span>
             <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -195,7 +182,7 @@ export default function DashboardOverviewPage() {
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-display font-extrabold text-slate-900">
+            <span className="text-3xl font-display font-extrabold text-slate-800">
               {stats.activeClients}
             </span>
           </div>
@@ -213,15 +200,10 @@ export default function DashboardOverviewPage() {
               />
             </svg>
           </div>
-        </motion.div>
+        </div>
 
         {/* KPI 3: Faturamento Hoje */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm relative overflow-hidden"
-        >
+        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Faturamento hoje</span>
             <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs">
@@ -229,7 +211,7 @@ export default function DashboardOverviewPage() {
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-mono font-bold text-slate-900">
+            <span className="text-2xl font-mono font-bold text-slate-800">
               R$ {stats.todayRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
@@ -247,15 +229,10 @@ export default function DashboardOverviewPage() {
               />
             </svg>
           </div>
-        </motion.div>
+        </div>
 
         {/* KPI 4: Taxa de Comparecimento */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-sm relative overflow-hidden"
-        >
+        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Taxa de comparecimento</span>
             <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
@@ -263,7 +240,7 @@ export default function DashboardOverviewPage() {
             </div>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-display font-extrabold text-slate-900">
+            <span className="text-3xl font-display font-extrabold text-slate-800">
               {stats.attendanceRate}%
             </span>
           </div>
@@ -281,7 +258,7 @@ export default function DashboardOverviewPage() {
               />
             </svg>
           </div>
-        </motion.div>
+        </div>
       </div>
 
       {/* 4. Gráficos em Duas Colunas (Agendamentos Semanal + Serviços Mais Agendados) */}
@@ -334,10 +311,10 @@ export default function DashboardOverviewPage() {
         </div>
 
         {/* Serviços Mais Agendados */}
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between">
+        <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-display font-bold text-slate-900">
+              <h3 className="text-base font-display font-bold text-slate-800">
                 Serviços mais agendados
               </h3>
               <Link href="/dashboard/servicos" className="text-xs text-purple-600 font-semibold hover:underline">
@@ -369,16 +346,16 @@ export default function DashboardOverviewPage() {
             <span className="flex items-center gap-1.5 font-medium">
               <Sparkles className="w-3.5 h-3.5 text-purple-600" /> Ticket Médio Estimado
             </span>
-            <span className="font-mono font-bold text-slate-900">R$ 135,00</span>
+            <span className="font-mono font-bold text-slate-800">R$ 135,00</span>
           </div>
         </div>
       </div>
 
       {/* 5. Tabela de Próximos Agendamentos */}
-      <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm">
+      <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h3 className="text-base font-display font-bold text-slate-900">
+            <h3 className="text-base font-display font-bold text-slate-800">
               Próximos agendamentos
             </h3>
             <p className="text-xs text-slate-500">
@@ -409,7 +386,7 @@ export default function DashboardOverviewPage() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <strong className="text-xs font-bold text-slate-900">
+                    <strong className="text-xs font-bold text-slate-800">
                       {appt.client}
                     </strong>
                     {appt.isBirthday && (
