@@ -17,7 +17,12 @@ import {
   Clock,
   Sparkles,
   Upload,
-  Camera
+  Camera,
+  Tag,
+  Plus,
+  Trash2,
+  Edit2,
+  X
 } from 'lucide-react';
 import { InputMask } from '@/components/ui/InputMask';
 
@@ -61,10 +66,94 @@ export default function DashboardConfiguracoesPage() {
     }
   };
 
-  // Regras da Agenda
+  // Regras da Agenda / Configurações de Agendamento
   const [openingTime, setOpeningTime] = useState('09:00');
   const [closingTime, setClosingTime] = useState('19:00');
   const [bufferMinutes, setBufferMinutes] = useState('15');
+
+  // Categorias e Tags de Clientes para Agendamento
+  const DEFAULT_TAGS = ['Novo', 'Frequente', 'VIP', 'Fiel', 'Atenção com Faltas', 'Exige Sinal'];
+  const [clientTags, setClientTags] = useState<string[]>(DEFAULT_TAGS);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [editingTagIndex, setEditingTagIndex] = useState<number | null>(null);
+  const [editingTagValue, setEditingTagValue] = useState('');
+  const [tagToast, setTagToast] = useState<string | null>(null);
+
+  const showTagToast = (msg: string) => {
+    setTagToast(msg);
+    setTimeout(() => setTagToast(null), 3000);
+  };
+
+  React.useEffect(() => {
+    // Detecta aba na URL (?tab=SCHEDULE)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam && ['DATA', 'THEME', 'SCHEDULE', 'FINANCE', 'AUTOMATIONS', 'SECURITY'].includes(tabParam)) {
+        setActiveTab(tabParam as any);
+      }
+    }
+
+    // Carrega tags salvas
+    const savedTags = localStorage.getItem('marquesuahora_client_tags');
+    if (savedTags) {
+      try {
+        const parsed = JSON.parse(savedTags);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setClientTags(parsed);
+        }
+      } catch (err) {
+        console.error('Erro ao ler tags do localStorage', err);
+      }
+    }
+  }, []);
+
+  const saveTagsToStorage = (tags: string[]) => {
+    setClientTags(tags);
+    localStorage.setItem('marquesuahora_client_tags', JSON.stringify(tags));
+    window.dispatchEvent(new Event('storage'));
+  };
+
+  const handleAddNewTag = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newTagInput.trim();
+    if (!trimmed) return;
+    if (clientTags.includes(trimmed)) {
+      showTagToast('Esta categoria já existe!');
+      return;
+    }
+    const updated = [...clientTags, trimmed];
+    saveTagsToStorage(updated);
+    setNewTagInput('');
+    showTagToast(`Categoria "${trimmed}" adicionada com sucesso!`);
+  };
+
+  const handleStartEditTag = (index: number) => {
+    setEditingTagIndex(index);
+    setEditingTagValue(clientTags[index]);
+  };
+
+  const handleSaveEditTag = (index: number) => {
+    const trimmed = editingTagValue.trim();
+    if (!trimmed) return;
+    const updated = [...clientTags];
+    updated[index] = trimmed;
+    saveTagsToStorage(updated);
+    setEditingTagIndex(null);
+    setEditingTagValue('');
+    showTagToast('Categoria atualizada com sucesso!');
+  };
+
+  const handleDeleteTag = (index: number) => {
+    if (clientTags.length <= 1) {
+      alert('Você precisa ter pelo menos uma categoria cadastrada.');
+      return;
+    }
+    const targetTag = clientTags[index];
+    const updated = clientTags.filter((_, i) => i !== index);
+    saveTagsToStorage(updated);
+    showTagToast(`Categoria "${targetTag}" removida.`);
+  };
 
   // Políticas Financeiras
   const [depositRequired, setDepositRequired] = useState(false);
@@ -154,7 +243,7 @@ export default function DashboardConfiguracoesPage() {
         {[
           { id: 'DATA', label: 'Dados da Loja', icon: Building2 },
           { id: 'THEME', label: 'Identidade Visual', icon: Palette },
-          { id: 'SCHEDULE', label: 'Regras da Agenda', icon: Calendar },
+          { id: 'SCHEDULE', label: 'Configurações de Agendamento', icon: Calendar },
           { id: 'FINANCE', label: 'Sinal & No-Show', icon: DollarSign },
           { id: 'AUTOMATIONS', label: 'CRM & Aniversários', icon: Cake },
           { id: 'SECURITY', label: 'Troca de Senha', icon: Lock }
@@ -405,63 +494,187 @@ export default function DashboardConfiguracoesPage() {
           </div>
         )}
 
-        {/* ABA 3: REGRAS DA AGENDA */}
+        {/* ABA 3: CONFIGURAÇÕES DE AGENDAMENTO */}
         {activeTab === 'SCHEDULE' && (
-          <form onSubmit={handleSaveSettings} className="space-y-4">
-            <h3 className="text-base font-bold text-slate-900 mb-4">
-              Horários de Atendimento & Buffer
-            </h3>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="space-y-8">
+            <form onSubmit={handleSaveSettings} className="space-y-4">
               <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Horário de Abertura
-                </label>
-                <input
-                  type="time"
-                  value={openingTime}
-                  onChange={(e) => setOpeningTime(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                />
+                <h3 className="text-base font-bold text-slate-900">
+                  Horários de Atendimento & Buffer
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Defina o período diário em que sua equipe atende e o tempo de respiro entre atendimentos.
+                </p>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Horário de Fechamento
-                </label>
-                <input
-                  type="time"
-                  value={closingTime}
-                  onChange={(e) => setClosingTime(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Horário de Abertura
+                  </label>
+                  <input
+                    type="time"
+                    value={openingTime}
+                    onChange={(e) => setOpeningTime(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Horário de Fechamento
+                  </label>
+                  <input
+                    type="time"
+                    value={closingTime}
+                    onChange={(e) => setClosingTime(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-700 block mb-1">
+                    Buffer Higiênico / Respiro (min)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={5}
+                    value={bufferMinutes}
+                    onChange={(e) => setBufferMinutes(e.target.value)}
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium font-mono"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Buffer Higiênico / Respiro (min)
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  step={5}
-                  value={bufferMinutes}
-                  onChange={(e) => setBufferMinutes(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
-                />
+              <div className="pt-4 flex items-center justify-end">
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer transition-all"
+                >
+                  {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                  <span>{isSaved ? 'Horários Salvos!' : 'Salvar Horários'}</span>
+                </button>
+              </div>
+            </form>
+
+            {/* SEÇÃO: CATEGORIAS E TAGS DE CLIENTES (EDITAR E COLOCAR UM NOVO) */}
+            <div className="pt-6 border-t border-slate-200/80 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-purple-600" />
+                    <span>Categorias e Tags de Clientes</span>
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Personalize as categorias que aparecem ao cadastrar ou editar clientes e agendamentos (ex: Novo, Frequente, VIP, Noiva, etc.).
+                  </p>
+                </div>
+                {tagToast && (
+                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1.5 animate-fade-in shrink-0">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{tagToast}</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Formulário para Adicionar Nova Categoria */}
+              <form onSubmit={handleAddNewTag} className="flex flex-col sm:flex-row items-center gap-2.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80">
+                <div className="relative w-full sm:flex-1">
+                  <Tag className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Digitar nova categoria (ex: Noiva, Barba Terapia, Tratamento Químico)..."
+                    value={newTagInput}
+                    onChange={(e) => setNewTagInput(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none focus:border-purple-600 font-medium transition-all"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="w-full sm:w-auto px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer shrink-0"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Adicionar Categoria</span>
+                </button>
+              </form>
+
+              {/* Lista de Categorias com Editar e Excluir */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+                {clientTags.map((tag, idx) => {
+                  const isEditing = editingTagIndex === idx;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-2xl bg-white border border-slate-200/80 flex items-center justify-between gap-2 shadow-2xs hover:border-purple-300 transition-all group"
+                    >
+                      {isEditing ? (
+                        <div className="flex items-center gap-1.5 w-full">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={editingTagValue}
+                            onChange={(e) => setEditingTagValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveEditTag(idx);
+                              } else if (e.key === 'Escape') {
+                                setEditingTagIndex(null);
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 text-xs border border-purple-500 rounded-lg outline-none font-medium bg-purple-50/20"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveEditTag(idx)}
+                            className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-semibold rounded-lg shrink-0 cursor-pointer"
+                          >
+                            Salvar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingTagIndex(null)}
+                            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg shrink-0 cursor-pointer"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="w-2.5 h-2.5 rounded-full bg-purple-600 shrink-0" />
+                            <span className="text-xs font-bold text-slate-800 truncate">
+                              {tag}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleStartEditTag(idx)}
+                              title="Editar nome da categoria"
+                              className="p-1.5 text-slate-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 transition-colors cursor-pointer"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTag(idx)}
+                              title="Excluir categoria"
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-end">
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer transition-all"
-              >
-                {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                <span>{isSaved ? 'Regras Salvas!' : 'Salvar Regras'}</span>
-              </button>
-            </div>
-          </form>
+          </div>
         )}
 
         {/* ABA 4: SINAL PIX & NO-SHOW */}

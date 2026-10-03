@@ -330,8 +330,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* View renderizada dentro do container com espaçamento aprimorado */}
-        <div className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto">{children}</div>
+        {/* View renderizada dentro do container com espaçamento aprimorado e expansivo */}
+        <div className="p-4 sm:p-6 lg:p-8 flex-1 w-full max-w-[1600px] mx-auto">{children}</div>
       </main>
     </div>
   );
