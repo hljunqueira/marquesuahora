@@ -22,6 +22,14 @@ import {
   CalendarPlus
 } from 'lucide-react';
 import { InputMask } from '@/components/ui/InputMask';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { NoShowShieldModal } from '@/components/niche/NoShowShieldModal';
+import { WaitlistModal } from '@/components/niche/WaitlistModal';
+import { BarberExpressUpsellModal } from '@/components/niche/BarberModals';
+import { SalonPatchTestNoticeModal, SalonTimelineSummaryModal } from '@/components/niche/SalonModals';
+import { ClinicalIntakeScreeningModal, PreCareGuidelinesModal } from '@/components/niche/AestheticsModals';
+import { LashNailPhaseSelectorModal, ForeignWorkAlertModal } from '@/components/niche/LashNailModals';
+import { TrainingLocationModal } from '@/components/niche/PersonalModals';
 
 interface ServiceItem {
   id: string;
@@ -106,6 +114,19 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
   const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState<any | null>(null);
   const [hasCopiedPix, setHasCopiedPix] = useState(false);
+
+  // Modais Especializados de Nicho e Proteção
+  const [isWaitlistOpen, setIsWaitlistOpen] = useState(false);
+  const [isNoShowShieldOpen, setIsNoShowShieldOpen] = useState(false);
+  const [isBarberUpsellOpen, setIsBarberUpsellOpen] = useState(false);
+  const [isSalonPatchTestOpen, setIsSalonPatchTestOpen] = useState(false);
+  const [isSalonTimelineOpen, setIsSalonTimelineOpen] = useState(false);
+  const [isClinicalScreeningOpen, setIsClinicalScreeningOpen] = useState(false);
+  const [isLashPhaseOpen, setIsLashPhaseOpen] = useState(false);
+  const [isForeignWorkOpen, setIsForeignWorkOpen] = useState(false);
+  const [isTrainingLocationOpen, setIsTrainingLocationOpen] = useState(false);
+  const [trainingLocation, setTrainingLocation] = useState<{ type: 'STUDIO' | 'HOME_CONDO' | 'OUTDOOR'; address?: string } | null>(null);
+  const [clinicalAnswers, setClinicalAnswers] = useState<any | null>(null);
 
   // 1. Carrega dados da vitrine pública do estabelecimento
   useEffect(() => {
@@ -194,10 +215,21 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
       : data.services.filter((s) => s.category === selectedCategory);
 
   const toggleService = (svc: ServiceItem) => {
-    if (selectedServices.some((s) => s.id === svc.id)) {
+    const isAdding = !selectedServices.some((s) => s.id === svc.id);
+    if (!isAdding) {
       setSelectedServices(selectedServices.filter((s) => s.id !== svc.id));
-    } else {
-      setSelectedServices([...selectedServices, svc]);
+      return;
+    }
+
+    setSelectedServices([...selectedServices, svc]);
+
+    // Triggers inteligentes de nicho
+    if (data?.niche === 'BARBERSHOP' && svc.name.toLowerCase().includes('corte') && !selectedServices.some((s) => s.name.toLowerCase().includes('barba'))) {
+      setIsBarberUpsellOpen(true);
+    } else if (data?.niche === 'BEAUTY_SALON' && (svc.name.toLowerCase().includes('química') || svc.name.toLowerCase().includes('mecha') || svc.name.toLowerCase().includes('coloração') || svc.name.toLowerCase().includes('alisamento'))) {
+      setIsSalonPatchTestOpen(true);
+    } else if (data?.niche === 'NAIL_LASH_STUDIO' && (svc.name.toLowerCase().includes('alongamento') || svc.name.toLowerCase().includes('extensão') || svc.name.toLowerCase().includes('cílios') || svc.name.toLowerCase().includes('fibra'))) {
+      setIsForeignWorkOpen(true);
     }
   };
 
@@ -210,6 +242,21 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
     if (h === 0) return `${m}min`;
     if (m === 0) return `${h}h`;
     return `${h}h${m > 0 ? `${m}min` : ''}`;
+  };
+
+  // Inscrição na Lista de Espera Inteligente
+  const handleJoinWaitlist = async (waitlistData: {
+    clientName: string;
+    clientPhone: string;
+    preferredShift: 'MORNING' | 'AFTERNOON' | 'NIGHT' | 'ANY';
+  }) => {
+    await axios.post(`http://localhost:3333/public/waitlist/${data.slug}`, {
+      clientName: waitlistData.clientName,
+      clientPhone: waitlistData.clientPhone,
+      date: selectedDate,
+      preferredShift: waitlistData.preferredShift,
+      serviceId: selectedServices[0]?.id
+    });
   };
 
   // Envio do Agendamento Zero-Friction
@@ -231,13 +278,23 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
           name: s.name,
           price: s.price,
           durationMinutes: s.durationMinutes
-        }))
+        })),
+        intakeAnswers: clinicalAnswers || undefined,
+        serviceLocation: trainingLocation ? `${trainingLocation.type}${trainingLocation.address ? `: ${trainingLocation.address}` : ''}` : undefined
       };
 
       const res = await axios.post(`http://localhost:3333/public/booking/${data.slug}`, payload);
       setBookingSuccess(res.data);
       setIsCheckoutOpen(false);
     } catch (err: any) {
+      if (
+        err.response?.data?.error === 'Bloqueado' ||
+        err.response?.data?.message?.includes('impedido de agendar online')
+      ) {
+        setIsCheckoutOpen(false);
+        setIsNoShowShieldOpen(true);
+        return;
+      }
       alert(err.response?.data?.message || 'Não foi possível confirmar o horário.');
     } finally {
       setIsSubmittingBooking(false);
@@ -252,7 +309,7 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
           <div className="flex items-center gap-3">
             <div className="relative w-12 h-12 rounded-2xl overflow-hidden bg-white border border-slate-200 shadow-sm flex items-center justify-center">
               <Image
-                src={data.logoUrl || '/brand/logo.jpg'}
+                src={data.logoUrl || '/brand/logooficial-comfundo.jpeg'}
                 alt={data.name}
                 fill
                 className="object-cover"
@@ -558,6 +615,13 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
                         <p className="text-xs text-slate-600 font-medium">
                           Nenhum horário livre nesta data para a duração selecionada.
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => setIsWaitlistOpen(true)}
+                          className="mt-3 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-sm transition-all"
+                        >
+                          Entrar na Lista de Espera ⚡
+                        </button>
                       </div>
                     )}
                 </div>
@@ -592,6 +656,14 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
                 onClick={() => {
                   if (!selectedSlot) {
                     alert('Por favor, selecione um dia e horário disponível antes de continuar.');
+                    return;
+                  }
+                  if (data?.niche === 'AESTHETICS_CLINIC' && !clinicalAnswers) {
+                    setIsClinicalScreeningOpen(true);
+                    return;
+                  }
+                  if (data?.niche === 'PERSONAL_TRAINER' && !trainingLocation) {
+                    setIsTrainingLocationOpen(true);
                     return;
                   }
                   setIsCheckoutOpen(true);
@@ -781,6 +853,96 @@ export default function ShowcasePage({ params }: { params: { slug: string } }) {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modais Especializados de Nicho, Espera e Segurança */}
+      <NoShowShieldModal
+        isOpen={isNoShowShieldOpen}
+        onClose={() => setIsNoShowShieldOpen(false)}
+        salonName={data.name}
+        salonPhone={data.phone}
+        clientName={clientName}
+      />
+
+      <WaitlistModal
+        isOpen={isWaitlistOpen}
+        onClose={() => setIsWaitlistOpen(false)}
+        salonName={data.name}
+        selectedDate={selectedDate}
+        onSubmit={handleJoinWaitlist}
+      />
+
+      <BarberExpressUpsellModal
+        isOpen={isBarberUpsellOpen}
+        onClose={() => setIsBarberUpsellOpen(false)}
+        onAccept={(combo) => {
+          setSelectedServices((prev) => [
+            ...prev,
+            {
+              id: 'combo-barba',
+              name: combo.name,
+              category: 'COMBOS',
+              price: combo.price,
+              durationMinutes: combo.durationMinutes
+            }
+          ]);
+        }}
+      />
+
+      <SalonPatchTestNoticeModal
+        isOpen={isSalonPatchTestOpen}
+        onClose={() => setIsSalonPatchTestOpen(false)}
+        onConfirm={() => setIsSalonTimelineOpen(true)}
+      />
+
+      <SalonTimelineSummaryModal
+        isOpen={isSalonTimelineOpen}
+        onClose={() => setIsSalonTimelineOpen(false)}
+        serviceName={selectedServices[0]?.name || 'Procedimento Capilar'}
+        totalDurationMinutes={totalDuration}
+      />
+
+      <ClinicalIntakeScreeningModal
+        isOpen={isClinicalScreeningOpen}
+        onClose={() => setIsClinicalScreeningOpen(false)}
+        onPass={(answers) => {
+          setClinicalAnswers(answers);
+          setIsCheckoutOpen(true);
+        }}
+      />
+
+      <LashNailPhaseSelectorModal
+        isOpen={isLashPhaseOpen}
+        onClose={() => setIsLashPhaseOpen(false)}
+        onSelectPhase={() => setIsForeignWorkOpen(true)}
+      />
+
+      <ForeignWorkAlertModal
+        isOpen={isForeignWorkOpen}
+        onClose={() => setIsForeignWorkOpen(false)}
+        onConfirmForeignWork={(add) => {
+          if (add) {
+            setSelectedServices((prev) => [
+              ...prev,
+              {
+                id: 'foreign-rem',
+                name: 'Remoção de Terceiros',
+                category: 'REMOÇÃO',
+                price: 30,
+                durationMinutes: 30
+              }
+            ]);
+          }
+        }}
+      />
+
+      <TrainingLocationModal
+        isOpen={isTrainingLocationOpen}
+        onClose={() => setIsTrainingLocationOpen(false)}
+        onSelectLocation={(loc) => {
+          setTrainingLocation(loc);
+          setIsCheckoutOpen(true);
+        }}
+      />
     </div>
   );
 }

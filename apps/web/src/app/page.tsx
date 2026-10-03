@@ -86,10 +86,10 @@ export default function LandingPage() {
       <header className="sticky top-0 z-40 w-full glass-panel border-b border-slate-200/60 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative w-44 h-12 flex items-center">
+            <div className="relative w-48 h-14 flex items-center">
               <Image
-                src="/brand/logo-semfundo.png"
-                alt="Marca Tua Hora Logo"
+                src="/brand/logooficial-semfundo.png"
+                alt="Marque Sua Hora Logo"
                 fill
                 className="object-contain object-left group-hover:scale-[1.02] transition-transform duration-300"
                 priority
@@ -197,6 +197,25 @@ export default function LandingPage() {
               <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Sinal PIX anti-faltas
             </span>
           </div>
+
+          {/* Vitrine Visual da Plataforma */}
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, delay: 0.4 }}
+            className="mt-12 relative max-w-5xl mx-auto rounded-3xl p-2 sm:p-3 bg-gradient-to-b from-purple-500/20 via-slate-200/40 to-white/90 shadow-2xl shadow-purple-950/15 border border-purple-200/60 backdrop-blur-xl"
+          >
+            <div className="relative rounded-2xl overflow-hidden shadow-inner bg-slate-950 border border-slate-800/40">
+              <Image
+                src="/brand/Apresentação da Marca Marque Sua Hora.png"
+                alt="Apresentação da Plataforma Marque Sua Hora"
+                width={1920}
+                height={1080}
+                className="w-full h-auto object-cover hover:scale-[1.01] transition-transform duration-700"
+                priority
+              />
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -582,16 +601,16 @@ export default function LandingPage() {
       <footer className="bg-slate-900 text-white py-16 border-t border-slate-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col md:flex-row items-center justify-between gap-8">
           <div className="flex items-center gap-4">
-            <div className="relative w-40 h-10">
+            <div className="relative w-44 h-12">
               <Image
-                src="/brand/logo-semfundo.png"
-                alt="Marca Tua Hora Logo"
+                src="/brand/logooficial-semfundo.png"
+                alt="Marque Sua Hora Logo"
                 fill
                 className="object-contain brightness-0 invert"
               />
             </div>
             <p className="text-xs text-slate-400">
-              © {new Date().getFullYear()} Marca Tua Hora. Todos os direitos reservados.
+              © {new Date().getFullYear()} Marque Sua Hora. Todos os direitos reservados.
             </p>
           </div>
 

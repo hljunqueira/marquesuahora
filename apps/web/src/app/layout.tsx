@@ -2,18 +2,18 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Marca Tua Hora — Plataforma Premium de Agendamentos e Gestão',
+  title: 'Marque Sua Hora — Plataforma Premium de Agendamentos e Gestão',
   description:
     'A plataforma definitiva para salões de alto padrão, barbearias, clínicas de estética e personal trainers. Vitrine elegante, No-Show Shield com PIX dinâmico e lista de espera inteligente.',
   icons: {
-    icon: '/brand/logo.jpg',
-    shortcut: '/brand/logo.jpg',
-    apple: '/brand/logo.jpg'
+    icon: '/brand/logooficial-comfundo.jpeg',
+    shortcut: '/brand/logooficial-comfundo.jpeg',
+    apple: '/brand/logooficial-comfundo.jpeg'
   },
   openGraph: {
-    title: 'Marca Tua Hora — Plataforma Premium de Agendamentos',
+    title: 'Marque Sua Hora — Plataforma Premium de Agendamentos',
     description: 'Transforme a gestão do seu salão com vitrine editorial, sinal PIX anti-faltas e lista de espera.',
-    images: ['/brand/logo.jpg']
+    images: ['/brand/logooficial-comfundo.jpeg']
   }
 };
 

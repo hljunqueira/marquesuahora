@@ -236,10 +236,10 @@ export default function OnboardingPage() {
     <div className="w-full min-h-screen bg-[#FAF9F6] text-slate-900 py-10 px-4 sm:px-6 flex flex-col justify-between">
       {/* Top Header */}
       <div className="max-w-2xl mx-auto w-full flex items-center justify-between pb-8">
-        <Link href="/" className="relative w-36 h-10">
+        <Link href="/" className="relative w-44 h-12">
           <Image
-            src="/brand/logo-semfundo.png"
-            alt="Marca Tua Hora Logo"
+            src="/brand/logooficial-semfundo.png"
+            alt="Marque Sua Hora Logo"
             fill
             className="object-contain object-left"
             priority
