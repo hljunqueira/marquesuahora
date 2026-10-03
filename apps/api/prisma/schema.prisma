@@ -1,0 +1,550 @@
+// ==============================================================================
+// MARQUE SUA HORA — PRISMA SCHEMA DEFINITIVO (POSTGRESQL 16)
+// ==============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ------------------------------------------------------------------------------
+// ENUMS DE SISTEMA & REGRAS DE NEGÓCIO
+// ------------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  PROFESSIONAL
+  RECEPTIONIST
+}
+
+enum ScheduleStatus {
+  PENDING
+  CONFIRMED
+  IN_SERVICE
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+}
+
+enum BookingSource {
+  ONLINE
+  MANUAL_RECEPTION
+  WHATSAPP_AI
+  WAITLIST_AUTOFILL
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  COMMISSION
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+}
+
+enum BusinessNiche {
+  BARBERSHOP
+  BEAUTY_SALON
+  AESTHETICS_CLINIC
+  PERSONAL_TRAINER
+  NAIL_LASH_STUDIO
+  OTHER
+}
+
+enum ThemeTemplate {
+  PURPLE_GOLD
+  DARK_OBSIDIAN
+  ROSE_GOLD
+  EMERALD_SAGE
+  MIDNIGHT_BLUE
+}
+
+enum WaitlistStatus {
+  WAITING
+  NOTIFIED
+  CONVERTED
+  EXPIRED
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_CLIENT
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  TECHNICAL_ISSUE
+  FEATURE_REQUEST
+  BILLING
+  DOUBT
+  OTHER
+}
+
+enum TicketSenderType {
+  TENANT
+  SUPER_ADMIN
+}
+
+enum TicketAttachmentType {
+  IMAGE
+  AUDIO
+  FILE
+}
+
+// ------------------------------------------------------------------------------
+// MODELOS RELACIONAIS
+// ------------------------------------------------------------------------------
+
+model Plan {
+  id                  String   @id @default(uuid())
+  name                String   // Nome comercial do plano (ex: "Solo", "Equipe Pro", "VIP + IA")
+  code                String   @unique // Código identificador único em caixa alta (ex: "FREE_HYBRID", "SOLO", "EQUIPE_PRO", "VIP_AI")
+  description         String   // Descrição comercial dos diferenciais
+  monthlyPrice        Decimal  @db.Decimal(10, 2) // Mensalidade base (R$)
+  maxProfessionals    Int      // Limite máximo de profissionais ativos simultâneos
+  isUnlimitedBookings Boolean  // Booleano indicando se o plano possui agendamentos ilimitados
+  monthlyFreeBookings Int      // Franquia mensal de agendamentos para planos híbridos
+  extraBookingFee     Decimal  @db.Decimal(10, 2) // Tarifa cobrada por agendamento extra excedente
+  hasAiAssistant      Boolean  // Toggle de liberação da Atendente IA no WhatsApp
+  hasAnamnesis        Boolean  // Toggle de liberação de Ficha de Anamnese Digital com fotos
+  hasCommissions      Boolean  // Toggle de liberação do cálculo automático de comissões
+  hasGoogleCalendar   Boolean  // Toggle de sincronização bidirecional com Google Calendar
+  features            String[] // Lista textual de benefícios exibidos na vitrine comercial
+  active              Boolean  // Booleano indicando se o plano está ativo para novas contratações
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenants             Tenant[]
+}
+
+model Tenant {
+  id                      String        @id @default(uuid())
+  planId                  String?
+  name                    String        // Nome Fantasia
+  legalName               String?       // Razão Social
+  documentType            String        @default("CNPJ") // "CNPJ" ou "CPF"
+  documentNumber          String        @unique // Cadastro único e blindado anti-duplicação
+  slug                    String        @unique
+  phone                   String        // Telefone / WhatsApp da recepção (exibido na vitrine e usado como fallback de suporte)
+  description             String?       // Bio / descrição editorial do salão na vitrine
+  instagramUrl            String?       // Link do perfil oficial do Instagram
+  niche                   BusinessNiche
+  terminology             Json          // Rótulos dinâmicos adaptados: { professional: "Barbeiro", space: "Cadeira", ... }
+  logoUrl                 String?
+  themeTemplate           ThemeTemplate @default(PURPLE_GOLD)
+  primaryColor            String        @default("#7C3AED")
+  secondaryColor          String        @default("#0B0F19")
+  accentColor             String        @default("#D4AF37")
+  addressStreet           String
+  addressNumber           String
+  addressComplement       String?
+  addressNeighborhood     String
+  addressCity             String
+  addressState            String
+  addressZip              String
+  isSingleCityZip         Boolean       @default(false)
+  openingTime             String        @default("09:00")
+  closingTime             String        @default("20:00")
+  slotIntervalMinutes     Int           @default(30)
+  bufferMinutes           Int           @default(15) // Intervalo de higienização entre atendimentos
+  minAdvanceBookingMinutes Int          @default(60) // Antecedência mínima para agendar
+  maxAdvanceBookingDays   Int           @default(30) // Antecedência máxima (dias à frente)
+  birthdayMessageEnabled  Boolean       @default(true)
+  birthdayMessageCustom   String?
+  googleReviewUrl         String?       // Link direto da página de avaliação do Google Meu Negócio
+  npsFeedbackEnabled      Boolean       @default(true)
+  depositRequired         Boolean       @default(false) // Exigência de sinal PIX antecipado
+  depositType             String        @default("FIXED") // "FIXED" (R$) ou "PERCENTAGE" (%)
+  depositAmount           Decimal       @default(0.0) @db.Decimal(10, 2)
+  maxNoShowsAllowed       Int           @default(2) // Tolerância máxima de faltas antes de bloquear agendamento online
+  churnRecoveryEnabled    Boolean       @default(true) // Automação semanal de recuperação de clientes sumidos
+  churnAlertDays          Int           @default(45) // Dias de ausência para considerar cliente em risco
+  asaasCustomerId         String?       // ID do cliente no gateway Asaas
+  asaasSubscriptionId     String?       // ID da assinatura recorrente no Asaas
+  billingStatus           String        @default("ACTIVE") // ACTIVE, OVERDUE, CANCELLED, BLOCKED
+  extraBookingsBalance    Int           @default(0) // Contador de agendamentos excedentes no plano híbrido
+  blockedReason           String?       // "INADIMPLENCIA", "MANUAL_SUPERADMIN", etc.
+  blockedAt               DateTime?
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+
+  plan                    Plan?         @relation(fields: [planId], references: [id])
+  resources               Resource[]
+  users                   User[]
+  professionals           Professional[]
+  services                Service[]
+  clients                 Client[]
+  schedules               Schedule[]
+  scheduleBlocks          ScheduleBlock[]
+  waitlistEntries         WaitlistEntry[]
+  financialEntries        FinancialEntry[]
+  whatsappConfig          WhatsappConfig?
+  aiSettings              TenantAiSettings?
+  tickets                 SupportTicket[]
+  auditLogs               AuditLog[]
+
+  @@index([slug])
+  @@index([documentNumber])
+  @@index([niche])
+}
+
+model Resource {
+  id          String     @id @default(uuid())
+  tenantId    String
+  name        String     // Ex: "Cabine Laser Soprano", "Cabine 1 - Injetáveis", "Sala de Avaliação"
+  type        String     @default("ROOM") // "ROOM", "EQUIPMENT", "CHAIR"
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  services    Service[]
+  schedules   Schedule[]
+
+  @@index([tenantId])
+}
+
+model User {
+  id           String        @id @default(uuid())
+  tenantId     String?
+  email        String        @unique
+  passwordHash String
+  name         String
+  role         Role          @default(ADMIN)
+  createdAt    DateTime      @default(now())
+
+  tenant       Tenant?       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  professional Professional?
+  tickets      SupportTicket[]
+  auditLogs    AuditLog[]
+
+  @@index([tenantId])
+}
+
+model Professional {
+  id             String                @id @default(uuid())
+  tenantId       String
+  userId         String?               @unique
+  name           String
+  phone          String
+  color          String                @default("#7C3AED")
+  commissionRate Decimal               @default(50.0) @db.Decimal(5, 2)
+  scheduleConfig Json                  // Escala: { "mon": { "start": "09:00", "end": "18:00", "lunchStart": "12:00", "lunchEnd": "13:00" }, ... }
+  isActive       Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+
+  tenant         Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  services       ServiceProfessional[]
+  schedules      Schedule[]
+  scheduleBlocks ScheduleBlock[]
+  waitlistEntries WaitlistEntry[]
+
+  @@index([tenantId])
+}
+
+model Service {
+  id              String         @id @default(uuid())
+  tenantId        String
+  resourceId      String?        // Recurso vinculado (Sala ou Equipamento - Estética / Clínicas)
+  name            String
+  description     String?
+  durationMinutes Int
+  price           Decimal        @db.Decimal(10, 2)
+  category        String         @default("Geral")
+  allowOnlineBooking Boolean     @default(true)
+  serviceType       String         @default("STANDARD") // STANDARD, APPLICATION, MAINTENANCE, REMOVAL, EVALUATION
+  intakeWarning     String?        // Aviso prévio de preparo exibido no agendamento e enviado no WhatsApp
+  processingMinutes Int            @default(0) // Tempo de pausa química / ação (ex: descoloração em salão)
+  finishingMinutes  Int            @default(0) // Tempo de finalização e escova pós-pausa química
+  photos            String[]       @default([]) // Galeria de fotos de resultados reais do procedimento
+  requiresRemovalCheck Boolean     @default(false) // Alerta de remoção prévia de terceiros (Lash/Nail)
+  createdAt       DateTime       @default(now())
+
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  resource        Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  schedules       Schedule[]
+  professionals   ServiceProfessional[]
+  waitlistEntries WaitlistEntry[]
+
+  @@index([tenantId])
+  @@index([resourceId])
+  @@unique([tenantId, name])
+}
+
+model ServiceProfessional {
+  id             String       @id @default(uuid())
+  serviceId      String
+  professionalId String
+
+  service        Service      @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, professionalId])
+}
+
+model Client {
+  id                      String        @id @default(uuid())
+  tenantId                String
+  name                    String
+  phone                   String        // Telefone normalizado com DDD
+  email                   String?
+  documentNumber          String?
+  notes                   String?
+  birthday                DateTime?     @db.Date
+  notifyBirthday          Boolean       @default(true)
+  lastBirthdayGreetingYear Int?
+  packageBalance          Int           @default(0) // Saldo de créditos/sessões contratadas em pacotes
+  noShowCount             Int           @default(0) // Contador de faltas para o No-Show Shield
+  avgVisitDays            Int?          // Média de intervalo histórico entre visitas (dias)
+  lastVisitAt             DateTime?
+  lastChurnAlertSentAt    DateTime?
+  isBlockedOnline         Boolean       @default(false)
+  createdAt               DateTime      @default(now())
+
+  tenant                  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedules               Schedule[]
+  photos                  ClientPhoto[]
+  waitlistEntries         WaitlistEntry[]
+
+  @@index([tenantId])
+  @@unique([tenantId, phone])
+}
+
+model ClientPhoto {
+  id          String   @id @default(uuid())
+  clientId    String
+  photoUrl    String
+  caption     String?
+  category    String   @default("BEFORE_AFTER") // "BEFORE", "AFTER", "IN_PROGRESS", "BEFORE_AFTER"
+  takenAt     DateTime @default(now())
+
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+}
+
+model Schedule {
+  id                 String         @id @default(uuid())
+  tenantId           String
+  clientId           String
+  professionalId     String
+  serviceId          String
+  resourceId         String?        // Sala ou Equipamento alocado (evita conflito de máquina de laser ou cabine)
+  additionalServices Json?          // Múltiplos serviços no combo: [{ id, name, price, durationMinutes }]
+  totalDurationMinutes Int          @default(30) // Duração contínua somada do combo
+  totalPrice         Decimal        @default(0.0) @db.Decimal(10, 2) // Valor total somado do combo
+  date               DateTime       @db.Date
+  startTime          String         // "14:30"
+  endTime            String         // "15:30"
+  status             ScheduleStatus @default(CONFIRMED)
+  source             BookingSource  @default(ONLINE)
+  rescheduleToken    String         @unique @default(uuid())
+  notes              String?
+  intakeAnswers     Json?          // Respostas dadas pelo cliente na triagem prévia (Estética / Saúde)
+  serviceLocation   String?        // Local escolhido (Studio, Condomínio, Ao ar livre - Personal Trainer)
+  travelBufferMinutes Int          @default(0) // Janela de trânsito bloqueada (Personal Trainer domiciliar)
+  packageRemainingSessions Int?    // Saldo de sessões restantes exibido ao cliente
+  isMaintenance     Boolean        @default(false) // Flag indicativa de manutenção periódica (Unhas / Lash)
+  
+  // Sinal Anti-No-Show via PIX Dinâmico
+  depositAmount      Decimal        @default(0.0) @db.Decimal(10, 2)
+  depositPaid        Boolean        @default(false)
+  depositPixCode     String?        // Código PIX Copia e Cola / QR Code gerado
+  depositExpiresAt   DateTime?      // Timestamp de expiração do PIX (15 min)
+
+  // Pesquisa de Satisfação NPS & Reputação Google
+  npsScore           Int?           // Nota de 1 a 5 estrelas dada pelo cliente
+  npsFeedback        String?        // Comentário ou justificativa de feedback
+  npsSentAt          DateTime?      // Timestamp do envio da pesquisa pós-atendimento
+
+  whatsappSentAt     DateTime?
+  reminder24hSentAt  DateTime?
+  reminder12hSentAt  DateTime?
+  createdAt          DateTime       @default(now())
+
+  tenant             Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client             Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  professional       Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  service            Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  resource           Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  financialEntry     FinancialEntry?
+
+  @@index([tenantId, date])
+  @@index([professionalId, date])
+  @@index([resourceId, date])
+}
+
+model ScheduleBlock {
+  id             String       @id @default(uuid())
+  tenantId       String
+  professionalId String?
+  date           DateTime     @db.Date
+  startTime      String
+  endTime        String
+  reason         String       // "Almoço", "Consulta Médica", "Manutenção da Bancada"
+  createdAt      DateTime     @default(now())
+
+  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, date])
+  @@index([professionalId, date])
+}
+
+model WaitlistEntry {
+  id             String         @id @default(uuid())
+  tenantId       String
+  clientId       String
+  serviceId      String?
+  professionalId String?
+  date           DateTime       @db.Date
+  preferredShift String         @default("ANY") // "MORNING", "AFTERNOON", "NIGHT", "ANY"
+  status         WaitlistStatus @default(WAITING)
+  notifiedAt     DateTime?
+  expiresAt      DateTime?
+  createdAt      DateTime       @default(now())
+
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client         Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service        Service?       @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  professional   Professional?  @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, date, status])
+}
+
+model FinancialEntry {
+  id             String          @id @default(uuid())
+  tenantId       String
+  scheduleId     String?         @unique
+  professionalId String?
+  type           TransactionType // INCOME, EXPENSE, COMMISSION
+  amount         Decimal         @db.Decimal(10, 2)
+  depositDeducted Decimal        @default(0.0) @db.Decimal(10, 2)
+  description    String
+  paymentMethod  PaymentMethod   @default(PIX)
+  paidAt         DateTime        @default(now())
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  schedule       Schedule?       @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+}
+
+model WhatsappConfig {
+  id             String   @id @default(uuid())
+  tenantId       String   @unique
+  instanceName   String
+  apiKey         String
+  isConnected    Boolean  @default(false)
+  qrCode         String?
+  phoneNumber    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model TenantAiSettings {
+  id                   String   @id @default(uuid())
+  tenantId             String   @unique
+  customInstructions   String?  // Instruções e regras específicas do salão
+  knowledgeBaseFaq     Json?    // FAQ customizado: [{ question, answer }]
+  tokensUsedThisMonth  Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant               Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model SupportTicket {
+  id          String         @id @default(uuid())
+  protocol    String         @unique // Ex: "#TK-2026-0042"
+  tenantId    String
+  userId      String
+  subject     String
+  category    TicketCategory
+  priority    TicketPriority @default(MEDIUM)
+  status      TicketStatus   @default(OPEN)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  closedAt    DateTime?
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    TicketMessage[]
+  tasks       TicketTask[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([priority])
+}
+
+model TicketMessage {
+  id                   String               @id @default(uuid())
+  ticketId             String
+  senderId             String
+  senderType           TicketSenderType
+  content              String?
+  attachmentUrl        String?
+  attachmentType       TicketAttachmentType?
+  audioDurationSeconds Int?                 // Duração do áudio para exibição no player
+  isInternalNote       Boolean              @default(false) // Nota privada entre administradores do SaaS
+  createdAt            DateTime             @default(now())
+
+  ticket               SupportTicket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model TicketTask {
+  id        String   @id @default(uuid())
+  ticketId  String
+  title     String
+  completed Boolean  @default(false)
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  ticket    SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  tenantId   String?  // Nulo se for ação global do sistema
+  userId     String?  // Usuário que executou a ação
+  action     String   // Ex: "IMPERSONATE_START", "TENANT_BLOCK_MANUAL", "PLAN_CREATE", "PLAN_UPDATE"
+  entityType String   // "Tenant", "Plan", "User", "Schedule"
+  entityId   String?  // ID do objeto afetado
+  details    Json?    // Metadados do evento (motivo do bloqueio, parâmetros alterados, etc.)
+  ipAddress  String?  // IP de origem
+  userAgent  String?  // Navegador/cliente
+  createdAt  DateTime @default(now())
+
+  tenant     Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}

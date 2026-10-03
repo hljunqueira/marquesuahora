@@ -1,0 +1,21 @@
+{
+  "name": "marque-sua-hora-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.17.1",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @marquesuahora/api --filter @marquesuahora/web dev",
+    "dev:web": "pnpm --filter @marquesuahora/web dev",
+    "dev:api": "pnpm --filter @marquesuahora/api dev",
+    "build": "pnpm --recursive build",
+    "test": "pnpm --recursive test",
+    "lint": "pnpm --recursive lint",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down",
+    "prisma:generate": "pnpm --filter @marquesuahora/api prisma:generate",
+    "prisma:migrate": "pnpm --filter @marquesuahora/api prisma:migrate"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
