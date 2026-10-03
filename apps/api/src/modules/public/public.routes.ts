@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma';
 import { createBookingSchema, joinWaitlistSchema } from '@marquesuahora/shared';
 import { ScheduleStatus, WaitlistStatus } from '@prisma/client';
+import { whatsappQueue } from '../automation/queues';
 
 export const publicRoutes: FastifyPluginAsync = async (app) => {
   // GET /public/showcase/:slug - Carrega todos os dados da vitrine pública do estabelecimento
@@ -216,6 +217,39 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         service: true
       }
     });
+
+    // Se não exigir sinal, enfileira mensagens automáticas no BullMQ
+    if (!depositRequired) {
+      try {
+        await whatsappQueue.add('send-immediate-confirmation', {
+          scheduleId: schedule.id,
+          type: 'IMMEDIATE_CONFIRMATION'
+        });
+
+        const appointmentTime = new Date(`${data.date}T${data.startTime}:00`).getTime();
+        const now = Date.now();
+        const delay24h = appointmentTime - 24 * 60 * 60 * 1000 - now;
+        const delay12h = appointmentTime - 12 * 60 * 60 * 1000 - now;
+
+        if (delay24h > 0) {
+          await whatsappQueue.add(
+            'send-reminder-24h',
+            { scheduleId: schedule.id, type: 'REMINDER_24H' },
+            { delay: delay24h }
+          );
+        }
+
+        if (delay12h > 0) {
+          await whatsappQueue.add(
+            'send-reminder-12h',
+            { scheduleId: schedule.id, type: 'REMINDER_12H' },
+            { delay: delay12h }
+          );
+        }
+      } catch (err: any) {
+        console.warn('[BullMQ] Aviso ao agendar disparos do WhatsApp:', err.message);
+      }
+    }
 
     return reply.status(201).send({
       message: depositRequired

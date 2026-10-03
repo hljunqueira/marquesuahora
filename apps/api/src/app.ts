@@ -12,6 +12,7 @@ import { schedulesRoutes } from './modules/schedules/schedules.routes';
 import { publicRoutes } from './modules/public/public.routes';
 import { supportRoutes } from './modules/support/support.routes';
 import { adminRoutes } from './modules/admin/admin.routes';
+import { webhookRoutes } from './modules/automation/webhook.routes';
 
 export function buildApp(): FastifyInstance {
   const isTest = process.env.NODE_ENV === 'test';
@@ -31,7 +32,7 @@ export function buildApp(): FastifyInstance {
   app.get('/health', async (_req, reply) => {
     return reply.send({
       status: 'ok',
-      service: 'Marca Tua Hora API',
+      service: 'Marque Sua Hora API',
       timestamp: new Date().toISOString()
     });
   });
@@ -48,6 +49,7 @@ export function buildApp(): FastifyInstance {
   app.register(publicRoutes, { prefix: '/public' });
   app.register(supportRoutes, { prefix: '/support' });
   app.register(adminRoutes, { prefix: '/admin' });
+  app.register(webhookRoutes, { prefix: '/webhooks' });
 
   return app;
 }
