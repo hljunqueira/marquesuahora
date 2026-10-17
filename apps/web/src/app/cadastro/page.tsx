@@ -355,26 +355,26 @@ function CadastroForm() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] py-10 px-4 sm:px-6 flex flex-col items-center justify-center">
-      <div className="w-full max-w-4xl space-y-6">
-        {/* Cabeçalho */}
-        <div className="text-center space-y-2">
+    <div className="min-h-screen bg-[#F8FAFC] py-4 sm:py-6 px-4 flex flex-col items-center justify-center">
+      <div className="w-full max-w-3xl space-y-3.5">
+        {/* Cabeçalho Compacto */}
+        <div className="text-center space-y-1">
           <Link href="/" className="inline-block">
-            <span className="text-2xl font-black tracking-tight text-slate-900 font-display">
+            <span className="text-xl font-black tracking-tight text-slate-900 font-display">
               Marque<span className="text-purple-600">SuaHora</span>
             </span>
           </Link>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Crie sua conta profissional
           </h1>
-          <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
-            Configuração rápida em 3 etapas. Cadastre seu estabelecimento, informe o endereço e comece a receber agendamentos.
+          <p className="text-xs text-slate-500 max-w-lg mx-auto">
+            Configuração rápida em 3 etapas para você começar a receber agendamentos.
           </p>
         </div>
 
-        {/* Indicador de Etapas (Wizard Progress) */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-2xs p-4">
-          <div className="grid grid-cols-3 gap-2">
+        {/* Indicador de Etapas (Wizard Progress Compacto) */}
+        <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-1.5 sm:p-2">
+          <div className="grid grid-cols-3 gap-1.5">
             {STEPS.map((s) => {
               const isActive = currentStep === s.number;
               const isDone = currentStep > s.number;
@@ -382,16 +382,16 @@ function CadastroForm() {
               return (
                 <div
                   key={s.number}
-                  className={`flex items-center gap-3 p-2.5 rounded-xl transition-all ${
+                  className={`flex items-center gap-2 p-1.5 sm:p-2 rounded-lg transition-all ${
                     isActive
-                      ? 'bg-purple-50/70 border border-purple-200'
+                      ? 'bg-purple-50/80 border border-purple-200'
                       : isDone
                       ? 'bg-slate-50 border border-slate-200'
                       : 'opacity-50'
                   }`}
                 >
                   <div
-                    className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${
+                    className={`w-5 h-5 sm:w-6 sm:h-6 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0 ${
                       isDone
                         ? 'bg-emerald-600 text-white'
                         : isActive
@@ -399,13 +399,13 @@ function CadastroForm() {
                         : 'bg-slate-200 text-slate-600'
                     }`}
                   >
-                    {isDone ? <Check className="w-4 h-4" /> : s.number}
+                    {isDone ? <Check className="w-3.5 h-3.5" /> : s.number}
                   </div>
                   <div className="hidden sm:block text-left overflow-hidden">
-                    <span className="text-xs font-bold block truncate text-slate-900">
+                    <span className="text-xs font-bold block truncate text-slate-900 leading-tight">
                       {s.title}
                     </span>
-                    <span className="text-[10px] text-slate-500 block truncate">
+                    <span className="text-[10px] text-slate-500 block truncate leading-tight">
                       {s.subtitle}
                     </span>
                   </div>
@@ -416,33 +416,33 @@ function CadastroForm() {
         </div>
 
         {/* Card Principal do Formulário */}
-        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xl p-6 sm:p-10">
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-lg p-4 sm:p-6">
           {error && (
-            <div className="mb-6 p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-semibold flex items-center gap-2.5">
+            <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
             {/* ETAPA 1: DADOS DO RESPONSÁVEL & ACESSO */}
             {currentStep === 1 && (
               <motion.div
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="space-y-6"
+                className="space-y-4"
               >
-                <div className="border-b border-slate-100 pb-3 flex items-center gap-2">
+                <div className="border-b border-slate-100 pb-2 flex items-center gap-2">
                   <User className="w-4 h-4 text-purple-600" />
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                  <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                     1. Dados do Responsável
                   </h2>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Nome Completo do Responsável *
                     </label>
                     <input
@@ -450,30 +450,28 @@ function CadastroForm() {
                       required
                       value={ownerName}
                       onChange={(e) => setOwnerName(e.target.value)}
-                      placeholder="Ex: Emanuelle Telles"
-                      className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
                       WhatsApp / Telefone de Contato *
                     </label>
                     <InputMask
                       mask="phone"
                       value={phone}
                       onChangeValue={(_formatted, raw) => setPhone(raw)}
-                      placeholder="(11) 99999-9999"
                       required
-                      className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                     />
-                    <span className="text-[10px] text-slate-400 mt-1 block">
-                      Usado para o suporte e recebimento de notificações do espaço.
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
+                      Usado para o suporte e notificações do espaço.
                     </span>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
                       E-mail Profissional de Acesso *
                     </label>
                     <input
@@ -481,29 +479,28 @@ function CadastroForm() {
                       required
                       value={ownerEmail}
                       onChange={(e) => setOwnerEmail(e.target.value)}
-                      placeholder="contato@seuestudio.com"
-                      className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                     />
-                    <span className="text-[10px] text-slate-400 mt-1 block">
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">
                       Seu login de acesso ao painel do estabelecimento.
                     </span>
                   </div>
                 </div>
 
                 {/* Box de Notificação sobre a Senha */}
-                <div className="p-4 rounded-2xl bg-purple-50/60 border border-purple-200 flex items-start gap-3">
-                  <Mail className="w-5 h-5 text-purple-700 shrink-0 mt-0.5" />
-                  <div className="text-xs space-y-1">
-                    <span className="font-bold text-purple-950 block">
+                <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-200 flex items-start gap-2.5">
+                  <Mail className="w-4 h-4 text-purple-700 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-0.5">
+                    <span className="font-bold text-purple-950 block text-xs">
                       Acesso Seguro e Ativação por E-mail
                     </span>
-                    <p className="text-purple-900/80 leading-relaxed">
-                      Para sua conveniência e proteção, você não precisa definir a senha neste momento. Assim que finalizar este cadastro, um link de ativação será enviado para o seu e-mail para você criar sua senha definitiva com total segurança.
+                    <p className="text-purple-900/80 leading-relaxed text-[11px]">
+                      Você não precisa definir a senha agora. Ao concluir este cadastro, um link de ativação será enviado para o seu e-mail para você criar sua senha definitiva com total segurança.
                     </p>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                   <Link
                     href="/login"
                     className="text-xs text-slate-500 hover:text-purple-600 font-semibold transition-colors"
@@ -514,7 +511,7 @@ function CadastroForm() {
                   <button
                     type="button"
                     onClick={handleNextStep}
-                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
                   >
                     <span>Avançar para Estabelecimento e Endereço</span>
                     <ArrowRight className="w-4 h-4" />
@@ -529,18 +526,18 @@ function CadastroForm() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="space-y-6"
+                className="space-y-4"
               >
-                <div className="border-b border-slate-100 pb-3 flex items-center gap-2">
+                <div className="border-b border-slate-100 pb-2 flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-purple-600" />
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                  <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                     2. Dados do Espaço & Localização
                   </h2>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Nome do Espaço / Salão / Studio *
                     </label>
                     <input
@@ -548,17 +545,16 @@ function CadastroForm() {
                       required
                       value={name}
                       onChange={(e) => handleNameChange(e.target.value)}
-                      placeholder="Ex: Emanuelle Telles Nails"
-                      className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                      className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Link Exclusivo da Vitrine Pública *
                     </label>
-                    <div className="flex items-center rounded-xl bg-slate-50 border border-slate-200 overflow-hidden focus-within:bg-white focus-within:border-purple-600">
-                      <span className="pl-3.5 text-[11px] font-mono text-slate-400 select-none">
+                    <div className="flex items-center rounded-lg bg-slate-50 border border-slate-200 overflow-hidden focus-within:bg-white focus-within:border-purple-600">
+                      <span className="pl-3 text-[11px] font-mono text-slate-400 select-none">
                         marquesuahora.com.br/
                       </span>
                       <input
@@ -566,46 +562,42 @@ function CadastroForm() {
                         required
                         value={slug}
                         onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                        placeholder="meuestudio"
-                        className="w-full py-3 pr-3 bg-transparent text-xs text-slate-900 outline-none font-mono font-bold"
+                        className="w-full py-2 pr-3 bg-transparent text-xs text-slate-900 outline-none font-mono font-bold"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Seletor de Nicho (Sem Default) */}
-                <div className="space-y-2 pt-2">
+                {/* Seletor de Nicho (Sem Default, Layout Compacto) */}
+                <div className="space-y-1.5 pt-1">
                   <div className="flex items-center justify-between">
                     <label className="block text-xs font-semibold text-slate-700">
                       Segmento de Atuação (Opcional)
                     </label>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
                       Opcional
                     </span>
                   </div>
-                  <p className="text-[11px] text-slate-500 leading-relaxed">
-                    Selecione o segmento que melhor representa o seu espaço ou <strong>deixe desmarcado</strong> caso trabalhe com múltiplos serviços sem um nicho fixo.
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
                     {NICHES.map((n) => {
                       const isSelected = niche === n.id;
                       return (
                         <div
                           key={n.id}
                           onClick={() => setNiche((prev) => (prev === n.id ? null : (n.id as BusinessNiche)))}
-                          className={`p-3 rounded-2xl border text-left cursor-pointer transition-all ${
+                          className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
                             isSelected
-                              ? 'border-purple-600 bg-purple-50/70 shadow-xs ring-1 ring-purple-600/30'
+                              ? 'border-purple-600 bg-purple-50/80 shadow-xs ring-1 ring-purple-600/30'
                               : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 hover:border-slate-300'
                           }`}
                         >
-                          <div className="flex items-center justify-between mb-0.5">
-                            <span className={`text-xs font-bold ${isSelected ? 'text-purple-900' : 'text-slate-800'}`}>
+                          <div className="flex items-center justify-between">
+                            <span className={`text-xs font-bold leading-tight ${isSelected ? 'text-purple-900' : 'text-slate-800'}`}>
                               {n.label}
                             </span>
                             {isSelected && <Check className="w-3.5 h-3.5 text-purple-600 shrink-0" />}
                           </div>
-                          <p className="text-[10px] text-slate-500 leading-tight">
+                          <p className="text-[10px] text-slate-500 leading-tight truncate mt-0.5">
                             {n.desc}
                           </p>
                         </div>
@@ -615,17 +607,17 @@ function CadastroForm() {
                 </div>
 
                 {/* SEÇÃO DO ENDEREÇO VIA CEP */}
-                <div className="pt-4 border-t border-slate-100 space-y-4">
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-4 h-4 text-purple-600" />
+                <div className="pt-2 border-t border-slate-100 space-y-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-purple-600" />
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                       Endereço do Estabelecimento
                     </h3>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
                         CEP *
                       </label>
                       <div className="relative">
@@ -639,20 +631,19 @@ function CadastroForm() {
                             }
                           }}
                           onComplete={(raw) => handleSearchCep(raw)}
-                          placeholder="00000-000"
                           required
-                          className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                          className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                         />
                         {loadingCep && (
-                          <div className="absolute right-3 top-3.5">
-                            <Loader2 className="w-4 h-4 animate-spin text-purple-600" />
+                          <div className="absolute right-2.5 top-2.5">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
                           </div>
                         )}
                       </div>
                     </div>
 
                     <div className="sm:col-span-2">
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Rua / Avenida / Logradouro *
                       </label>
                       <input
@@ -660,23 +651,22 @@ function CadastroForm() {
                         required
                         value={addressStreet}
                         onChange={(e) => setAddressStreet(e.target.value)}
-                        placeholder="Ex: Avenida Paulista"
-                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                       />
                     </div>
                   </div>
 
                   {/* Aviso de CEP Único de Município */}
                   {cepNotice && (
-                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 shrink-0 text-amber-600" />
+                    <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
                       <span>{cepNotice}</span>
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Número *
                       </label>
                       <input
@@ -684,26 +674,24 @@ function CadastroForm() {
                         required
                         value={addressNumber}
                         onChange={(e) => setAddressNumber(e.target.value)}
-                        placeholder="100 ou S/N"
-                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Complemento (Opcional)
                       </label>
                       <input
                         type="text"
                         value={addressComplement}
                         onChange={(e) => setAddressComplement(e.target.value)}
-                        placeholder="Sala 2, Bloco B"
-                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Bairro *
                       </label>
                       <input
@@ -711,23 +699,21 @@ function CadastroForm() {
                         required
                         value={addressNeighborhood}
                         onChange={(e) => setAddressNeighborhood(e.target.value)}
-                        placeholder="Centro"
-                        className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                        className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
                         Cidade / UF *
                       </label>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5">
                         <input
                           type="text"
                           required
                           value={addressCity}
                           onChange={(e) => setAddressCity(e.target.value)}
-                          placeholder="Cidade"
-                          className="w-full px-3 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                          className="w-full px-2.5 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
                         />
                         <input
                           type="text"
@@ -735,19 +721,18 @@ function CadastroForm() {
                           maxLength={2}
                           value={addressState}
                           onChange={(e) => setAddressState(e.target.value.toUpperCase())}
-                          placeholder="UF"
-                          className="w-14 px-2 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-800 placeholder-slate-400 focus:bg-white focus:border-purple-600 outline-none transition-all font-mono text-center font-bold"
+                          className="w-12 px-1 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-mono text-center font-bold"
                         />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={handlePrevStep}
-                    className="px-5 py-3 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors flex items-center gap-1.5"
+                    className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors flex items-center gap-1.5"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     <span>Voltar</span>
@@ -756,7 +741,7 @@ function CadastroForm() {
                   <button
                     type="button"
                     onClick={handleNextStep}
-                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
                   >
                     <span>Avançar para Identidade Visual</span>
                     <ArrowRight className="w-4 h-4" />
@@ -771,38 +756,38 @@ function CadastroForm() {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
-                className="space-y-6"
+                className="space-y-4"
               >
-                <div className="border-b border-slate-100 pb-3 flex items-center gap-2">
+                <div className="border-b border-slate-100 pb-2 flex items-center gap-2">
                   <Check className="w-4 h-4 text-purple-600" />
-                  <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                  <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                     3. Identidade da Vitrine & Confirmação
                   </h2>
                 </div>
 
                 {/* Seleção do Tema */}
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <label className="block text-xs font-semibold text-slate-700">
                     Escolha a paleta de cores para a sua vitrine:
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                     {THEMES.map((t) => {
                       const isSelected = themeTemplate === t.id;
                       return (
                         <div
                           key={t.id}
                           onClick={() => handleSelectTheme(t)}
-                          className={`p-3 rounded-2xl border text-center cursor-pointer transition-all ${
+                          className={`p-2 rounded-xl border text-center cursor-pointer transition-all ${
                             isSelected
                               ? 'border-purple-600 bg-purple-50/70 shadow-xs ring-1 ring-purple-600/30'
                               : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:border-slate-300'
                           }`}
                         >
-                          <div className="flex items-center justify-center gap-1.5 mb-2">
-                            <span className="w-4 h-4 rounded-full border border-black/10 shadow-xs" style={{ backgroundColor: t.primary }} />
-                            <span className="w-4 h-4 rounded-full border border-black/10 shadow-xs" style={{ backgroundColor: t.accent }} />
+                          <div className="flex items-center justify-center gap-1.5 mb-1">
+                            <span className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs" style={{ backgroundColor: t.primary }} />
+                            <span className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs" style={{ backgroundColor: t.accent }} />
                           </div>
-                          <span className="text-[11px] font-bold block truncate text-slate-800">
+                          <span className="text-[10px] font-bold block truncate text-slate-800">
                             {t.name}
                           </span>
                         </div>
@@ -812,22 +797,22 @@ function CadastroForm() {
                 </div>
 
                 {/* Upload de Logotipo Opcional */}
-                <div className="pt-2">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                <div className="pt-1">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
                     Logotipo do Estabelecimento (Opcional)
                   </label>
                   <div className="flex items-center gap-3">
                     {logoUrl ? (
-                      <div className="w-14 h-14 rounded-2xl border border-slate-200 overflow-hidden relative shrink-0">
+                      <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden relative shrink-0">
                         <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
                       </div>
                     ) : (
-                      <div className="w-14 h-14 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 text-xs font-bold shrink-0">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 text-[10px] font-bold shrink-0">
                         LOGO
                       </div>
                     )}
                     <div className="flex items-center gap-2">
-                      <label className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition-colors">
+                      <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors">
                         <span>{logoUrl ? 'Trocar Logo' : 'Enviar Imagem'}</span>
                         <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
                       </label>
@@ -835,7 +820,7 @@ function CadastroForm() {
                         <button
                           type="button"
                           onClick={() => setLogoUrl('')}
-                          className="px-3 py-2 bg-rose-50 text-rose-600 rounded-xl text-xs font-semibold hover:bg-rose-100 transition-colors"
+                          className="px-2.5 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold hover:bg-rose-100 transition-colors"
                         >
                           Remover
                         </button>
@@ -845,11 +830,11 @@ function CadastroForm() {
                 </div>
 
                 {/* Card de Resumo das Informações */}
-                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5 text-xs">
-                  <span className="font-bold text-slate-900 uppercase tracking-wider text-[11px] block border-b border-slate-200 pb-1.5">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+                  <span className="font-bold text-slate-900 uppercase tracking-wider text-[10px] block border-b border-slate-200 pb-1">
                     Resumo do Cadastro
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700 text-[11px]">
                     <div>
                       <span className="text-slate-400 block text-[10px]">Responsável:</span>
                       <strong>{ownerName}</strong> ({ownerEmail})
@@ -870,12 +855,12 @@ function CadastroForm() {
                 </div>
 
                 {/* Botões Finais de Envio */}
-                <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={handlePrevStep}
                     disabled={isLoading}
-                    className="px-5 py-3 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors flex items-center gap-1.5"
+                    className="px-4 py-2 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors flex items-center gap-1.5"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     <span>Voltar</span>
@@ -884,7 +869,7 @@ function CadastroForm() {
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="px-8 py-3.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-lg shadow-purple-600/30 hover:shadow-xl transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
+                    className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs shadow-md shadow-purple-600/30 hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-98"
                   >
                     {isLoading ? (
                       <>
@@ -893,7 +878,7 @@ function CadastroForm() {
                       </>
                     ) : (
                       <>
-                        <span>Concluir Cadastro e Enviar Acesso</span>
+                        <span>Concluir Cadastro</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
