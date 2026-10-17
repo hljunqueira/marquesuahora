@@ -1,0 +1,150 @@
+services:
+  # ------------------------------------------------------------------------------
+  # 1. BANCO DE DADOS PRINCIPAL (PostgreSQL 16)
+  # ------------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: marquesuahora-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-marquesuahora}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-VS_nMw5Fsv97nNfmT04xbQp8PbfJbMdF}
+      POSTGRES_DB: ${POSTGRES_DB:-marquesuahora_db}
+    ports:
+      - "127.0.0.1:5437:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-marquesuahora} -d ${POSTGRES_DB:-marquesuahora_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marquesuahora-net
+
+  # ------------------------------------------------------------------------------
+  # 2. CACHE & FILAS BULLMQ (Redis 7)
+  # ------------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: marquesuahora-redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-8c584b308c8777897fb6a5ccbab77a7827966554c0507c6e1ec858580ad3ebe4}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-8c584b308c8777897fb6a5ccbab77a7827966554c0507c6e1ec858580ad3ebe4}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marquesuahora-net
+
+  # ------------------------------------------------------------------------------
+  # 3. GATEWAY WHATSAPP MULTI-TENANT (Evolution API v2.3.6)
+  # ------------------------------------------------------------------------------
+  evolution:
+    image: evoapicloud/evolution-api:v2.3.6
+    container_name: marquesuahora-evolution
+    restart: always
+    ports:
+      - "0.0.0.0:3042:8080"
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: ${EVOLUTION_API_URL:-http://localhost:3042}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_GLOBAL_KEY:-msh_evolution_master_key_2026}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_CLIENT: postgresql
+      DATABASE_CONNECTION_URI: "postgresql://${POSTGRES_USER:-marquesuahora}:${POSTGRES_PASSWORD:-VS_nMw5Fsv97nNfmT04xbQp8PbfJbMdF}@postgres:5432/${POSTGRES_DB:-marquesuahora_db}?schema=evolution"
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      REDIS_ENABLED: "false"
+      CONFIG_SESSION_PHONE_CLIENT: "MarqueSuaHora"
+      CONFIG_SESSION_PHONE_NAME: "Chrome"
+      DEL_INSTANCE_ON_DISCONNECT: "false"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - marquesuahora-net
+
+  # ------------------------------------------------------------------------------
+  # 4. BACKEND API (Fastify + Prisma + BullMQ)
+  # ------------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: marquesuahora-api
+    restart: always
+    ports:
+      - "0.0.0.0:3041:3333"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3333
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-marquesuahora}:${POSTGRES_PASSWORD:-VS_nMw5Fsv97nNfmT04xbQp8PbfJbMdF}@postgres:5432/${POSTGRES_DB:-marquesuahora_db}?schema=public"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-8c584b308c8777897fb6a5ccbab77a7827966554c0507c6e1ec858580ad3ebe4}@redis:6379"
+      EVOLUTION_API_URL: "http://evolution:8080"
+      EVOLUTION_GLOBAL_KEY: ${EVOLUTION_GLOBAL_KEY:-msh_evolution_master_key_2026}
+      API_URL: "https://api.marquesuahora.com.br"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      evolution:
+        condition: service_started
+    networks:
+      - marquesuahora-net
+
+  # ------------------------------------------------------------------------------
+  # 5. FRONTEND WEB (Next.js 14 Standalone)
+  # ------------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: marquesuahora-web
+    restart: always
+    ports:
+      - "0.0.0.0:3040:3000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API_URL: "https://api.marquesuahora.com.br"
+      NEXT_PUBLIC_APP_URL: "https://marquesuahora.com.br"
+    depends_on:
+      - api
+    networks:
+      - marquesuahora-net
+
+volumes:
+  postgres_data:
+    name: marquesuahora_postgres_data
+  redis_data:
+    name: marquesuahora_redis_data
+  evolution_instances:
+    name: marquesuahora_evolution_instances
+  evolution_store:
+    name: marquesuahora_evolution_store
+
+networks:
+  marquesuahora-net:
+    name: marquesuahora-network
+    driver: bridge

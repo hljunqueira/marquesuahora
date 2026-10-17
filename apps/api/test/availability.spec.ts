@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AvailabilityService } from '../src/modules/schedules/availability.service';
 import { prisma } from '../src/lib/prisma';
-import { ScheduleStatus } from '@prisma/client';
+
+// Testes unitários do motor de disponibilidade com Prisma mockado
 
 // Mock do Prisma
 vi.mock('../src/lib/prisma', () => ({
@@ -13,6 +14,15 @@ vi.mock('../src/lib/prisma', () => ({
       findMany: vi.fn()
     },
     professional: {
+      findMany: vi.fn()
+    },
+    availabilityRule: {
+      findMany: vi.fn()
+    },
+    scheduleBlock: {
+      findMany: vi.fn()
+    },
+    schedule: {
       findMany: vi.fn()
     }
   }
@@ -40,7 +50,7 @@ describe('AvailabilityService - Motor de Cálculo de Horários Disponíveis', ()
     expect(result.slots.morning).toHaveLength(0);
   });
 
-  it('deve calcular slots corretamente considerando expediente, buffer e almoço do profissional', async () => {
+  it('deve calcular slots corretamente considerando AvailabilityRule, bloqueios e agendamentos existentes', async () => {
     (prisma.tenant.findUnique as any).mockResolvedValue({
       id: mockTenantId,
       openingTime: '09:00',
@@ -62,32 +72,35 @@ describe('AvailabilityService - Motor de Cálculo de Horários Disponíveis', ()
     (prisma.professional.findMany as any).mockResolvedValue([
       {
         id: 'prof-1',
-        name: 'Carlos Barbeiro',
-        scheduleConfig: {
-          thu: {
-            isOff: false,
-            start: '09:00',
-            end: '18:00',
-            lunchStart: '12:00',
-            lunchEnd: '13:00'
-          }
-        },
-        scheduleBlocks: [
-          // Bloqueio das 15:00 às 16:00 (ex: dentista)
-          { startTime: '15:00', endTime: '16:00' }
-        ],
-        schedules: [
-          // Agendamento das 10:00 às 11:00
-          {
-            startTime: '10:00',
-            endTime: '11:00',
-            status: ScheduleStatus.CONFIRMED
-          }
-        ]
+        name: 'Carlos Barbeiro'
       }
     ]);
 
-    // Data futura garantida (Quinta-feira, 2026-10-15)
+    // Regra semanal de atendimento (09:00 às 18:00)
+    (prisma.availabilityRule.findMany as any).mockResolvedValue([
+      {
+        startTime: '09:00',
+        endTime: '18:00',
+        professionalId: 'prof-1'
+      }
+    ]);
+
+    // Bloqueios: Almoço das 12:00 às 13:00 e Dentista das 15:00 às 16:00
+    (prisma.scheduleBlock.findMany as any).mockResolvedValue([
+      { startTime: '12:00', endTime: '13:00', professionalId: 'prof-1' },
+      { startTime: '15:00', endTime: '16:00', professionalId: 'prof-1' }
+    ]);
+
+    // Agendamento existente das 10:00 às 11:00
+    (prisma.schedule.findMany as any).mockResolvedValue([
+      {
+        startTime: '10:00',
+        endTime: '11:00',
+        professionalId: 'prof-1'
+      }
+    ]);
+
+    // Data futura garantida (2026-10-15)
     const result = await AvailabilityService.getAvailableSlots({
       tenantId: mockTenantId,
       serviceIds: [mockServiceId],
@@ -95,16 +108,6 @@ describe('AvailabilityService - Motor de Cálculo de Horários Disponíveis', ()
     });
 
     expect(result.isOpen).toBe(true);
-    // Esperado:
-    // 09:00 (Livre)
-    // 10:00 (Ocupado por agendamento existente) -> não deve constar
-    // 11:00 (Livre)
-    // 12:00 (Almoço 12h-13h) -> não deve constar
-    // 13:00 (Livre)
-    // 14:00 (Livre)
-    // 15:00 (Bloqueio manual ScheduleBlock) -> não deve constar
-    // 16:00 (Livre)
-    // 17:00 (Livre, termina 18:00)
 
     const allTimes = [
       ...result.slots.morning.map((s) => s.time),
@@ -113,24 +116,22 @@ describe('AvailabilityService - Motor de Cálculo de Horários Disponíveis', ()
     ];
 
     expect(allTimes).toContain('09:00');
-    expect(allTimes).not.toContain('10:00');
+    expect(allTimes).not.toContain('10:00'); // Conflito com agendamento
     expect(allTimes).toContain('11:00');
-    expect(allTimes).not.toContain('12:00');
+    expect(allTimes).not.toContain('12:00'); // Conflito com almoço
     expect(allTimes).toContain('13:00');
     expect(allTimes).toContain('14:00');
-    expect(allTimes).not.toContain('15:00');
+    expect(allTimes).not.toContain('15:00'); // Conflito com bloqueio
     expect(allTimes).toContain('16:00');
     expect(allTimes).toContain('17:00');
     expect(result.totalSlots).toBe(6);
   });
 
-  it('deve respeitar dia de folga do profissional (isOff = true)', async () => {
+  it('deve retornar zero slots se não houver profissionais aptos ou regras de atendimento', async () => {
     (prisma.tenant.findUnique as any).mockResolvedValue({
       id: mockTenantId,
-      openingTime: '09:00',
-      closingTime: '18:00',
-      slotIntervalMinutes: 30,
-      bufferMinutes: 0
+      openingTime: '00:00',
+      closingTime: '00:00'
     });
 
     (prisma.service.findMany as any).mockResolvedValue([
@@ -142,22 +143,12 @@ describe('AvailabilityService - Motor de Cálculo de Horários Disponíveis', ()
       }
     ]);
 
-    (prisma.professional.findMany as any).mockResolvedValue([
-      {
-        id: 'prof-1',
-        name: 'Carlos Barbeiro',
-        scheduleConfig: {
-          thu: { isOff: true } // Folga na quinta
-        },
-        scheduleBlocks: [],
-        schedules: []
-      }
-    ]);
+    (prisma.professional.findMany as any).mockResolvedValue([]);
 
     const result = await AvailabilityService.getAvailableSlots({
       tenantId: mockTenantId,
       serviceIds: [mockServiceId],
-      dateStr: '2026-10-15' // Quinta
+      dateStr: '2026-10-15'
     });
 
     expect(result.isOpen).toBe(true);

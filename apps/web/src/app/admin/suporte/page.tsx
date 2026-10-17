@@ -42,7 +42,7 @@ export default function AdminSuportePage() {
       protocol: '#TK-2026-0842',
       tenantName: 'Salão Imperial & Spa',
       tenantNiche: 'BEAUTY_SALON',
-      tenantPlan: 'EQUIPE_PRO',
+      tenantPlan: 'FREE',
       ownerName: 'Mariana Esteves',
       ownerPhone: '11987654321',
       subject: 'Configuração de Sinal PIX para Sábados',
@@ -103,10 +103,10 @@ export default function AdminSuportePage() {
       {/* Header */}
       <div className="flex items-center justify-between shrink-0">
         <div>
-          <h1 className="text-2xl font-display font-bold text-white tracking-tight">
+          <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
             Central de Atendimento & Chamados
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-slate-500 mt-0.5">
             Suporte às lojas com checklist operacional e notas internas privadas.
           </p>
         </div>
@@ -114,8 +114,8 @@ export default function AdminSuportePage() {
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-0">
         {/* Coluna 1: Lista de Chamados */}
-        <div className="bg-[#0F172A] rounded-3xl border border-white/5 p-4 flex flex-col overflow-y-auto space-y-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-2 px-2">
+        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-4 flex flex-col overflow-y-auto space-y-2">
+          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2 px-2">
             Chamados Abertos ({tickets.length})
           </span>
 
@@ -128,60 +128,60 @@ export default function AdminSuportePage() {
                 onClick={() => setSelectedTicket(t)}
                 className={`w-full p-4 rounded-2xl border text-left transition-all ${
                   isSelected
-                    ? 'bg-amber-500/10 border-amber-500/40 shadow-sm'
-                    : 'bg-slate-900/60 border-white/5 hover:border-white/10'
+                    ? 'bg-purple-50/80 border-purple-300 shadow-2xs'
+                    : 'bg-slate-50/70 border-slate-200/70 hover:bg-slate-100/70'
                 }`}
               >
                 <div className="flex items-center justify-between gap-1 mb-1.5">
-                  <span className="text-[10px] font-mono font-bold text-amber-400">
+                  <span className="text-[10px] font-mono font-bold text-purple-700">
                     {t.protocol}
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase bg-rose-50 text-rose-700 border border-rose-200/60">
                     {t.priority}
                   </span>
                 </div>
 
-                <strong className="text-sm font-bold text-white block mb-0.5">
+                <strong className="text-sm font-bold text-slate-900 block mb-0.5">
                   {t.subject}
                 </strong>
-                <span className="text-xs text-slate-400 block">{t.tenantName}</span>
+                <span className="text-xs text-slate-500 block">{t.tenantName}</span>
               </button>
             );
           })}
         </div>
 
         {/* Coluna 2: Chat & Detalhes da Loja */}
-        <div className="bg-[#0F172A] rounded-3xl border border-white/5 p-4 flex flex-col justify-between overflow-hidden">
+        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-4 flex flex-col justify-between overflow-hidden">
           {/* Topo da Loja */}
-          <div className="pb-3 border-b border-white/10 flex items-center justify-between shrink-0">
+          <div className="pb-3 border-b border-slate-100 flex items-center justify-between shrink-0">
             <div>
               <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-amber-400" />
-                <h3 className="text-sm font-bold text-white">
+                <Building2 className="w-4 h-4 text-purple-600" />
+                <h3 className="text-sm font-bold text-slate-900">
                   {selectedTicket.tenantName}
                 </h3>
               </div>
-              <span className="text-[11px] text-slate-400 block mt-0.5">
+              <span className="text-[11px] text-slate-500 block mt-0.5">
                 Dono: {selectedTicket.ownerName} ({selectedTicket.ownerPhone}) • Plano: {selectedTicket.tenantPlan}
               </span>
             </div>
 
-            <span className="text-[10px] font-mono font-bold px-2 py-1 rounded bg-slate-800 text-slate-300">
+            <span className="text-[10px] font-mono font-bold px-2 py-1 rounded bg-slate-100 text-slate-700">
               {selectedTicket.status}
             </span>
           </div>
 
           {/* Histórico Simulado */}
           <div className="flex-1 py-4 overflow-y-auto space-y-3 text-xs">
-            <div className="p-3.5 bg-slate-900 rounded-2xl border border-white/5 text-slate-300">
-              <span className="text-[10px] text-slate-500 font-semibold block mb-1">
+            <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 text-slate-700">
+              <span className="text-[10px] text-slate-400 font-semibold block mb-1">
                 {selectedTicket.ownerName} • 10:05
               </span>
               <p>Olá! Gostaria de tirar uma dúvida sobre como configurar a cobrança de sinal via PIX para sábados.</p>
             </div>
 
-            <div className="p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-2xl text-slate-200">
-              <span className="text-[10px] text-amber-400 font-semibold block mb-1">
+            <div className="p-3.5 bg-purple-50 border border-purple-200/80 rounded-2xl text-purple-950">
+              <span className="text-[10px] text-purple-700 font-semibold block mb-1">
                 Equipe Super Admin • 10:08
               </span>
               <p>Você pode ativar o sinal em Configurações &rarr; Sinal &amp; No-Show, definindo o valor fixo ou percentual.</p>
@@ -194,18 +194,18 @@ export default function AdminSuportePage() {
               e.preventDefault();
               setReplyMessage('');
             }}
-            className="pt-3 border-t border-white/10 flex items-center gap-2 shrink-0"
+            className="pt-3 border-t border-slate-100 flex items-center gap-2 shrink-0"
           >
             <input
               type="text"
               value={replyMessage}
               onChange={(e) => setReplyMessage(e.target.value)}
               placeholder="Responder ao salão..."
-              className="flex-1 px-3.5 py-2.5 text-xs bg-slate-900 border border-white/10 rounded-xl outline-none focus:border-amber-500 text-white"
+              className="flex-1 px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900 placeholder-slate-400"
             />
             <button
               type="submit"
-              className="p-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl shadow-md transition-all"
+              className="p-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-xs transition-all"
             >
               <Send className="w-4 h-4" />
             </button>
@@ -213,23 +213,23 @@ export default function AdminSuportePage() {
         </div>
 
         {/* Coluna 3: Checklist Operacional (TicketTask) & Notas Privadas */}
-        <div className="bg-[#0F172A] rounded-3xl border border-white/5 p-5 flex flex-col justify-between overflow-y-auto space-y-5">
+        <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xs p-5 flex flex-col justify-between overflow-y-auto space-y-5">
           {/* Checklist Operacional Dinâmica */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-purple-700 flex items-center gap-1.5">
                 <CheckSquare className="w-4 h-4" />
                 <span>Checklist Operacional</span>
               </h3>
-              <span className="text-xs font-mono font-bold text-white">
+              <span className="text-xs font-mono font-bold text-slate-900">
                 {progressPercent}%
               </span>
             </div>
 
             {/* Barra de Progresso */}
-            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-4">
+            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mb-4">
               <div
-                className="h-full bg-amber-500 transition-all duration-300"
+                className="h-full bg-purple-600 transition-all duration-300"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
@@ -240,16 +240,16 @@ export default function AdminSuportePage() {
                   key={task.id}
                   type="button"
                   onClick={() => toggleTask(task.id)}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left text-xs hover:bg-slate-900/60 transition-colors"
+                  className="w-full flex items-start gap-2.5 p-2 rounded-xl text-left text-xs hover:bg-slate-50 transition-colors"
                 >
                   {task.completed ? (
-                    <CheckSquare className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    <CheckSquare className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
                   ) : (
-                    <Square className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+                    <Square className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                   )}
                   <span
                     className={`${
-                      task.completed ? 'line-through text-slate-500' : 'text-slate-300'
+                      task.completed ? 'line-through text-slate-400' : 'text-slate-700'
                     }`}
                   >
                     {task.title}
@@ -265,11 +265,11 @@ export default function AdminSuportePage() {
                 placeholder="+ Nova tarefa no checklist..."
                 value={newTaskTitle}
                 onChange={(e) => setNewTaskTitle(e.target.value)}
-                className="flex-1 px-3 py-1.5 text-xs bg-slate-900 border border-white/10 rounded-lg outline-none text-white placeholder-slate-500"
+                className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none text-slate-900 placeholder-slate-400 focus:border-purple-600"
               />
               <button
                 type="submit"
-                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs"
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs"
               >
                 <Plus className="w-3.5 h-3.5" />
               </button>
@@ -277,9 +277,9 @@ export default function AdminSuportePage() {
           </div>
 
           {/* Notas Privadas Internas */}
-          <div className="pt-4 border-t border-white/10">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-2">
-              <Lock className="w-3.5 h-3.5 text-amber-400" />
+          <div className="pt-4 border-t border-slate-100">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mb-2">
+              <Lock className="w-3.5 h-3.5 text-purple-600" />
               <span>Notas Privadas (Invisíveis ao Cliente)</span>
             </span>
 
@@ -287,7 +287,7 @@ export default function AdminSuportePage() {
               rows={3}
               value={internalNotes}
               onChange={(e) => setInternalNotes(e.target.value)}
-              className="w-full p-3 text-xs bg-slate-900 border border-white/10 rounded-xl outline-none focus:border-amber-500 text-slate-300 resize-none"
+              className="w-full p-3 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-800 resize-none"
             />
           </div>
         </div>

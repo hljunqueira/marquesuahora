@@ -28,11 +28,9 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
     }
 
     const { tenant, client, professional, service } = schedule;
-    const formattedDate = new Date(schedule.date).toLocaleDateString('pt-BR', {
-      weekday: 'long',
-      day: '2-digit',
-      month: '2-digit'
-    });
+    const dateStr = schedule.date instanceof Date ? schedule.date.toISOString().slice(0, 10) : String(schedule.date).slice(0, 10);
+    const [year, month, day] = dateStr.split('-');
+    const formattedDate = `${day}/${month}/${year}`;
 
     if (type === 'IMMEDIATE_CONFIRMATION') {
       const addressDisplay = tenant.addressStreet

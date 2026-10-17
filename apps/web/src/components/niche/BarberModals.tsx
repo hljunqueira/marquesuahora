@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, Scissors, Clock, Plus, X, UserCheck } from 'lucide-react';
+import { Scissors, Clock, Plus, X, UserCheck } from 'lucide-react';
 
 interface BarberExpressUpsellModalProps {
   isOpen: boolean;

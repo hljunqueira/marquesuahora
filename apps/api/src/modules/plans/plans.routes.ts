@@ -1,15 +1,25 @@
 import { FastifyPluginAsync } from 'fastify';
 import { createPlanSchema, updatePlanSchema } from '@marquesuahora/shared';
 import { prisma } from '../../lib/prisma';
+import { PlansService } from './plans.service';
 import { Role } from '@prisma/client';
 
 export const plansRoutes: FastifyPluginAsync = async (app) => {
   // Listagem pública de planos ativos (para Landing Page, Onboarding e Upgrade)
   app.get('/', async (_request, reply) => {
-    const plans = await prisma.plan.findMany({
+    let plans = await prisma.plan.findMany({
       where: { active: true },
       orderBy: { monthlyPrice: 'asc' }
     });
+
+    if (plans.length === 0) {
+      await PlansService.ensureDefaultPlans();
+      plans = await prisma.plan.findMany({
+        where: { active: true },
+        orderBy: { monthlyPrice: 'asc' }
+      });
+    }
+
     return reply.send(plans);
   });
 

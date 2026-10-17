@@ -5,12 +5,17 @@ import { prisma } from '../../lib/prisma';
 const serviceInputSchema = z.object({
   name: z.string().min(2, 'O nome do serviço é obrigatório.'),
   category: z.string().default('Geral'),
-  description: z.string().max(500).optional().nullable(),
+  description: z.string().max(1000).optional().nullable(),
   price: z.number().min(0, 'O preço não pode ser negativo.'),
   durationMinutes: z.number().int().min(5, 'A duração mínima é de 5 minutos.'),
   allowOnlineBooking: z.boolean().default(true),
   serviceType: z.string().default('STANDARD'),
-  resourceId: z.string().uuid().optional().nullable()
+  resourceId: z.string().uuid().optional().nullable(),
+  processingMinutes: z.number().int().min(0).default(0),
+  finishingMinutes: z.number().int().min(0).default(0),
+  photos: z.array(z.string()).default([]),
+  requiresRemovalCheck: z.boolean().default(false),
+  intakeWarning: z.string().optional().nullable()
 });
 
 export const servicesRoutes: FastifyPluginAsync = async (app) => {
@@ -63,7 +68,12 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         durationMinutes: data.durationMinutes,
         allowOnlineBooking: data.allowOnlineBooking,
         serviceType: data.serviceType,
-        resourceId: data.resourceId || null
+        resourceId: data.resourceId || null,
+        processingMinutes: data.processingMinutes,
+        finishingMinutes: data.finishingMinutes,
+        photos: data.photos,
+        requiresRemovalCheck: data.requiresRemovalCheck,
+        intakeWarning: data.intakeWarning
       }
     });
 
@@ -106,7 +116,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(updated);
   });
 
-  // DELETE /services/:id - Desativar da vitrine
+  // DELETE /services/:id - Excluir serviço ou desativar da vitrine se tiver histórico
   app.delete('/:id', async (request, reply) => {
     const tenantId = request.user.tenantId;
     if (!tenantId) {
@@ -115,11 +125,30 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
 
     const { id } = request.params as { id: string };
 
-    await prisma.service.updateMany({
+    const service = await prisma.service.findFirst({
       where: { id, tenantId },
-      data: { allowOnlineBooking: false }
+      include: {
+        _count: {
+          select: { schedules: true }
+        }
+      }
     });
 
-    return reply.send({ message: 'Serviço desativado da vitrine com sucesso.' });
+    if (!service) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Serviço não encontrado.' });
+    }
+
+    if (service._count.schedules === 0) {
+      await prisma.service.delete({
+        where: { id }
+      });
+      return reply.send({ message: 'Serviço excluído com sucesso.' });
+    } else {
+      await prisma.service.update({
+        where: { id },
+        data: { allowOnlineBooking: false }
+      });
+      return reply.send({ message: 'Serviço desativado da vitrine pois possui agendamentos associados.' });
+    }
   });
 };

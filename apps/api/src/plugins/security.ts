@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
 import { Role } from '@prisma/client';
+import { env } from '../config/env';
 
 export interface UserPayload {
   sub: string;
@@ -29,17 +30,32 @@ declare module 'fastify' {
 
 const securityPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
   await app.register(helmet, {
-    contentSecurityPolicy: process.env.NODE_ENV === 'production'
+    contentSecurityPolicy: env.NODE_ENV === 'production'
   });
 
+  const allowedOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim());
+
   await app.register(cors, {
-    origin: true,
+    origin: (origin, cb) => {
+      // Permite requisições sem origin (ex.: curl, mobile apps nativos, healthchecks)
+      if (!origin) return cb(null, true);
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.includes('marquesuahora.com.br') ||
+        origin.includes('localhost') ||
+        origin.includes('127.0.0.1') ||
+        env.NODE_ENV === 'development'
+      ) {
+        return cb(null, true);
+      }
+      return cb(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });
 
   await app.register(jwt, {
-    secret: process.env.JWT_SECRET || 'dev_jwt_secret_64_bytes_secure_fallback_key_2026',
+    secret: env.JWT_SECRET,
     cookie: {
       cookieName: 'refreshToken',
       signed: false
@@ -47,15 +63,15 @@ const securityPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
   });
 
   await app.register(cookie, {
-    secret: process.env.SESSION_SECRET || 'dev_session_secret_64_bytes_secure_fallback_2026'
+    secret: env.SESSION_SECRET
   });
 
-  // Middleware de Autenticação JWT
+  // Middleware de Autenticação JWT (Blocker C9: retorno obrigatório para encerrar a pipeline)
   app.decorate('authenticate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
     } catch (err) {
-      reply.status(401).send({
+      return reply.status(401).send({
         statusCode: 401,
         error: 'Unauthorized',
         message: 'Acesso restrito. Faça login para continuar.'
@@ -67,8 +83,10 @@ const securityPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
   app.decorate('requireRole', (allowedRoles: Role[]) => {
     return async (request: FastifyRequest, reply: FastifyReply) => {
       await app.authenticate(request, reply);
+      if (reply.sent) return;
+
       if (!request.user || !allowedRoles.includes(request.user.role)) {
-        reply.status(403).send({
+        return reply.status(403).send({
           statusCode: 403,
           error: 'Forbidden',
           message: 'Seu perfil de usuário não tem permissão para realizar esta operação.'

@@ -1,18 +1,23 @@
 import { FastifyPluginAsync } from 'fastify';
-import crypto from 'node:crypto';
 import { prisma } from '../../lib/prisma';
-import { createBookingSchema, joinWaitlistSchema } from '@marquesuahora/shared';
-import { ScheduleStatus, WaitlistStatus } from '@prisma/client';
+import { BookingService } from '../schedules/booking.service';
+import { AvailabilityService } from '../schedules/availability.service';
+import { ScheduleStatus } from '@prisma/client';
 import { whatsappQueue } from '../automation/queues';
+import { z } from 'zod';
+
+// Rotas públicas do tenant: vitrine, agendamento online e cursos livres
 
 export const publicRoutes: FastifyPluginAsync = async (app) => {
-  // GET /public/showcase/:slug - Carrega todos os dados da vitrine pública do estabelecimento
-  app.get('/showcase/:slug', async (request, reply) => {
-    const { slug } = request.params as { slug: string };
-
+  // GET /showcase/:slug ou /:slug - Dados completos da vitrine pública e link na bio
+  const handleShowcase = async (slug: string, reply: any) => {
     const tenant = await prisma.tenant.findUnique({
       where: { slug: slug.toLowerCase() },
       include: {
+        categories: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' }
+        },
         services: {
           where: { allowOnlineBooking: true },
           orderBy: [{ category: 'asc' }, { name: 'asc' }],
@@ -24,6 +29,17 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             services: { select: { serviceId: true } }
           },
           orderBy: { name: 'asc' }
+        },
+        courses: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            price: true,
+            coverUrl: true
+          }
         }
       }
     });
@@ -42,7 +58,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    // Calcula se está aberto no momento exato (Horário de Brasília)
     const now = new Date();
     const currentHours = now.getHours();
     const currentMins = now.getMinutes();
@@ -70,17 +85,29 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       logoUrl: tenant.logoUrl,
       googleReviewUrl: tenant.googleReviewUrl,
       instagramUrl: tenant.instagramUrl,
+      description: tenant.description,
       terminology: tenant.terminology,
-      depositRequired: tenant.depositRequired,
-      depositType: tenant.depositType,
-      depositAmount: Number(tenant.depositAmount),
       openingTime: tenant.openingTime,
       closingTime: tenant.closingTime,
       isOpenNow,
+      depositRequired: tenant.depositRequired,
+      depositType: tenant.depositType,
+      depositAmount: Number(tenant.depositAmount),
+      // PIX Direto do Salão
+      pixKey: tenant.pixKey,
+      pixKeyType: tenant.pixKeyType,
+      pixKeyHolder: tenant.pixKeyHolder,
+      categories: tenant.categories.map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        sortOrder: c.sortOrder
+      })),
       services: tenant.services.map((s) => ({
         id: s.id,
         name: s.name,
         category: s.category,
+        categoryId: s.categoryId,
         description: s.description,
         price: Number(s.price),
         durationMinutes: s.durationMinutes,
@@ -94,176 +121,180 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         phone: p.phone,
         color: p.color,
         serviceIds: p.services.map((s) => s.serviceId)
+      })),
+      courses: tenant.courses.map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        price: c.price ? Number(c.price) : null,
+        coverUrl: c.coverUrl
       }))
     });
+  };
+
+  app.get('/showcase/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleShowcase(slug, reply);
   });
 
-  // POST /public/booking/:slug - Agendamento direto sem login obrigatório (zero fricção)
-  app.post('/booking/:slug', async (request, reply) => {
+  app.get('/:slug', async (request, reply) => {
     const { slug } = request.params as { slug: string };
-    const data = createBookingSchema.parse(request.body);
+    return handleShowcase(slug, reply);
+  });
+
+  // GET /public/:slug/slots ou /public/slots/:slug - Cálculo determinístico de horários livres
+  const handleSlots = async (slug: string, query: any, reply: any) => {
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: slug.toLowerCase() },
+      select: { id: true, billingStatus: true }
+    });
+
+    if (!tenant) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não encontrado.' });
+    }
+
+    if (tenant.billingStatus === 'BLOCKED' || tenant.billingStatus === 'CANCELLED') {
+      return reply.status(403).send({ error: 'Indisponível', message: 'Estabelecimento temporariamente indisponível.' });
+    }
+
+    const rawServiceIds = query.serviceIds;
+    let serviceIds: string[] = [];
+    if (Array.isArray(rawServiceIds)) {
+      serviceIds = rawServiceIds.filter(Boolean);
+    } else if (typeof rawServiceIds === 'string') {
+      serviceIds = rawServiceIds.split(',').filter(Boolean);
+    }
+
+    if (serviceIds.length === 0 || !query.date) {
+      return reply.send({
+        date: query.date || '',
+        isOpen: false,
+        totalSlots: 0,
+        slots: { morning: [], afternoon: [], night: [] }
+      });
+    }
+
+    const availability = await AvailabilityService.getAvailableSlots({
+      tenantId: tenant.id,
+      serviceIds,
+      dateStr: query.date,
+      professionalId: query.professionalId || undefined
+    });
+
+    return reply.send(availability);
+  };
+
+  app.get('/:slug/slots', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleSlots(slug, request.query, reply);
+  });
+
+  app.get('/slots/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleSlots(slug, request.query, reply);
+  });
+
+  // Schema de Agendamento Público
+  const bookingBodySchema = z.object({
+    serviceId: z.string().optional(),
+    serviceIds: z.array(z.string()).optional(),
+    additionalServices: z.array(z.any()).optional(),
+    professionalId: z.string().optional(),
+    date: z.string().optional(),
+    dateStr: z.string().optional(),
+    startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Horário deve estar no formato HH:mm.'),
+    clientName: z.string().min(2, 'Nome é obrigatório.'),
+    clientPhone: z.string().min(10, 'Telefone com DDD é obrigatório.'),
+    clientEmail: z.string().email().optional().or(z.literal('')),
+    notes: z.string().optional(),
+    couponCode: z.string().optional()
+  });
+
+  // Validação de Cupom no Checkout da Vitrine Pública
+  const handleValidateCoupon = async (slug: string, body: any, reply: any) => {
+    const { code, totalAmount } = z.object({
+      code: z.string().min(1, 'Código do cupom é obrigatório.'),
+      totalAmount: z.number().min(0).default(0)
+    }).parse(body);
 
     const tenant = await prisma.tenant.findUnique({
-      where: { slug: slug.toLowerCase() }
+      where: { slug: slug.toLowerCase() },
+      select: { id: true }
     });
 
-    if (!tenant || tenant.billingStatus === 'BLOCKED' || tenant.billingStatus === 'CANCELLED') {
-      return reply.status(403).send({
-        error: 'Indisponível',
-        message: 'Este estabelecimento não pode receber agendamentos no momento.'
-      });
+    if (!tenant) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não encontrado.' });
     }
 
-    // Busca serviço principal
-    const mainService = await prisma.service.findUnique({
-      where: { id: data.serviceId }
-    });
-
-    if (!mainService || !mainService.allowOnlineBooking || mainService.tenantId !== tenant.id) {
-      return reply.status(400).send({
-        error: 'Inválido',
-        message: 'O serviço selecionado não está disponível para agendamento online.'
-      });
-    }
-
-    let totalDurationMinutes = mainService.durationMinutes + (tenant.bufferMinutes || 0);
-    let totalPrice = Number(mainService.price);
-
-    if (data.additionalServices && data.additionalServices.length > 0) {
-      for (const extra of data.additionalServices) {
-        totalDurationMinutes += extra.durationMinutes;
-        totalPrice += extra.price;
-      }
-    }
-
-    const targetDate = new Date(`${data.date}T00:00:00`);
-    const [sh, sm] = data.startTime.split(':').map(Number);
-    const startMins = sh * 60 + sm;
-    const endMins = startMins + totalDurationMinutes;
-    const endH = Math.floor(endMins / 60);
-    const endM = endMins % 60;
-    const endTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
-
-    // Upsert do Cliente por Telefone
-    const client = await prisma.client.upsert({
+    const cleanCode = code.trim().toUpperCase();
+    const coupon = await prisma.coupon.findUnique({
       where: {
-        tenantId_phone: {
+        tenantId_code: {
           tenantId: tenant.id,
-          phone: data.clientPhone
+          code: cleanCode
         }
-      },
-      create: {
-        tenantId: tenant.id,
-        name: data.clientName,
-        phone: data.clientPhone,
-        email: data.clientEmail || null,
-        notes: data.notes || null
-      },
-      update: {
-        name: data.clientName,
-        email: data.clientEmail || undefined,
-        notes: data.notes || undefined
       }
     });
 
-    if (client.isBlockedOnline) {
-      return reply.status(403).send({
-        error: 'Bloqueado',
-        message: 'Seu cadastro está temporariamente impedido de agendar online. Por favor, entre em contato direto pelo WhatsApp do salão.'
+    if (!coupon || !coupon.isActive) {
+      return reply.status(400).send({
+        valid: false,
+        message: 'Cupom inválido ou inativo.'
       });
     }
 
-    // Cálculo de Sinal Anti-No-Show PIX
-    const depositRequired = tenant.depositRequired && Number(tenant.depositAmount) > 0;
-    let depositValue = 0;
-    let depositPixCode: string | null = null;
-    let depositExpiresAt: Date | null = null;
-
-    if (depositRequired) {
-      depositValue =
-        tenant.depositType === 'PERCENTAGE'
-          ? (totalPrice * Number(tenant.depositAmount)) / 100
-          : Number(tenant.depositAmount);
-
-      depositExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
-      depositPixCode = `00020126580014br.gov.bcb.pix0136${crypto.randomUUID()}520400005303986540${depositValue.toFixed(2)}5802BR5913MARCATUAHORA6009SAOPAULO62070503***6304ABCD`;
+    const now = new Date();
+    if (coupon.validUntil && coupon.validUntil < now) {
+      return reply.status(400).send({
+        valid: false,
+        message: `Este cupom expirou em ${coupon.validUntil.toLocaleDateString('pt-BR')}.`
+      });
     }
 
-    const schedule = await prisma.schedule.create({
-      data: {
-        tenantId: tenant.id,
-        clientId: client.id,
-        professionalId: data.professionalId,
-        serviceId: mainService.id,
-        resourceId: mainService.resourceId,
-        additionalServices: data.additionalServices && data.additionalServices.length > 0 ? (data.additionalServices as any) : undefined,
-        totalDurationMinutes,
-        totalPrice,
-        date: targetDate,
-        startTime: data.startTime,
-        endTime,
-        status: depositRequired ? ScheduleStatus.PENDING : ScheduleStatus.CONFIRMED,
-        notes: data.notes || null,
-        intakeAnswers: data.intakeAnswers || undefined,
-        serviceLocation: data.serviceLocation || undefined,
-        depositAmount: depositValue,
-        depositPaid: false,
-        depositPixCode,
-        depositExpiresAt
-      },
-      include: {
-        client: true,
-        professional: true,
-        service: true
-      }
-    });
-
-    // Se não exigir sinal, enfileira mensagens automáticas no BullMQ
-    if (!depositRequired) {
-      try {
-        await whatsappQueue.add('send-immediate-confirmation', {
-          scheduleId: schedule.id,
-          type: 'IMMEDIATE_CONFIRMATION'
-        });
-
-        const appointmentTime = new Date(`${data.date}T${data.startTime}:00`).getTime();
-        const now = Date.now();
-        const delay24h = appointmentTime - 24 * 60 * 60 * 1000 - now;
-        const delay12h = appointmentTime - 12 * 60 * 60 * 1000 - now;
-
-        if (delay24h > 0) {
-          await whatsappQueue.add(
-            'send-reminder-24h',
-            { scheduleId: schedule.id, type: 'REMINDER_24H' },
-            { delay: delay24h }
-          );
-        }
-
-        if (delay12h > 0) {
-          await whatsappQueue.add(
-            'send-reminder-12h',
-            { scheduleId: schedule.id, type: 'REMINDER_12H' },
-            { delay: delay12h }
-          );
-        }
-      } catch (err: any) {
-        console.warn('[BullMQ] Aviso ao agendar disparos do WhatsApp:', err.message);
-      }
+    if (coupon.maxUses && coupon.timesUsed >= coupon.maxUses) {
+      return reply.status(400).send({
+        valid: false,
+        message: 'Este cupom já atingiu o limite máximo de utilizações.'
+      });
     }
 
-    return reply.status(201).send({
-      message: depositRequired
-        ? 'Agendamento pré-reservado! Realize o pagamento do sinal via PIX para garantir sua vaga.'
-        : 'Agendamento confirmado com sucesso!',
-      schedule,
-      token: schedule.rescheduleToken
-    });
-  });
+    if (coupon.minOrderValue && totalAmount < Number(coupon.minOrderValue)) {
+      return reply.status(400).send({
+        valid: false,
+        message: `Valor mínimo para este cupom é R$ ${Number(coupon.minOrderValue).toFixed(2).replace('.', ',')}.`
+      });
+    }
 
-  // POST /public/waitlist/:slug - Inscrição na Lista de Espera Inteligente
-  app.post('/waitlist/:slug', async (request, reply) => {
-    const { slug } = request.params as { slug: string };
-    const data = joinWaitlistSchema.parse(request.body);
+    let discountAmount = 0;
+    if (coupon.discountType === 'PERCENTAGE') {
+      discountAmount = (totalAmount * Number(coupon.discountValue)) / 100;
+    } else {
+      discountAmount = Math.min(Number(coupon.discountValue), totalAmount);
+    }
+
+    const finalAmount = Math.max(0, totalAmount - discountAmount);
+
+    return reply.send({
+      valid: true,
+      code: coupon.code,
+      discountType: coupon.discountType,
+      discountValue: Number(coupon.discountValue),
+      discountAmount: Number(discountAmount.toFixed(2)),
+      finalAmount: Number(finalAmount.toFixed(2)),
+      description: coupon.description,
+      message: coupon.discountType === 'PERCENTAGE'
+        ? `${coupon.discountValue}% de desconto aplicado com sucesso!`
+        : `Desconto de R$ ${Number(coupon.discountValue).toFixed(2).replace('.', ',')} aplicado com sucesso!`
+    });
+  };
+
+  const handleBookingCreation = async (slug: string, body: any, reply: any) => {
+    const data = bookingBodySchema.parse(body);
+
+    const targetDateStr = data.dateStr || data.date;
+    if (!targetDateStr || !/^\d{4}-\d{2}-\d{2}$/.test(targetDateStr)) {
+      return reply.status(400).send({ error: 'Inválido', message: 'Data deve estar no formato AAAA-MM-DD.' });
+    }
 
     const tenant = await prisma.tenant.findUnique({
       where: { slug: slug.toLowerCase() }
@@ -273,42 +304,125 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não encontrado.' });
     }
 
-    const client = await prisma.client.upsert({
-      where: {
-        tenantId_phone: {
-          tenantId: tenant.id,
-          phone: data.clientPhone
-        }
-      },
-      create: {
-        tenantId: tenant.id,
-        name: data.clientName,
-        phone: data.clientPhone
-      },
-      update: {
-        name: data.clientName
+    // Coleta todos os serviceIds
+    const allServiceIds: string[] = [];
+    if (data.serviceId) allServiceIds.push(data.serviceId);
+    if (data.serviceIds && data.serviceIds.length > 0) {
+      for (const id of data.serviceIds) {
+        if (!allServiceIds.includes(id)) allServiceIds.push(id);
       }
+    }
+    if (data.additionalServices && data.additionalServices.length > 0) {
+      for (const extra of data.additionalServices) {
+        if (extra.id && !allServiceIds.includes(extra.id)) {
+          allServiceIds.push(extra.id);
+        }
+      }
+    }
+
+    if (allServiceIds.length === 0) {
+      return reply.status(400).send({ error: 'Inválido', message: 'Selecione ao menos um serviço para agendar.' });
+    }
+
+    // Validação opcional de Cupom se fornecido
+    let appliedDiscount = 0;
+    let validCouponCode: string | undefined = undefined;
+
+    if (data.couponCode && data.couponCode.trim()) {
+      const cleanCode = data.couponCode.trim().toUpperCase();
+      const coupon = await prisma.coupon.findUnique({
+        where: {
+          tenantId_code: {
+            tenantId: tenant.id,
+            code: cleanCode
+          }
+        }
+      });
+
+      if (coupon && coupon.isActive) {
+        const now = new Date();
+        const isNotExpired = !coupon.validUntil || coupon.validUntil >= now;
+        const hasUsesLeft = !coupon.maxUses || coupon.timesUsed < coupon.maxUses;
+
+        if (isNotExpired && hasUsesLeft) {
+          validCouponCode = coupon.code;
+          const servicesDb = await prisma.service.findMany({
+            where: { id: { in: allServiceIds }, tenantId: tenant.id },
+            select: { price: true }
+          });
+          const rawTotal = servicesDb.reduce((acc, s) => acc + Number(s.price), 0);
+
+          if (coupon.discountType === 'PERCENTAGE') {
+            appliedDiscount = (rawTotal * Number(coupon.discountValue)) / 100;
+          } else {
+            appliedDiscount = Math.min(Number(coupon.discountValue), rawTotal);
+          }
+
+          // Atualiza contagem de uso do cupom
+          await prisma.coupon.update({
+            where: { id: coupon.id },
+            data: { timesUsed: { increment: 1 } }
+          }).catch(() => { });
+        }
+      }
+    }
+
+    // Executa reserva com lock consultivo anti-double booking (C1)
+    const schedule = await BookingService.createBooking({
+      tenantId: tenant.id,
+      serviceIds: allServiceIds,
+      professionalId: data.professionalId,
+      dateStr: targetDateStr,
+      startTime: data.startTime,
+      clientName: data.clientName,
+      clientPhone: data.clientPhone,
+      clientEmail: data.clientEmail || undefined,
+      notes: data.notes,
+      couponCode: validCouponCode,
+      discountAmount: appliedDiscount
     });
 
-    const waitlist = await prisma.waitlistEntry.create({
-      data: {
-        tenantId: tenant.id,
-        clientId: client.id,
-        serviceId: data.serviceId || null,
-        professionalId: data.professionalId || null,
-        date: new Date(`${data.date}T00:00:00`),
-        preferredShift: data.preferredShift || 'ANY',
-        status: WaitlistStatus.WAITING
-      }
-    });
+    // Enfileira disparo de notificação no WhatsApp se configurado
+    try {
+      await whatsappQueue.add('send-immediate-confirmation', {
+        scheduleId: schedule.id,
+        type: 'IMMEDIATE_CONFIRMATION'
+      });
+    } catch (err: any) {
+      console.warn('[BullMQ] Aviso ao agendar envio do WhatsApp:', err.message);
+    }
 
     return reply.status(201).send({
-      message: 'Você está na lista de espera! Se surgir um horário, avisaremos imediatamente no seu WhatsApp.',
-      waitlist
+      message: 'Agendamento confirmado com sucesso!',
+      schedule,
+      token: schedule.rescheduleToken
     });
+  };
+
+  // POST /public/validate-coupon/:slug ou /:slug/validate-coupon
+  app.post('/:slug/validate-coupon', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleValidateCoupon(slug, request.body, reply);
   });
 
-  // GET /public/booking/:token - Consulta pública de agendamento por Token (sem login)
+  app.post('/validate-coupon/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleValidateCoupon(slug, request.body, reply);
+  });
+
+  // POST /public/booking/:slug (compatibilidade com frontend atual)
+  app.post('/booking/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleBookingCreation(slug, request.body, reply);
+  });
+
+  // POST /public/:slug/bookings (padrão RESTful da especificação)
+  app.post('/:slug/bookings', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    return handleBookingCreation(slug, request.body, reply);
+  });
+
+  // GET /public/booking/:token - Consulta de agendamento por Token seguro
   app.get('/booking/:token', async (request, reply) => {
     const { token } = request.params as { token: string };
 
@@ -333,7 +447,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         client: { select: { name: true, phone: true } },
         professional: { select: { name: true, color: true, phone: true } },
         service: true,
-        resource: true
+        items: {
+          include: {
+            service: true
+          }
+        }
       }
     });
 
@@ -347,7 +465,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(schedule);
   });
 
-  // POST /public/booking/:token/cancel - Cancelamento de agendamento pelo cliente
+  // POST /public/booking/:token/cancel - Cancelamento seguro pela cliente
   app.post('/booking/:token/cancel', async (request, reply) => {
     const { token } = request.params as { token: string };
 
@@ -373,6 +491,67 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({
       message: 'Agendamento cancelado com sucesso.',
       schedule: updated
+    });
+  });
+
+  // =========================================================================
+  // ROTAS DE CURSOS ONLINE PÚBLICOS (Sem intermediários - Seção 14)
+  // =========================================================================
+
+  // POST /public/courses/:slug/auth - Valida telefone da aluna e retorna aulas liberadas
+  app.post('/courses/:slug/auth', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const { phone, courseId } = request.body as { phone: string; courseId: string };
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: slug.toLowerCase() }
+    });
+
+    if (!tenant) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não encontrado.' });
+    }
+
+    const normalizedPhone = phone.replace(/\D/g, '');
+
+    const access = await prisma.courseAccess.findFirst({
+      where: {
+        courseId,
+        phone: normalizedPhone,
+        isActive: true
+      },
+      include: {
+        course: {
+          include: {
+            lessons: {
+              where: { isActive: true },
+              orderBy: { sortOrder: 'asc' }
+            }
+          }
+        }
+      }
+    });
+
+    if (!access) {
+      return reply.status(403).send({
+        error: 'Acesso não liberado',
+        message: 'Você ainda não possui acesso a este curso. Entre em contato com a instrutora pelo WhatsApp para liberar suas aulas.'
+      });
+    }
+
+    return reply.send({
+      course: {
+        id: access.course.id,
+        title: access.course.title,
+        description: access.course.description,
+        lessons: access.course.lessons.map((l) => ({
+          id: l.id,
+          title: l.title,
+          description: l.description,
+          videoUrl: l.videoUrl,
+          duration: l.duration,
+          sortOrder: l.sortOrder
+        }))
+      }
     });
   });
 };

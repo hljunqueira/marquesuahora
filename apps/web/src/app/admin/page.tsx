@@ -1,155 +1,160 @@
 'use client';
 
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import {
-  TrendingUp,
-  Building2,
-  Calendar,
-  Headphones,
-  CheckCircle2,
-  AlertTriangle,
-  Radio,
-  Bot,
-  Zap,
-  ArrowUpRight
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { Loader2 } from 'lucide-react';
+import { api } from '@/lib/api';
 
 export default function SuperAdminOverviewPage() {
   const [metrics, setMetrics] = useState({
-    estimatedMRR: 18450.0,
-    totalTenants: 142,
-    activeTenants: 128,
-    trialTenants: 11,
-    blockedTenants: 3,
-    totalSchedules: 18920,
-    openTickets: 4,
-    whatsappInstancesOnline: 124,
-    aiTokensUsedToday: 42300
+    estimatedMRR: 0,
+    totalTenants: 0,
+    activeTenants: 0,
+    trialTenants: 0,
+    gratuityTenants: 0,
+    blockedTenants: 0,
+    totalSchedules: 0,
+    openTickets: 0
   });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadOverview() {
+      try {
+        const res = await api.get('/admin/overview');
+        const data = res.data;
+        setMetrics({
+          estimatedMRR: data.financial?.estimatedMRR ?? 0,
+          totalTenants: data.tenants?.total ?? 0,
+          activeTenants: data.tenants?.active ?? 0,
+          trialTenants: data.tenants?.trial ?? 0,
+          gratuityTenants: data.tenants?.gratuity ?? 0,
+          blockedTenants: data.tenants?.blocked ?? 0,
+          totalSchedules: data.schedules?.total ?? 0,
+          openTickets: data.support?.openTickets ?? 0
+        });
+      } catch (err) {
+        console.error('Erro ao carregar métricas do admin:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadOverview();
+  }, []);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto pb-16">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-display font-bold text-white tracking-tight">
+        <h1 className="text-2xl font-display font-bold text-slate-900 tracking-tight">
           Painel Global do SaaS
         </h1>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Métricas consolidadas de faturamento recorrente, estabilidade das instâncias e lojas ativas.
+        <p className="text-xs text-slate-500 mt-0.5">
+          Métricas consolidadas de faturamento recorrente, planos contratados e estabelecimentos ativos.
         </p>
       </div>
 
-      {/* Grid de Métricas Principais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: MRR */}
-        <div className="p-6 rounded-3xl bg-[#0F172A] border border-amber-500/20 shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">
-              MRR Global (Assinaturas)
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <span className="text-3xl font-mono font-bold text-white mt-3 block">
-            R$ {metrics.estimatedMRR.toFixed(2).replace('.', ',')}
-          </span>
-          <span className="text-[11px] text-slate-400 mt-2 block">
-            Faturamento recorrente mensal ativo
-          </span>
+      {loading ? (
+        <div className="p-16 flex flex-col items-center justify-center text-slate-400 gap-3">
+          <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+          <span className="text-xs font-medium">Carregando métricas globais do SaaS...</span>
         </div>
+      ) : (
+        <>
+          {/* Grid de Métricas Principais */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* KPI 1: MRR */}
+            <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                MRR Global (Assinaturas)
+              </span>
+              <span className="text-3xl font-mono font-bold text-slate-900 mt-3 block">
+                R$ {metrics.estimatedMRR.toFixed(2).replace('.', ',')}
+              </span>
+              <span className="text-[11px] text-slate-500 mt-2 block">
+                Faturamento recorrente mensal ativo
+              </span>
+            </div>
 
-        {/* KPI 2: Lojas Ativas */}
-        <div className="p-6 rounded-3xl bg-[#0F172A] border border-white/5 shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Lojas & Espaços
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-400 flex items-center justify-center">
-              <Building2 className="w-4 h-4" />
+            {/* KPI 2: Lojas & Cortesias */}
+            <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                Lojas & Espaços
+              </span>
+              <span className="text-3xl font-mono font-bold text-slate-900 mt-3 block">
+                {metrics.activeTenants + metrics.gratuityTenants}{' '}
+                <span className="text-xs text-slate-400 font-normal">/ {metrics.totalTenants} total</span>
+              </span>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="text-emerald-600 font-semibold">{metrics.activeTenants} pagantes</span>
+                <span className="text-amber-600 font-semibold">• {metrics.gratuityTenants} cortesias VIP</span>
+                <span className="text-slate-500">• {metrics.trialTenants} plano free</span>
+              </div>
             </div>
-          </div>
-          <span className="text-3xl font-mono font-bold text-white mt-3 block">
-            {metrics.activeTenants}{' '}
-            <span className="text-xs text-slate-500 font-normal">/ {metrics.totalTenants} total</span>
-          </span>
-          <div className="mt-2 flex items-center gap-2 text-[11px]">
-            <span className="text-emerald-400 font-semibold">{metrics.activeTenants} ativas</span>
-            <span className="text-amber-400 font-semibold">• {metrics.trialTenants} em teste</span>
-          </div>
-        </div>
 
-        {/* KPI 3: Agendamentos na Plataforma */}
-        <div className="p-6 rounded-3xl bg-[#0F172A] border border-white/5 shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Agendamentos Concluídos
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
-              <Calendar className="w-4 h-4" />
+            {/* KPI 3: Agendamentos na Plataforma */}
+            <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                Agendamentos Criados
+              </span>
+              <span className="text-3xl font-mono font-bold text-slate-900 mt-3 block">
+                {metrics.totalSchedules.toLocaleString('pt-BR')}
+              </span>
+              <span className="text-[11px] text-slate-500 mt-2 block">
+                Processados com travas de cota e anti-overbooking
+              </span>
             </div>
-          </div>
-          <span className="text-3xl font-mono font-bold text-white mt-3 block">
-            {metrics.totalSchedules.toLocaleString('pt-BR')}
-          </span>
-          <span className="text-[11px] text-slate-400 mt-2 block">
-            Volume processado com travas anti-overbooking
-          </span>
-        </div>
 
-        {/* KPI 4: Chamados Abertos */}
-        <div className="p-6 rounded-3xl bg-[#0F172A] border border-white/5 shadow-xl">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Suporte Pendente
-            </span>
-            <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-400 flex items-center justify-center">
-              <Headphones className="w-4 h-4" />
+            {/* KPI 4: Chamados Abertos */}
+            <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-2xs">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
+                Suporte Pendente
+              </span>
+              <span className="text-3xl font-mono font-bold text-slate-900 mt-3 block">
+                {metrics.openTickets}
+              </span>
+              <span className="text-[11px] text-rose-600 font-medium mt-2 block">
+                {metrics.openTickets === 0 ? 'Nenhum chamado pendente' : 'Requerem atenção operacional'}
+              </span>
             </div>
           </div>
-          <span className="text-3xl font-mono font-bold text-white mt-3 block">
-            {metrics.openTickets}
-          </span>
-          <span className="text-[11px] text-rose-400 mt-2 block">
-            Requerem atenção operacional
-          </span>
-        </div>
-      </div>
 
-      {/* Monitor de Instâncias WhatsApp & Tokens IA */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-6 rounded-3xl bg-[#0F172A] border border-white/5 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <Radio className="w-4 h-4 text-emerald-400 animate-pulse" />
-              <span>Instâncias WhatsApp (Evolution API)</span>
+          {/* Cards Informativos de Operação */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-900">
+                  Programa de Gratuidade & Embaixadores VIP
+                </span>
+                <span className="text-xs font-mono font-bold text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                  {metrics.gratuityTenants} ATIVAS
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Você pode liberar o plano <strong>Profissional Solo</strong> ou <strong>Equipe Pro</strong> com isenção total para parceiros na tela de{' '}
+                <Link href="/admin/saloes" className="text-purple-600 font-semibold underline">
+                  Gestão de Lojas
+                </Link>
+                . Essas lojas aproveitam todos os recursos sem cobrança financeira.
+              </p>
             </div>
-            <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">
-              98.2% ONLINE
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            {metrics.whatsappInstancesOnline} de {metrics.activeTenants} estabelecimentos com QR Code pareado e webhooks de confirmação respondendo em menos de 100ms.
-          </p>
-        </div>
 
-        <div className="p-6 rounded-3xl bg-[#0F172A] border border-white/5 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-bold text-white">
-              <Bot className="w-4 h-4 text-purple-400" />
-              <span>Consumo da Atendente Virtual IA</span>
+            <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-2xs space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-slate-900">
+                  Regras & Travas de Planos Ativas
+                </span>
+                <span className="text-xs font-mono font-bold text-purple-700 bg-purple-50 px-2.5 py-0.5 rounded-full border border-purple-200">
+                  MOTOR ATIVO
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                O motor valida automaticamente o limite de 30 agendamentos/mês no plano Gratuito e os limites de profissionais da equipe (1 para Solo, 5 para Equipe Pro), protegendo o SaaS contra abusos.
+              </p>
             </div>
-            <span className="text-xs font-mono font-bold text-purple-400 bg-purple-500/10 px-2 py-0.5 rounded-lg border border-purple-500/20">
-              JEV + GEMINI
-            </span>
           </div>
-          <p className="text-xs text-slate-400 leading-relaxed">
-            {metrics.aiTokensUsedToday.toLocaleString('pt-BR')} tokens consumidos hoje. Decisões estruturadas processadas via TypeSafe Jev com tempo médio de resposta de 64ms.
-          </p>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

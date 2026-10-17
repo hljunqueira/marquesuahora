@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { buildApp } from '../src/app';
 
-describe('Lookup Endpoints', () => {
+describe('Lookup Endpoints (/api/v1/lookup)', () => {
   const app = buildApp();
 
   it('deve retornar HTTP 400 se o CNPJ não tiver 14 dígitos', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/lookup/document/12345'
+      url: '/api/v1/lookup/document/12345'
     });
 
     expect(response.statusCode).toBe(400);
@@ -18,7 +18,7 @@ describe('Lookup Endpoints', () => {
   it('deve retornar HTTP 400 se o CEP não tiver 8 dígitos', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/lookup/cep/123'
+      url: '/api/v1/lookup/cep/123'
     });
 
     expect(response.statusCode).toBe(400);

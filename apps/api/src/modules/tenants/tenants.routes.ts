@@ -2,7 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 import argon2 from 'argon2';
 import { onboardingSchema, updateTenantSettingsSchema } from '@marquesuahora/shared';
 import { prisma } from '../../lib/prisma';
-import { Role } from '@prisma/client';
+import { PlansService } from '../plans/plans.service';
+import { EvolutionService } from '../automation/evolution.service';
+import { AsaasService } from '../payments/asaas.service';
+import { Role, ScheduleStatus } from '@prisma/client';
 
 export const tenantsRoutes: FastifyPluginAsync = async (app) => {
   // Mapeamento editorial de terminologia por nicho
@@ -41,26 +44,55 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    // Verifica se documento já está em uso
-    const existingDoc = await prisma.tenant.findUnique({
-      where: { documentNumber: data.documentNumber }
-    });
-    if (existingDoc) {
-      return reply.status(409).send({
-        error: 'Conflito',
-        message: 'Já existe um estabelecimento cadastrado com este CPF/CNPJ.'
+    // Verifica se documento já está em uso (se informado)
+    let finalDocNumber = data.documentNumber;
+    if (finalDocNumber) {
+      const existingDoc = await prisma.tenant.findUnique({
+        where: { documentNumber: finalDocNumber }
       });
+      if (existingDoc) {
+        return reply.status(409).send({
+          error: 'Conflito',
+          message: 'Já existe um estabelecimento cadastrado com este CPF/CNPJ.'
+        });
+      }
+    } else {
+      finalDocNumber = 'DOC' + Date.now() + Math.floor(Math.random() * 1000);
     }
 
-    // Seleciona o plano informado ou localiza o primeiro plano ativo
-    let planId = data.planId;
-    if (!planId) {
-      const defaultPlan = await prisma.plan.findFirst({
-        where: { active: true },
-        orderBy: { monthlyPrice: 'asc' }
-      });
-      planId = defaultPlan?.id;
-    }
+    const defaultServicesByNiche: Record<string, Array<{ name: string; price: number; durationMinutes: number; category: string }>> = {
+      BARBERSHOP: [
+        { name: 'Corte Cabelo Degradê', price: 45, durationMinutes: 30, category: 'Cabelo' },
+        { name: 'Barboterapia & Toalha Quente', price: 40, durationMinutes: 30, category: 'Barba' },
+        { name: 'Combo Cabelo + Barba', price: 75, durationMinutes: 50, category: 'Combos' }
+      ],
+      BEAUTY_SALON: [
+        { name: 'Escova Modelada', price: 70, durationMinutes: 45, category: 'Cabelo' },
+        { name: 'Corte Feminino com Finalização', price: 90, durationMinutes: 50, category: 'Cabelo' },
+        { name: 'Hidratação Profunda', price: 120, durationMinutes: 40, category: 'Tratamentos' }
+      ],
+      AESTHETICS_CLINIC: [
+        { name: 'Limpeza de Pele Profunda', price: 150, durationMinutes: 60, category: 'Facial' },
+        { name: 'Drenagem Linfática Corporal', price: 130, durationMinutes: 50, category: 'Corporal' },
+        { name: 'Avaliação Estética Facial', price: 50, durationMinutes: 30, category: 'Avaliação' }
+      ],
+      PERSONAL_TRAINER: [
+        { name: 'Sessão de Treino Presencial 1h', price: 100, durationMinutes: 60, category: 'Treinos' },
+        { name: 'Avaliação Física & Bioimpedância', price: 120, durationMinutes: 45, category: 'Avaliação' }
+      ],
+      NAIL_LASH_STUDIO: [
+        { name: 'Extensão de Cílios Volume Russo', price: 180, durationMinutes: 90, category: 'Cílios' },
+        { name: 'Manutenção de Cílios (até 20 dias)', price: 110, durationMinutes: 60, category: 'Cílios' },
+        { name: 'Alongamento de Unhas em Gel', price: 140, durationMinutes: 80, category: 'Unhas' }
+      ],
+      OTHER: [
+        { name: 'Atendimento Personalizado', price: 100, durationMinutes: 60, category: 'Geral' }
+      ]
+    };
+
+    // Seleciona o plano informado ou localiza o primeiro plano ativo via PlansService
+    const resolvedPlan = await PlansService.resolvePlan(data.planId);
+    const planId = resolvedPlan?.id || null;
 
     const passwordHash = await argon2.hash(data.ownerPassword);
     const terminology = nicheTerminologyMap[data.niche] || nicheTerminologyMap.OTHER;
@@ -73,7 +105,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           name: data.name,
           legalName: data.legalName || data.name,
           documentType: data.documentType,
-          documentNumber: data.documentNumber,
+          documentNumber: finalDocNumber,
           slug: data.slug.toLowerCase(),
           phone: data.phone,
           addressZip: data.addressZip,
@@ -86,6 +118,9 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           isSingleCityZip: data.isSingleCityZip,
           niche: data.niche,
           themeTemplate: data.themeTemplate,
+          primaryColor: data.primaryColor || '#7C3AED',
+          secondaryColor: data.secondaryColor || '#0B0F19',
+          accentColor: data.accentColor || '#D4AF37',
           terminology,
           logoUrl: data.logoUrl || null,
           planId,
@@ -106,19 +141,21 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
-      // 3. Cadastra os Serviços Selecionados/Customizados pelo Assinante no Onboarding
-      if (data.selectedServices && data.selectedServices.length > 0) {
-        await tx.service.createMany({
-          data: data.selectedServices.map((svc) => ({
-            tenantId: tenant.id,
-            name: svc.name,
-            category: svc.category || 'Geral',
-            price: svc.price,
-            durationMinutes: svc.durationMinutes,
-            allowOnlineBooking: true
-          }))
-        });
-      }
+      // 3. Cadastra os Serviços Selecionados ou Serviços Padrão do Nicho
+      const servicesToCreate = (data.selectedServices && data.selectedServices.length > 0)
+        ? data.selectedServices
+        : (defaultServicesByNiche[data.niche] || defaultServicesByNiche.OTHER);
+
+      await tx.service.createMany({
+        data: servicesToCreate.map((svc) => ({
+          tenantId: tenant.id,
+          name: svc.name,
+          category: svc.category || 'Geral',
+          price: svc.price,
+          durationMinutes: svc.durationMinutes,
+          allowOnlineBooking: true
+        }))
+      });
 
       // 4. Registra Auditoria
       await tx.auditLog.create({
@@ -146,20 +183,20 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         name: result.user.name,
         email: result.user.email
       },
-      { expiresIn: '15m' }
+      { expiresIn: '7d' }
     );
 
     const refreshToken = app.jwt.sign(
       { sub: result.user.id, tokenType: 'refresh' },
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
     reply.setCookie('refreshToken', refreshToken, {
-      path: '/auth/refresh',
+      path: '/',
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60
+      sameSite: 'lax',
+      maxAge: 30 * 24 * 60 * 60
     });
 
     return reply.status(201).send({
@@ -171,7 +208,18 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         niche: result.tenant.niche,
         themeTemplate: result.tenant.themeTemplate,
         terminology: result.tenant.terminology,
-        billingStatus: result.tenant.billingStatus
+        billingStatus: result.tenant.billingStatus,
+        planId: result.tenant.planId,
+        plan: resolvedPlan
+          ? {
+            id: resolvedPlan.id,
+            name: resolvedPlan.name,
+            code: resolvedPlan.code,
+            maxProfessionals: resolvedPlan.maxProfessionals,
+            isUnlimitedBookings: resolvedPlan.isUnlimitedBookings,
+            monthlyFreeBookings: resolvedPlan.monthlyFreeBookings
+          }
+          : null
       },
       user: {
         id: result.user.id,
@@ -187,32 +235,59 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
   app.register(async (tenantScope) => {
     tenantScope.addHook('preHandler', app.authenticate);
 
-    // GET /tenants/me - Dados do estabelecimento do usuário autenticado
+    // GET /tenants/me - Dados do estabelecimento do usuário autenticado + métricas de uso do plano
     tenantScope.get('/me', async (request, reply) => {
       if (!request.user.tenantId) {
         return reply.status(403).send({ error: 'Proibido', message: 'Usuário sem estabelecimento vinculado.' });
       }
 
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: request.user.tenantId },
-        include: {
-          plan: true,
-          _count: {
-            select: {
-              professionals: true,
-              services: true,
-              resources: true,
-              schedules: true
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+      const [tenant, currentMonthBookings] = await Promise.all([
+        prisma.tenant.findUnique({
+          where: { id: request.user.tenantId },
+          include: {
+            plan: true,
+            _count: {
+              select: {
+                professionals: true,
+                services: true,
+                resources: true,
+                schedules: true
+              }
             }
           }
-        }
-      });
+        }),
+        prisma.schedule.count({
+          where: {
+            tenantId: request.user.tenantId,
+            date: { gte: startOfMonth, lte: endOfMonth },
+            status: { not: ScheduleStatus.CANCELLED }
+          }
+        })
+      ]);
 
       if (!tenant) {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não encontrado.' });
       }
 
-      return reply.send(tenant);
+      const plan = tenant.plan;
+      const isUnlimited = plan?.isUnlimitedBookings ?? false;
+      const monthlyLimit = plan?.monthlyFreeBookings ?? 30;
+
+      return reply.send({
+        ...tenant,
+        usage: {
+          currentProfessionals: tenant._count.professionals,
+          maxProfessionals: plan?.maxProfessionals ?? 1,
+          currentMonthBookings,
+          monthlyFreeBookings: monthlyLimit,
+          isUnlimitedBookings: isUnlimited,
+          isLimitReached: !isUnlimited && currentMonthBookings >= monthlyLimit
+        }
+      });
     });
 
     // PUT /tenants/me/settings - Atualização de configurações gerais, temas e cores
@@ -223,11 +298,46 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
 
       const data = updateTenantSettingsSchema.parse(request.body);
 
+      // Trata upgrade/mudança de plano se planCode for informado
+      let resolvedPlanId: string | undefined = undefined;
+      let newBillingStatus: string | undefined = undefined;
+
+      if (data.planCode) {
+        const resolvedPlan = await PlansService.resolvePlan(data.planCode);
+        if (resolvedPlan) {
+          resolvedPlanId = resolvedPlan.id;
+          newBillingStatus = 'ACTIVE';
+
+          // Se for plano pago e Asaas estiver configurado, cria ou atualiza assinatura recorrente
+          if (resolvedPlan.code !== 'FREE' && AsaasService.isConfigured()) {
+            const currentTenant = await prisma.tenant.findUnique({
+              where: { id: request.user.tenantId },
+              include: { users: { select: { email: true } } }
+            });
+            if (currentTenant) {
+              const ownerEmail = currentTenant.users[0]?.email;
+              AsaasService.createOrUpdateSubscription(
+                { ...currentTenant, ownerEmail },
+                resolvedPlan,
+                'PIX'
+              ).catch((subErr) => {
+                console.warn('[Asaas] Falha não-bloqueante ao registrar assinatura:', subErr?.message);
+              });
+            }
+          }
+        }
+      }
+
       const updated = await prisma.tenant.update({
         where: { id: request.user.tenantId },
         data: {
           name: data.name,
+          legalName: data.legalName,
           description: data.description,
+          ...(data.niche ? {
+            niche: data.niche,
+            terminology: nicheTerminologyMap[data.niche] || nicheTerminologyMap.OTHER
+          } : {}),
           phone: data.phone,
           instagramUrl: data.instagramUrl,
           themeTemplate: data.themeTemplate,
@@ -240,15 +350,32 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           depositRequired: data.depositRequired,
           depositType: data.depositType,
           depositAmount: data.depositAmount,
+          // PIX Direto do Salão
+          pixKey: data.pixKey,
+          pixKeyType: data.pixKeyType,
+          pixKeyHolder: data.pixKeyHolder,
           maxNoShowsAllowed: data.maxNoShowsAllowed,
           churnRecoveryEnabled: data.churnRecoveryEnabled,
           churnAlertDays: data.churnAlertDays,
           birthdayMessageEnabled: data.birthdayMessageEnabled,
           birthdayMessageCustom: data.birthdayMessageCustom,
           bufferMinutes: data.bufferMinutes,
+          ...(data.openingTime !== undefined ? { openingTime: data.openingTime } : {}),
+          ...(data.closingTime !== undefined ? { closingTime: data.closingTime } : {}),
+          ...(data.slotIntervalMinutes !== undefined ? { slotIntervalMinutes: data.slotIntervalMinutes } : {}),
           minAdvanceBookingMinutes: data.minAdvanceBookingMinutes,
-          maxAdvanceBookingDays: data.maxAdvanceBookingDays
-        }
+          maxAdvanceBookingDays: data.maxAdvanceBookingDays,
+          ...(data.addressStreet !== undefined ? { addressStreet: data.addressStreet } : {}),
+          ...(data.addressNumber !== undefined ? { addressNumber: data.addressNumber } : {}),
+          ...(data.addressComplement !== undefined ? { addressComplement: data.addressComplement } : {}),
+          ...(data.addressNeighborhood !== undefined ? { addressNeighborhood: data.addressNeighborhood } : {}),
+          ...(data.addressCity !== undefined ? { addressCity: data.addressCity } : {}),
+          ...(data.addressState !== undefined ? { addressState: data.addressState } : {}),
+          ...(data.addressZip !== undefined ? { addressZip: data.addressZip } : {}),
+          ...(resolvedPlanId ? { planId: resolvedPlanId } : {}),
+          ...(newBillingStatus ? { billingStatus: newBillingStatus } : {})
+        },
+        include: { plan: true }
       });
 
       await prisma.auditLog.create({
@@ -269,5 +396,127 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         tenant: updated
       });
     });
+
+    // POST /tenants/me/plan - Rota direta para contratação ou alteração de plano
+    tenantScope.post('/me/plan', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Usuário sem estabelecimento vinculado.' });
+      }
+
+      const body = request.body as { planCode?: string; billingType?: 'PIX' | 'BOLETO' | 'CREDIT_CARD' };
+      if (!body?.planCode) {
+        return reply.status(400).send({ error: 'Bad Request', message: 'Código do plano (planCode) é obrigatório.' });
+      }
+
+      const plan = await PlansService.resolvePlan(body.planCode);
+      if (!plan) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Plano não encontrado.' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: request.user.tenantId },
+        include: { users: { select: { email: true } } }
+      });
+
+      if (!tenant) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Estabelecimento não encontrado.' });
+      }
+
+      let subscriptionResult: any = null;
+
+      if (plan.code !== 'FREE' && AsaasService.isConfigured()) {
+        const ownerEmail = tenant.users[0]?.email;
+        subscriptionResult = await AsaasService.createOrUpdateSubscription(
+          { ...tenant, ownerEmail },
+          plan,
+          body.billingType || 'PIX'
+        );
+      }
+
+      const updated = await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          planId: plan.id,
+          billingStatus: 'ACTIVE',
+          blockedReason: null,
+          blockedAt: null
+        },
+        include: { plan: true }
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId: tenant.id,
+          action: 'TENANT_PLAN_CHANGE',
+          entityType: 'Tenant',
+          entityId: tenant.id,
+          details: {
+            planCode: plan.code,
+            planName: plan.name,
+            monthlyPrice: plan.monthlyPrice,
+            subscription: subscriptionResult
+          },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      });
+
+      return reply.send({
+        message: `Plano atualizado com sucesso para ${plan.name}!`,
+        tenant: updated,
+        plan,
+        subscription: subscriptionResult
+      });
+    });
+
+    // GET /tenants/me/whatsapp - Status da conexão WhatsApp
+    tenantScope.get('/me/whatsapp', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Acesso restrito ao salão.' });
+      }
+      const status = await EvolutionService.getInstanceStatus(request.user.tenantId);
+      return reply.send(status);
+    });
+
+    // POST /tenants/me/whatsapp/connect - Inicia conexão e gera QR Code
+    tenantScope.post('/me/whatsapp/connect', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Acesso restrito ao salão.' });
+      }
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: request.user.tenantId },
+        include: { plan: true }
+      });
+      if (!tenant) {
+        return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não localizado.' });
+      }
+
+      // Permite se for Cortesia VIP ou se o plano for diferente do Gratuito (ex: SOLO, EQUIPE_PRO)
+      const isAllowed =
+        tenant.billingStatus === 'GRATUITY' ||
+        !tenant.plan ||
+        tenant.plan.code !== 'FREE';
+
+      if (!isAllowed) {
+        return reply.status(403).send({
+          error: 'Plano incompatível',
+          message: 'A automação de WhatsApp está disponível no plano Profissional Solo ou Equipe Pro.'
+        });
+      }
+
+      const result = await EvolutionService.connectInstance(tenant.id, tenant.slug);
+      return reply.send(result);
+    });
+
+    // POST /tenants/me/whatsapp/disconnect - Desconecta a instância
+    tenantScope.post('/me/whatsapp/disconnect', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Acesso restrito ao salão.' });
+      }
+      const result = await EvolutionService.disconnectInstance(request.user.tenantId);
+      return reply.send(result);
+    });
   });
 };
+

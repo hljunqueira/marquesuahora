@@ -13,7 +13,10 @@
     "infra:up": "docker compose -f infra/docker-compose.yml up -d",
     "infra:down": "docker compose -f infra/docker-compose.yml down",
     "prisma:generate": "pnpm --filter @marquesuahora/api prisma:generate",
-    "prisma:migrate": "pnpm --filter @marquesuahora/api prisma:migrate"
+    "prisma:migrate": "pnpm --filter @marquesuahora/api prisma:migrate",
+    "deploy": "powershell -ExecutionPolicy Bypass -File ./deploy.ps1",
+    "deploy:fast": "powershell -ExecutionPolicy Bypass -File ./deploy.ps1 -SkipTypeCheck",
+    "deploy:migrate": "powershell -ExecutionPolicy Bypass -File ./deploy.ps1 -Migrate"
   },
   "devDependencies": {
     "typescript": "^5.4.5"

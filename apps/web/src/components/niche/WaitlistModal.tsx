@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { UserPlus, Sparkles, Check, X, Clock } from 'lucide-react';
+import { UserPlus, Check, X, Clock } from 'lucide-react';
 import { InputMask } from '../ui/InputMask';
 
 interface WaitlistModalProps {

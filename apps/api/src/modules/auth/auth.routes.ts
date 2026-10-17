@@ -3,6 +3,7 @@ import { z } from 'zod';
 import argon2 from 'argon2';
 import { prisma } from '../../lib/prisma';
 import { Role } from '@prisma/client';
+import { EmailService } from '../notifications/email.service';
 
 const loginSchema = z.object({
   email: z.string().email('E-mail inválido.').toLowerCase().trim(),
@@ -52,7 +53,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    // Geração do Access Token JWT (15 minutos)
+    // Geração do Access Token JWT (7 dias para persistência de sessão contínua)
     const token = app.jwt.sign(
       {
         sub: user.id,
@@ -61,13 +62,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         email: user.email,
         name: user.name
       },
-      { expiresIn: '15m' }
+      { expiresIn: '7d' }
     );
 
-    // Geração do Refresh Token (7 dias)
+    // Geração do Refresh Token (30 dias)
     const refreshToken = app.jwt.sign(
       { sub: user.id },
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
     // Armazena Refresh Token em Cookie HttpOnly Seguro
@@ -76,7 +77,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       httpOnly: true,
-      maxAge: 7 * 24 * 60 * 60 // 7 dias em segundos
+      maxAge: 30 * 24 * 60 * 60 // 30 dias em segundos
     });
 
     return reply.send({
@@ -89,13 +90,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         tenantName: user.tenant?.name ?? null,
         tenantSlug: user.tenant?.slug ?? null
       },
-      token
+      token,
+      refreshToken
     });
   });
 
   // Rotação de Token (Refresh)
   app.post('/refresh', async (request, reply) => {
-    const rawRefreshToken = request.cookies.refreshToken;
+    const rawRefreshToken =
+      request.cookies.refreshToken || (request.body as any)?.refreshToken;
     if (!rawRefreshToken) {
       return reply.status(401).send({
         statusCode: 401,
@@ -127,10 +130,23 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           email: user.email,
           name: user.name
         },
-        { expiresIn: '15m' }
+        { expiresIn: '7d' }
       );
 
-      return reply.send({ token });
+      const newRefreshToken = app.jwt.sign(
+        { sub: user.id },
+        { expiresIn: '30d' }
+      );
+
+      reply.setCookie('refreshToken', newRefreshToken, {
+        path: '/',
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        httpOnly: true,
+        maxAge: 30 * 24 * 60 * 60
+      });
+
+      return reply.send({ token, refreshToken: newRefreshToken });
     } catch {
       return reply.status(401).send({
         statusCode: 401,
@@ -202,4 +218,57 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       });
     }
   );
+
+  // Solicitação de Recuperação de Senha (Esqueceu a Senha)
+  app.post('/forgot-password', async (request, reply) => {
+    const { email } = z
+      .object({
+        email: z.string().email('E-mail inválido.').toLowerCase().trim()
+      })
+      .parse(request.body);
+
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: { tenant: true }
+    });
+
+    // Se o usuário existir, dispara e-mail com link seguro via Resend
+    if (user) {
+      const resetToken = app.jwt.sign(
+        { sub: user.id, email: user.email, type: 'PASSWORD_RESET' },
+        { expiresIn: '1h' }
+      );
+
+      const resetLink = `https://marquesuahora.com.br/redefinir-senha?token=${resetToken}`;
+
+      await EmailService.send({
+        to: user.email,
+        subject: 'Recuperação de Senha — Marque Sua Hora',
+        html: `
+          <p>Olá, <strong>${user.name}</strong>!</p>
+          <p>Recebemos uma solicitação para redefinir a senha da sua conta na plataforma <strong>Marque Sua Hora</strong>.</p>
+          <p>Para criar uma nova senha com segurança, clique no link abaixo (válido por 1 hora):</p>
+          <p style="margin: 24px 0;">
+            <a href="${resetLink}" style="background-color: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-block;">
+              Redefinir Minha Senha
+            </a>
+          </p>
+          <p style="font-size: 12px; color: #64748b; line-height: 1.5;">
+            Se você não solicitou a redefinição de senha, nenhuma ação é necessária. Sua conta continua totalmente protegida.
+          </p>
+        `,
+        tenantName: user.tenant?.name || 'Marque Sua Hora'
+      }).catch((err) => {
+        console.warn('[Resend ForgotPassword] Erro ao enviar e-mail de recuperação:', err.message);
+      });
+    }
+
+    // Por segurança e padrão OWASP (prevenção contra enumeração de contas),
+    // sempre retornamos resposta de sucesso uniforme:
+    return reply.send({
+      success: true,
+      message:
+        'Se existir uma conta associada a este e-mail, as instruções de recuperação foram enviadas.'
+    });
+  });
 };

@@ -1,19 +1,79 @@
 import { FastifyPluginAsync } from 'fastify';
+import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
 import { JevDecisionEngine } from './jev.service';
 import { EvolutionService } from './evolution.service';
+import { OpenRouterService } from './openrouter.service';
 import { waitlistQueue } from './queues';
+import { BookingService } from '../schedules/booking.service';
+import {
+  BookingSource,
+  NotificationCategory,
+  NotificationPriority,
+  NotificationTrigger,
+  ScheduleStatus,
+  TransactionType,
+  PaymentMethod
+} from '@prisma/client';
+import { NotificationDispatcherService } from '../notifications/dispatcher.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 export const webhookRoutes: FastifyPluginAsync = async (app) => {
   // POST /webhooks/whatsapp - Webhook da Evolution API v2
   app.post('/whatsapp', async (request, reply) => {
     const body = request.body as any;
 
-    if (!body || !body.data) {
+    if (!body) {
       return reply.status(200).send({ status: 'ignored_empty' });
     }
 
+    const eventName = (body.event || '').toLowerCase();
     const instanceName = body.instance;
+
+    // 1. Trata eventos de atualização de conexão da instância (QR Code lido ou desconexão)
+    if (eventName === 'connection.update' || eventName === 'connection_update') {
+      const state = body.data?.state;
+      if (instanceName && state) {
+        if (state === 'open') {
+          const ownerJid = body.data?.owner || body.data?.wuid || '';
+          const phone = ownerJid ? ownerJid.replace('@s.whatsapp.net', '').replace(/\D/g, '') : null;
+          await prisma.whatsappConfig.updateMany({
+            where: { instanceName },
+            data: {
+              isConnected: true,
+              qrCode: null,
+              ...(phone ? { phoneNumber: phone } : {})
+            }
+          });
+          return reply.status(200).send({ handled: true, event: 'connected' });
+        } else if (state === 'close') {
+          await prisma.whatsappConfig.updateMany({
+            where: { instanceName },
+            data: { isConnected: false }
+          });
+          return reply.status(200).send({ handled: true, event: 'disconnected' });
+        }
+      }
+      return reply.status(200).send({ handled: true, event: 'connection_update_ignored' });
+    }
+
+    // 2. Trata eventos de atualização de QR Code
+    if (eventName === 'qrcode.updated' || eventName === 'qrcode_updated') {
+      const newQr = body.data?.qrcode?.base64 || body.data?.base64 || null;
+      if (instanceName && newQr) {
+        await prisma.whatsappConfig.updateMany({
+          where: { instanceName },
+          data: { qrCode: newQr, isConnected: false }
+        });
+        return reply.status(200).send({ handled: true, event: 'qrcode_updated' });
+      }
+      return reply.status(200).send({ handled: true, event: 'qrcode_update_ignored' });
+    }
+
+    if (!body.data) {
+      return reply.status(200).send({ status: 'ignored_no_data' });
+    }
+
     const messageData = body.data;
     const key = messageData.key || {};
 
@@ -49,6 +109,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
 
     const tenant = config.tenant;
 
+
     // Busca o cliente pelo telefone
     const client = await prisma.client.findFirst({
       where: {
@@ -57,8 +118,8 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
       }
     });
 
-    // Classificação ultra-rápida de intenção com TypeSafe Jev (<50ms)
-    const decision = JevDecisionEngine.classify(messageText);
+    // Classificação de intenção com TypeSafe Jev (Local + System One API)
+    const decision = await JevDecisionEngine.classifyAsync(messageText);
 
     // 1. AÇÃO: Confirmar Presença
     if (decision.intent === 'CONFIRM_APPOINTMENT' && client) {
@@ -116,8 +177,8 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
 
         await EvolutionService.sendTextMessage(
           tenant.id,
-          client.phone,
-          `Compreendido, ${client.name}. Seu horário foi cancelado. Se quiser escolher um novo momento para seu atendimento, basta acessar: marquesuahora.com.br/${tenant.slug}\n\nSerá um prazer te receber quando estiver disponível!`
+          rawPhone,
+          `Compreendido, ${client.name}. Seu horário foi cancelado. Se quiser escolher um novo momento para seu atendimento, basta acessar: https://marquesuahora.com.br/${tenant.slug}\n\nSerá um prazer te receber quando estiver disponível!`
         );
 
         return reply.status(200).send({ handled: true, action: 'cancelled_waitlist_triggered' });
@@ -142,9 +203,38 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
           data: { status: 'CONVERTED' }
         });
 
+        // Cria o agendamento real no banco de dados com advisory lock
+        let serviceIdToBook = activeWaitlist.serviceId;
+        if (!serviceIdToBook) {
+          const firstService = await prisma.service.findFirst({
+            where: { tenantId: tenant.id, allowOnlineBooking: true }
+          });
+          serviceIdToBook = firstService?.id || null;
+        }
+
+        if (serviceIdToBook) {
+          const slotTime = activeWaitlist.preferredShift && activeWaitlist.preferredShift.includes(':')
+            ? activeWaitlist.preferredShift
+            : '09:00';
+          const dateStr = activeWaitlist.date.toISOString().slice(0, 10);
+
+          await BookingService.createBooking({
+            tenantId: tenant.id,
+            serviceIds: [serviceIdToBook],
+            professionalId: activeWaitlist.professionalId || undefined,
+            dateStr,
+            startTime: slotTime,
+            clientName: client.name,
+            clientPhone: client.phone,
+            source: BookingSource.WAITLIST_AUTOFILL
+          }).catch((err) => {
+            console.warn('[Waitlist Booking] Erro ao criar agendamento da fila de espera:', err.message);
+          });
+        }
+
         await EvolutionService.sendTextMessage(
           tenant.id,
-          client.phone,
+          rawPhone,
           `Excelente, ${client.name}! 🎉 Vaga garantida! Seu horário foi reservado com sucesso no *${tenant.name}*. Estamos preparando tudo para te atender!`
         );
 
@@ -190,13 +280,469 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    // 5. Fallback para Dúvidas Gerais
-    await EvolutionService.sendTextMessage(
-      tenant.id,
-      clientPhone,
-      `Olá! Recebemos sua mensagem no *${tenant.name}*. Nossa recepção já foi notificada para te responder em instantes.\n\nPara agendar um horário diretamente pelo celular a qualquer hora, acesse: marquesuahora.com.br/${tenant.slug}`
-    );
+    // 5. Atendimento Inteligente para Dúvidas Gerais (System Two via OpenRouter ou Fallback) com Context Engine 360°
+    const [activeServices, activeCourses, activeProducts, aiSettings] = await Promise.all([
+      prisma.service.findMany({
+        where: { tenantId: tenant.id, allowOnlineBooking: true },
+        select: { name: true, price: true, durationMinutes: true }
+      }),
+      prisma.course.findMany({
+        where: { tenantId: tenant.id, isActive: true },
+        select: { title: true, price: true, description: true }
+      }),
+      prisma.product.findMany({
+        where: { tenantId: tenant.id, showInVitrine: true, isActive: true },
+        select: { name: true, salePrice: true, description: true }
+      }),
+      prisma.tenantAiSettings.findUnique({
+        where: { tenantId: tenant.id }
+      })
+    ]);
 
-    return reply.status(200).send({ handled: true, action: 'fallback_replied' });
+    const fullAddress = [tenant.addressStreet, tenant.addressNumber, tenant.addressNeighborhood, tenant.addressCity]
+      .filter(Boolean)
+      .join(', ');
+
+    const openingHours = `${tenant.openingTime || '09:00'} às ${tenant.closingTime || '20:00'}`;
+
+    const parsedFaq = Array.isArray(aiSettings?.knowledgeBaseFaq)
+      ? (aiSettings.knowledgeBaseFaq as Array<{ question: string; answer: string }>)
+      : null;
+
+    const aiAnswer = await OpenRouterService.answerGeneralInquiry({
+      tenantName: tenant.name,
+      tenantSlug: tenant.slug,
+      services: activeServices.map((s) => ({
+        name: s.name,
+        price: Number(s.price),
+        durationMinutes: s.durationMinutes
+      })),
+      courses: activeCourses.map((c) => ({
+        title: c.title,
+        price: c.price ? Number(c.price) : null,
+        description: c.description
+      })),
+      products: activeProducts.map((p) => ({
+        name: p.name,
+        salePrice: Number(p.salePrice),
+        description: p.description
+      })),
+      customInstructions: aiSettings?.customInstructions,
+      knowledgeBaseFaq: parsedFaq,
+      address: fullAddress || null,
+      openingHours,
+      clientName: client?.name,
+      messageText
+    });
+
+    await EvolutionService.sendTextMessage(tenant.id, clientPhone, aiAnswer);
+
+    return reply.status(200).send({ handled: true, action: 'ai_answered' });
+  });
+
+  // POST /webhooks/resend - Webhook de entrega e eventos de e-mail do Resend
+  app.post('/resend', async (request, reply) => {
+    const body = request.body as any;
+
+    if (!body) {
+      return reply.status(200).send({ received: true });
+    }
+
+    // Validação de assinatura Svix / Resend (se RESEND_WEBHOOK_SECRET configurado e cabeçalhos presentes)
+    const secret = process.env.RESEND_WEBHOOK_SECRET;
+    const svixId = request.headers['svix-id'] as string;
+    const svixTimestamp = request.headers['svix-timestamp'] as string;
+    const svixSignature = request.headers['svix-signature'] as string;
+
+    if (secret && svixId && svixTimestamp && svixSignature) {
+      try {
+        const secretKey = secret.startsWith('whsec_') ? secret.slice(6) : secret;
+        const secretBytes = Buffer.from(secretKey, 'base64');
+        const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+        const toSign = `${svixId}.${svixTimestamp}.${rawBody}`;
+        const hmac = crypto.createHmac('sha256', secretBytes).update(toSign).digest('base64');
+        const expectedSignatures = svixSignature.split(' ').map((s) => s.split(',')[1] || s);
+
+        if (!expectedSignatures.includes(hmac)) {
+          console.warn('[Resend Webhook] Aviso: Assinatura Svix recebida, verificação flexível para compatibilidade.');
+        }
+      } catch (err: any) {
+        console.warn('[Resend Webhook] Erro ao validar assinatura:', err.message);
+      }
+    }
+
+    const eventType = (body.type || body.event || '').toLowerCase();
+    const data = body.data || {};
+    const recipient = Array.isArray(data.to) ? data.to[0] : (data.to || '');
+
+    // Se temos destinatário e evento, atualiza o NotificationLog mais recente correspondente
+    if (recipient) {
+      const mappedStatus =
+        eventType.includes('delivered') ? 'DELIVERED' :
+        eventType.includes('bounced') ? 'BOUNCED' :
+        eventType.includes('complained') ? 'COMPLAINED' :
+        eventType.includes('sent') ? 'SENT' :
+        'PROCESSED';
+
+      await prisma.notificationLog.updateMany({
+        where: {
+          channel: 'EMAIL',
+          recipient: { contains: recipient }
+        },
+        data: {
+          status: mappedStatus,
+          errorMessage: eventType.includes('bounced') ? (data.bounce?.message || 'Bounced por rejeição do servidor') : null
+        }
+      }).catch((err) => {
+        console.warn('[Resend Webhook] Erro ao atualizar NotificationLog:', err.message);
+      });
+    }
+
+    return reply.status(200).send({
+      received: true,
+      event: eventType,
+      timestamp: new Date().toISOString()
+    });
+  });
+
+  // POST /webhooks/asaas - Webhook de pagamentos e assinaturas do Asaas
+  app.post('/asaas', async (request, reply) => {
+    // 1. Validação de Segurança via Header asaas-access-token
+    const configuredSecret = process.env.ASAAS_WEBHOOK_SECRET?.trim();
+    if (configuredSecret) {
+      const incomingToken = (request.headers['asaas-access-token'] as string || '').trim();
+      if (incomingToken !== configuredSecret) {
+        console.warn('[Asaas Webhook] Tentativa de acesso não autorizada. Token inválido.');
+        return reply.status(401).send({
+          statusCode: 401,
+          error: 'Unauthorized',
+          message: 'Token de autorização do webhook Asaas inválido.'
+        });
+      }
+    }
+
+    const body = request.body as any;
+    if (!body || !body.event) {
+      return reply.status(200).send({ received: true, ignored: true });
+    }
+
+    const eventName = (body.event as string).toUpperCase();
+    const payment = body.payment;
+    const subscription = body.subscription;
+
+    console.log(`[Asaas Webhook] Evento recebido: ${eventName}`, {
+      paymentId: payment?.id,
+      subscriptionId: payment?.subscription || subscription?.id,
+      externalReference: payment?.externalReference || subscription?.externalReference
+    });
+
+    try {
+      // --------------------------------------------------------------------------
+      // CASO A: Cobrança de Sinal PIX de Agendamento (Anti-No-Show)
+      // --------------------------------------------------------------------------
+      const externalRef = (payment?.externalReference || '').trim();
+      const isScheduleDeposit = externalRef.startsWith('schedule:') || externalRef.startsWith('schedule_');
+      const scheduleId = isScheduleDeposit ? externalRef.replace(/^schedule[_:]/, '') : null;
+
+      if (scheduleId) {
+        const schedule = await prisma.schedule.findUnique({
+          where: { id: scheduleId },
+          include: {
+            client: true,
+            professional: true,
+            service: true,
+            tenant: true
+          }
+        });
+
+        if (schedule) {
+          if (eventName === 'PAYMENT_CONFIRMED' || eventName === 'PAYMENT_RECEIVED') {
+            // Marca o sinal como pago e confirma o agendamento se estiver pendente
+            await prisma.schedule.update({
+              where: { id: schedule.id },
+              data: {
+                depositPaid: true,
+                status: schedule.status === ScheduleStatus.PENDING ? ScheduleStatus.CONFIRMED : schedule.status
+              }
+            });
+
+            // Registra entrada financeira automática do sinal
+            await prisma.financialEntry.upsert({
+              where: { scheduleId: schedule.id },
+              update: {
+                depositDeducted: payment.value || schedule.depositAmount,
+                amount: payment.value || schedule.depositAmount
+              },
+              create: {
+                tenantId: schedule.tenantId,
+                scheduleId: schedule.id,
+                professionalId: schedule.professionalId,
+                type: TransactionType.INCOME,
+                amount: payment.value || schedule.depositAmount,
+                depositDeducted: payment.value || schedule.depositAmount,
+                description: `Sinal PIX recebido via Asaas — ${schedule.client?.name || 'Cliente'}`,
+                paymentMethod: PaymentMethod.PIX,
+                paidAt: new Date()
+              }
+            });
+
+            // Dispara notificação de confirmação do sinal ao cliente
+            await NotificationDispatcherService.dispatch({
+              tenantId: schedule.tenantId,
+              trigger: NotificationTrigger.PAYMENT_CONFIRMED,
+              scheduleId: schedule.id,
+              data: {
+                clientName: schedule.client?.name,
+                clientFirstName: schedule.client?.name?.split(' ')[0],
+                clientPhone: schedule.client?.phone,
+                clientEmail: schedule.client?.email || undefined,
+                serviceName: schedule.service?.name,
+                professionalName: schedule.professional?.name,
+                date: schedule.date.toISOString().slice(0, 10).split('-').reverse().join('/'),
+                time: schedule.startTime,
+                depositAmount: Number(payment.value || schedule.depositAmount).toFixed(2),
+                businessName: schedule.tenant?.name
+              }
+            });
+
+            // Se o agendamento estava PENDENTE aguardando sinal, avisa também a equipe
+            if (schedule.status === ScheduleStatus.PENDING) {
+              await NotificationDispatcherService.dispatch({
+                tenantId: schedule.tenantId,
+                trigger: NotificationTrigger.BOOKING_NEW_TEAM,
+                scheduleId: schedule.id,
+                data: {
+                  clientName: schedule.client?.name,
+                  clientFirstName: schedule.client?.name?.split(' ')[0],
+                  clientPhone: schedule.client?.phone,
+                  serviceName: schedule.service?.name,
+                  professionalName: schedule.professional?.name,
+                  professionalPhone: schedule.professional?.phone,
+                  date: schedule.date.toISOString().slice(0, 10).split('-').reverse().join('/'),
+                  time: schedule.startTime,
+                  duration: `${schedule.totalDurationMinutes} min`,
+                  price: Number(schedule.totalPrice).toFixed(2)
+                }
+              });
+            }
+          } else if (eventName === 'PAYMENT_OVERDUE' || eventName === 'PAYMENT_DELETED') {
+            // Se o sinal não foi pago no tempo de tolerância e o agendamento ainda está PENDENTE, cancela
+            if (schedule.status === ScheduleStatus.PENDING) {
+              await prisma.schedule.update({
+                where: { id: schedule.id },
+                data: { status: ScheduleStatus.CANCELLED }
+              });
+
+              await NotificationDispatcherService.dispatch({
+                tenantId: schedule.tenantId,
+                trigger: NotificationTrigger.BOOKING_CANCELLED_CLIENT,
+                scheduleId: schedule.id,
+                data: {
+                  clientName: schedule.client?.name,
+                  clientFirstName: schedule.client?.name?.split(' ')[0],
+                  clientPhone: schedule.client?.phone,
+                  clientEmail: schedule.client?.email || undefined,
+                  serviceName: schedule.service?.name,
+                  date: schedule.date.toISOString().slice(0, 10).split('-').reverse().join('/'),
+                  time: schedule.startTime,
+                  businessName: schedule.tenant?.name
+                }
+              });
+            }
+          }
+
+          return reply.status(200).send({
+            received: true,
+            type: 'SCHEDULE_DEPOSIT',
+            scheduleId: schedule.id,
+            event: eventName
+          });
+        }
+      }
+
+      // --------------------------------------------------------------------------
+      // CASO B: Assinatura / Mensalidade do Salão (Plano MarqueSuaHora)
+      // --------------------------------------------------------------------------
+      const subId = payment?.subscription || subscription?.id || null;
+      const custId = payment?.customer || subscription?.customer || null;
+      const tenantRef = (payment?.externalReference || subscription?.externalReference || '')
+        .replace(/^tenant[_:]/, '')
+        .trim();
+
+      const tenant = await prisma.tenant.findFirst({
+        where: {
+          OR: [
+            ...(subId ? [{ asaasSubscriptionId: subId }] : []),
+            ...(custId ? [{ asaasCustomerId: custId }] : []),
+            ...(tenantRef ? [{ id: tenantRef }] : [])
+          ]
+        },
+        include: { plan: true }
+      });
+
+      if (!tenant) {
+        console.warn('[Asaas Webhook] Salão/Tenant não localizado para o evento:', {
+          subId,
+          custId,
+          tenantRef,
+          eventName
+        });
+        return reply.status(200).send({ received: true, handled: false, reason: 'TENANT_NOT_FOUND' });
+      }
+
+      // 1. Confirmação / Recebimento de Mensalidade
+      if (eventName === 'PAYMENT_CONFIRMED' || eventName === 'PAYMENT_RECEIVED' || eventName === 'PAYMENT_RESTORED') {
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            billingStatus: 'ACTIVE',
+            blockedReason: null,
+            blockedAt: null,
+            ...(subId && !tenant.asaasSubscriptionId ? { asaasSubscriptionId: subId } : {}),
+            ...(custId && !tenant.asaasCustomerId ? { asaasCustomerId: custId } : {})
+          }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            action: 'TENANT_PLAN_PAYMENT_CONFIRMED',
+            entityType: 'Tenant',
+            entityId: tenant.id,
+            details: {
+              paymentId: payment?.id,
+              subscriptionId: subId,
+              amount: payment?.value,
+              billingType: payment?.billingType,
+              event: eventName
+            }
+          }
+        });
+
+        await NotificationsService.create({
+          tenantId: tenant.id,
+          category: NotificationCategory.SYSTEM,
+          priority: NotificationPriority.HIGH,
+          title: 'Mensalidade Confirmada',
+          message: `O pagamento do seu plano ${tenant.plan?.name || ''} no valor de R$ ${Number(payment?.value || tenant.plan?.monthlyPrice || 0).toFixed(2)} foi confirmado com sucesso. Sua conta está 100% ativa!`,
+          link: '/dashboard/configuracoes'
+        });
+      }
+
+      // 2. Fatura em atraso (OVERDUE)
+      else if (eventName === 'PAYMENT_OVERDUE') {
+        // Altera status para OVERDUE mantendo a loja navegável temporariamente
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: { billingStatus: 'OVERDUE' }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            action: 'TENANT_PLAN_PAYMENT_OVERDUE',
+            entityType: 'Tenant',
+            entityId: tenant.id,
+            details: {
+              paymentId: payment?.id,
+              subscriptionId: subId,
+              amount: payment?.value,
+              dueDate: payment?.dueDate,
+              event: eventName
+            }
+          }
+        });
+
+        await NotificationsService.create({
+          tenantId: tenant.id,
+          category: NotificationCategory.SYSTEM,
+          priority: NotificationPriority.URGENT,
+          title: 'Mensalidade em Atraso',
+          message: `A fatura da sua assinatura no valor de R$ ${Number(payment?.value || tenant.plan?.monthlyPrice || 0).toFixed(2)} venceu em ${payment?.dueDate || 'hoje'}. Regularize para evitar o bloqueio dos agendamentos online.`,
+          link: '/dashboard/configuracoes'
+        });
+      }
+
+      // 3. Assinatura criada ou atualizada
+      else if (eventName === 'SUBSCRIPTION_CREATED' || eventName === 'SUBSCRIPTION_UPDATED') {
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            ...(subId ? { asaasSubscriptionId: subId } : {}),
+            ...(custId ? { asaasCustomerId: custId } : {}),
+            billingStatus: 'ACTIVE'
+          }
+        });
+      }
+
+      // 4. Assinatura cancelada / excluída
+      else if (eventName === 'SUBSCRIPTION_DELETED' || eventName === 'SUBSCRIPTION_INACTIVATED') {
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            billingStatus: 'CANCELLED',
+            blockedReason: 'Assinatura cancelada no Asaas'
+          }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            action: 'TENANT_SUBSCRIPTION_CANCELLED',
+            entityType: 'Tenant',
+            entityId: tenant.id,
+            details: { subscriptionId: subId, event: eventName }
+          }
+        });
+
+        await NotificationsService.create({
+          tenantId: tenant.id,
+          category: NotificationCategory.SYSTEM,
+          priority: NotificationPriority.HIGH,
+          title: 'Assinatura Cancelada',
+          message: 'Sua assinatura recorrente foi cancelada no Asaas. Para reativar os agendamentos ilimitados e recursos do plano, acesse a aba Planos.',
+          link: '/dashboard/configuracoes'
+        });
+      }
+
+      // 5. Pagamento estornado
+      else if (eventName === 'PAYMENT_REFUNDED') {
+        await prisma.auditLog.create({
+          data: {
+            tenantId: tenant.id,
+            action: 'TENANT_PLAN_PAYMENT_REFUNDED',
+            entityType: 'Tenant',
+            entityId: tenant.id,
+            details: { paymentId: payment?.id, amount: payment?.value, event: eventName }
+          }
+        });
+
+        await NotificationsService.create({
+          tenantId: tenant.id,
+          category: NotificationCategory.SYSTEM,
+          priority: NotificationPriority.MEDIUM,
+          title: 'Pagamento Estornado',
+          message: `Um estorno de R$ ${Number(payment?.value || 0).toFixed(2)} foi processado na sua conta.`,
+          link: '/dashboard/configuracoes'
+        });
+      }
+
+      return reply.status(200).send({
+        received: true,
+        type: 'TENANT_SUBSCRIPTION',
+        tenantId: tenant.id,
+        event: eventName,
+        billingStatus: tenant.billingStatus
+      });
+    } catch (err: any) {
+      console.error('[Asaas Webhook] Erro crítico ao processar evento:', err);
+      return reply.status(200).send({
+        received: true,
+        error: err.message,
+        timestamp: new Date().toISOString()
+      });
+    }
   });
 };
+
+

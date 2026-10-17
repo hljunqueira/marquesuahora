@@ -1,0 +1,65 @@
+export type SettingsTab = 'DATA' | 'VISUAL' | 'BOOKING' | 'SHIELD' | 'AUTOMATIONS' | 'NOTIFICATIONS' | 'WHATSAPP' | 'PLAN';
+
+export interface TenantSettings {
+  id: string;
+  name: string;
+  legalName?: string | null;
+  documentType: string;
+  documentNumber: string;
+  slug: string;
+  phone: string;
+  description?: string | null;
+  instagramUrl?: string | null;
+  niche: string;
+  logoUrl?: string | null;
+  themeTemplate: string;
+  primaryColor: string;
+  secondaryColor: string;
+  accentColor: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressComplement?: string | null;
+  addressNeighborhood: string;
+  addressCity: string;
+  addressState: string;
+  addressZip: string;
+  openingTime: string;
+  closingTime: string;
+  slotIntervalMinutes: number;
+  bufferMinutes: number;
+  minAdvanceBookingMinutes: number;
+  maxAdvanceBookingDays: number;
+  birthdayMessageEnabled: boolean;
+  birthdayMessageCustom?: string | null;
+  googleReviewUrl?: string | null;
+  npsFeedbackEnabled: boolean;
+  depositRequired: boolean;
+  depositType: 'FIXED' | 'PERCENTAGE';
+  depositAmount: number;
+  pixKey?: string | null;
+  pixKeyType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'RANDOM' | null;
+  pixKeyHolder?: string | null;
+  maxNoShowsAllowed: number;
+  churnRecoveryEnabled: boolean;
+  churnAlertDays: number;
+  billingStatus: string;
+  plan?: {
+    id: string;
+    name: string;
+    code: string;
+    description?: string;
+    monthlyPrice?: number | string;
+    maxProfessionals?: number;
+    isUnlimitedBookings?: boolean;
+    monthlyFreeBookings?: number;
+    features?: string[];
+  } | null;
+  usage?: {
+    currentProfessionals: number;
+    maxProfessionals: number;
+    currentMonthBookings: number;
+    monthlyFreeBookings: number;
+    isUnlimitedBookings: boolean;
+    isLimitReached: boolean;
+  };
+}

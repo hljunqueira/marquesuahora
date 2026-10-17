@@ -1,8 +1,10 @@
 export * from './queues';
 export * from './evolution.service';
 export * from './jev.service';
+export * from './openrouter.service';
 export * from './webhook.routes';
 export * from './workers/whatsapp.worker';
+
 export * from './workers/birthday.worker';
 export * from './workers/waitlist.worker';
 export * from './workers/nps.worker';

@@ -8,7 +8,8 @@ datasource db {
 }
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 // ------------------------------------------------------------------------------
@@ -175,6 +176,9 @@ model Tenant {
   depositRequired         Boolean       @default(false) // Exigência de sinal PIX antecipado
   depositType             String        @default("FIXED") // "FIXED" (R$) ou "PERCENTAGE" (%)
   depositAmount           Decimal       @default(0.0) @db.Decimal(10, 2)
+  pixKey                  String?       // Chave PIX direta do salão para recebimento de sinais
+  pixKeyType              String?       @default("CPF") // "CPF", "CNPJ", "PHONE", "EMAIL", "RANDOM"
+  pixKeyHolder            String?       // Nome do titular / favorecido da conta bancária
   maxNoShowsAllowed       Int           @default(2) // Tolerância máxima de faltas antes de bloquear agendamento online
   churnRecoveryEnabled    Boolean       @default(true) // Automação semanal de recuperação de clientes sumidos
   churnAlertDays          Int           @default(45) // Dias de ausência para considerar cliente em risco
@@ -192,15 +196,23 @@ model Tenant {
   users                   User[]
   professionals           Professional[]
   services                Service[]
+  categories              Category[]
+  availabilityRules       AvailabilityRule[]
+  courses                 Course[]
   clients                 Client[]
   schedules               Schedule[]
   scheduleBlocks          ScheduleBlock[]
   waitlistEntries         WaitlistEntry[]
   financialEntries        FinancialEntry[]
+  products                Product[]
   whatsappConfig          WhatsappConfig?
   aiSettings              TenantAiSettings?
   tickets                 SupportTicket[]
   auditLogs               AuditLog[]
+  notifications           Notification[]
+  notificationRules       TenantNotificationRule[]
+  notificationLogs        NotificationLog[]
+  coupons                 Coupon[]
 
   @@index([slug])
   @@index([documentNumber])
@@ -235,6 +247,7 @@ model User {
   professional Professional?
   tickets      SupportTicket[]
   auditLogs    AuditLog[]
+  notifications Notification[]
 
   @@index([tenantId])
 }
@@ -244,7 +257,9 @@ model Professional {
   tenantId       String
   userId         String?               @unique
   name           String
+  role           String?
   phone          String
+  avatarUrl      String?
   color          String                @default("#7C3AED")
   commissionRate Decimal               @default(50.0) @db.Decimal(5, 2)
   scheduleConfig Json                  // Escala: { "mon": { "start": "09:00", "end": "18:00", "lunchStart": "12:00", "lunchEnd": "13:00" }, ... }
@@ -256,6 +271,7 @@ model Professional {
   services       ServiceProfessional[]
   schedules      Schedule[]
   scheduleBlocks ScheduleBlock[]
+  availabilityRules AvailabilityRule[]
   waitlistEntries WaitlistEntry[]
 
   @@index([tenantId])
@@ -264,6 +280,7 @@ model Professional {
 model Service {
   id              String         @id @default(uuid())
   tenantId        String
+  categoryId      String?        // Especialidade / Categoria vinculada
   resourceId      String?        // Recurso vinculado (Sala ou Equipamento - Estética / Clínicas)
   name            String
   description     String?
@@ -280,12 +297,15 @@ model Service {
   createdAt       DateTime       @default(now())
 
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  categoryRel     Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   resource        Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
   schedules       Schedule[]
+  scheduleItems   ScheduleItem[]
   professionals   ServiceProfessional[]
   waitlistEntries WaitlistEntry[]
 
   @@index([tenantId])
+  @@index([categoryId])
   @@index([resourceId])
   @@unique([tenantId, name])
 }
@@ -324,6 +344,7 @@ model Client {
   schedules               Schedule[]
   photos                  ClientPhoto[]
   waitlistEntries         WaitlistEntry[]
+  courseAccesses          CourseAccess[]
 
   @@index([tenantId])
   @@unique([tenantId, phone])
@@ -386,6 +407,7 @@ model Schedule {
   professional       Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
   service            Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   resource           Resource?      @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  items              ScheduleItem[]
   financialEntry     FinancialEntry?
 
   @@index([tenantId, date])
@@ -394,20 +416,126 @@ model Schedule {
 }
 
 model ScheduleBlock {
-  id             String       @id @default(uuid())
+  id             String        @id @default(uuid())
   tenantId       String
   professionalId String?
-  date           DateTime     @db.Date
+  date           DateTime?     @db.Date
+  dayOfWeek      Int?          // 0 a 6 para bloqueios semanais recorrentes
   startTime      String
   endTime        String
-  reason         String       // "Almoço", "Consulta Médica", "Manutenção da Bancada"
-  createdAt      DateTime     @default(now())
+  reason         String        // "Almoço", "Consulta Médica", "Manutenção da Bancada"
+  isPaused       Boolean       @default(false)
+  createdAt      DateTime      @default(now())
 
-  tenant         Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, date])
+  @@index([tenantId, dayOfWeek])
   @@index([professionalId, date])
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  tenantId    String
+  name        String
+  description String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  services    Service[]
+
+  @@index([tenantId])
+  @@unique([tenantId, name])
+}
+
+model AvailabilityRule {
+  id                  String        @id @default(uuid())
+  tenantId            String
+  professionalId      String?
+  dayOfWeek           Int           // 0 (Domingo) a 6 (Sábado)
+  startTime           String        // "09:00"
+  endTime             String        // "18:00"
+  slotIntervalMinutes Int           @default(30)
+  isActive            Boolean       @default(true)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  tenant              Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  professional        Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, dayOfWeek])
+  @@index([professionalId, dayOfWeek])
+}
+
+model ScheduleItem {
+  id              String   @id @default(uuid())
+  scheduleId      String
+  serviceId       String
+  price           Decimal  @db.Decimal(10, 2)
+  durationMinutes Int
+
+  schedule        Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  service         Service  @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+
+  @@index([scheduleId])
+  @@index([serviceId])
+}
+
+model Course {
+  id          String         @id @default(uuid())
+  tenantId    String
+  title       String
+  description String?
+  price       Decimal?       @db.Decimal(10, 2)
+  coverUrl    String?
+  videoUrl    String?
+  sortOrder   Int            @default(0)
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lessons     CourseLesson[]
+  accesses    CourseAccess[]
+
+  @@index([tenantId])
+}
+
+model CourseLesson {
+  id          String   @id @default(uuid())
+  courseId    String
+  title       String
+  description String?
+  videoUrl    String   // Embed de YouTube, Vimeo, Drive, Panda, Bunny ou MP4
+  duration    String?  // Ex: "15:30"
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
+
+model CourseAccess {
+  id        String    @id @default(uuid())
+  courseId  String
+  clientId  String?
+  phone     String    // Chave de identificação da aluna
+  grantedAt DateTime  @default(now())
+  revokedAt DateTime?
+  isActive  Boolean   @default(true)
+
+  course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@unique([courseId, phone])
+  @@index([phone])
 }
 
 model WaitlistEntry {
@@ -548,3 +676,141 @@ model AuditLog {
   @@index([action])
   @@index([createdAt])
 }
+
+model Product {
+  id            String   @id @default(uuid())
+  tenantId      String
+  name          String
+  category      String   @default("Geral")
+  description   String?
+  costPrice     Decimal  @default(0.0) @db.Decimal(10, 2)
+  salePrice     Decimal  @db.Decimal(10, 2)
+  stockQuantity Int      @default(0)
+  minStock      Int      @default(0)
+  barcode       String?
+  imageUrl      String?
+  showInVitrine Boolean  @default(true)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+enum NotificationCategory {
+  SCHEDULE
+  PRODUCT
+  COURSE
+  SYSTEM
+}
+
+enum NotificationPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Notification {
+  id          String               @id @default(uuid())
+  tenantId    String
+  userId      String?
+  category    NotificationCategory @default(SYSTEM)
+  priority    NotificationPriority @default(MEDIUM)
+  title       String
+  message     String
+  link        String?
+  read        Boolean              @default(false)
+  readAt      DateTime?
+  metadata    Json?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  tenant      Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, read, createdAt])
+  @@index([tenantId, category, createdAt])
+  @@index([userId, read])
+}
+
+enum NotificationTrigger {
+  BOOKING_CONFIRMATION_CLIENT
+  BOOKING_REMINDER_CLIENT
+  BOOKING_UPDATED_CLIENT
+  BOOKING_NEW_TEAM
+  BOOKING_CANCELLED_CLIENT
+  BOOKING_CANCELLED_TEAM
+  NO_SHOW_CLIENT
+  POST_SERVICE_FOLLOWUP_30D
+  NPS_GOOGLE_REVIEW
+  BIRTHDAY_CLIENT
+  WAITLIST_JOINED
+  WAITLIST_CALLED
+  PAYMENT_PIX_DEPOSIT
+  PAYMENT_CONFIRMED
+  COURSE_NEW_BROADCAST
+  COURSE_ACCESS_GRANTED
+  COUPON_CAMPAIGN
+}
+
+model TenantNotificationRule {
+  id                 String              @id @default(uuid())
+  tenantId           String
+  trigger            NotificationTrigger
+  emailEnabled       Boolean             @default(true)
+  whatsappEnabled    Boolean             @default(true)
+  notifyProfessional Boolean             @default(true)
+  notifyOwner        Boolean             @default(true)
+  customWhatsappText String?             @db.Text
+  customEmailSubject String?
+  customEmailBody    String?             @db.Text
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, trigger])
+  @@index([tenantId, trigger])
+}
+
+model NotificationLog {
+  id           String              @id @default(uuid())
+  tenantId     String
+  scheduleId   String?
+  trigger      NotificationTrigger
+  channel      String              // "WHATSAPP" | "EMAIL"
+  recipient    String              // Telefone ou e-mail de destino
+  status       String              // "SENT", "FAILED", "DISCONNECTED", "SIMULATED"
+  errorMessage String?
+  sentAt       DateTime            @default(now())
+
+  tenant       Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, trigger, scheduleId])
+  @@index([tenantId, sentAt])
+}
+
+model Coupon {
+  id            String    @id @default(uuid())
+  tenantId      String
+  code          String
+  description   String?
+  discountType  String    @default("PERCENTAGE") // "PERCENTAGE" ou "FIXED"
+  discountValue Decimal   @db.Decimal(10, 2)
+  minOrderValue Decimal?  @db.Decimal(10, 2)
+  maxUses       Int?
+  timesUsed     Int       @default(0)
+  validUntil    DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, code])
+}
+

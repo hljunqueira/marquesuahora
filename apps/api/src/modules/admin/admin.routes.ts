@@ -1,7 +1,9 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
-import { Role } from '@prisma/client';
+import { PlansService } from '../plans/plans.service';
+import { Role, ScheduleStatus } from '@prisma/client';
+import { EmailService } from '../notifications/email.service';
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
   // Todas as rotas deste módulo são restritas para SUPER_ADMIN
@@ -13,6 +15,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       totalTenants,
       activeTenants,
       trialTenants,
+      gratuityTenants,
       blockedTenants,
       totalSchedules,
       openTickets,
@@ -21,6 +24,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       prisma.tenant.count(),
       prisma.tenant.count({ where: { billingStatus: 'ACTIVE' } }),
       prisma.tenant.count({ where: { billingStatus: 'TRIAL' } }),
+      prisma.tenant.count({ where: { billingStatus: 'GRATUITY' } }),
       prisma.tenant.count({ where: { billingStatus: 'BLOCKED' } }),
       prisma.schedule.count(),
       prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS', 'WAITING_CLIENT'] } } }),
@@ -34,7 +38,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       })
     ]);
 
-    // Calcula MRR estimado com base nos planos contratados pelas lojas ativas
+    // Calcula MRR estimado com base nos planos contratados pelas lojas ativas pagantes
     const estimatedMRR = plansWithCount.reduce(
       (acc, p) => acc + Number(p.monthlyPrice) * p._count.tenants,
       0
@@ -45,6 +49,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         total: totalTenants,
         active: activeTenants,
         trial: trialTenants,
+        gratuity: gratuityTenants,
         blocked: blockedTenants
       },
       schedules: {
@@ -60,7 +65,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // GET /admin/tenants - Listagem detalhada de todos os estabelecimentos com filtros
+  // GET /admin/tenants - Listagem detalhada de todos os estabelecimentos com filtros e estatísticas de uso
   app.get('/tenants', async (request, reply) => {
     const { status, search, planId } = request.query as {
       status?: string;
@@ -70,8 +75,8 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
 
     const tenants = await prisma.tenant.findMany({
       where: {
-        ...(status ? { billingStatus: status } : {}),
-        ...(planId ? { planId } : {}),
+        ...(status && status !== 'ALL' ? { billingStatus: status } : {}),
+        ...(planId && planId !== 'ALL' ? { planId } : {}),
         ...(search
           ? {
               OR: [
@@ -101,15 +106,43 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    return reply.send(tenants);
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    const tenantsWithStats = await Promise.all(
+      tenants.map(async (t) => {
+        const currentMonthBookings = await prisma.schedule.count({
+          where: {
+            tenantId: t.id,
+            date: { gte: startOfMonth, lte: endOfMonth },
+            status: { not: ScheduleStatus.CANCELLED }
+          }
+        });
+
+        const isUnlimited = t.plan?.isUnlimitedBookings ?? false;
+        const monthlyLimit = t.plan?.monthlyFreeBookings ?? 30;
+
+        return {
+          ...t,
+          isGratuity: t.billingStatus === 'GRATUITY',
+          currentMonthBookings,
+          monthlyLimit,
+          isUnlimitedBookings: isUnlimited,
+          isQuotaExceeded: !isUnlimited && currentMonthBookings >= monthlyLimit
+        };
+      })
+    );
+
+    return reply.send(tenantsWithStats);
   });
 
-  // PATCH /admin/tenants/:id/status - Bloqueio manual ou desbloqueio de loja com auditoria
+  // PATCH /admin/tenants/:id/status - Bloqueio, ativação ou concessão de gratuidade com auditoria
   app.patch('/tenants/:id/status', async (request, reply) => {
     const { id } = request.params as { id: string };
     const schema = z.object({
-      status: z.enum(['ACTIVE', 'TRIAL', 'BLOCKED', 'CANCELLED']),
-      reason: z.string().min(3, 'A justificativa é obrigatória.')
+      status: z.enum(['ACTIVE', 'TRIAL', 'GRATUITY', 'BLOCKED', 'CANCELLED']),
+      reason: z.string().min(2, 'A justificativa é obrigatória.')
     });
 
     const data = schema.parse(request.body);
@@ -118,7 +151,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       where: { id },
       data: {
         billingStatus: data.status,
-        blockedReason: data.status === 'BLOCKED' ? data.reason : null,
+        blockedReason:
+          data.status === 'BLOCKED'
+            ? data.reason
+            : data.status === 'GRATUITY'
+            ? `Cortesia VIP: ${data.reason}`
+            : null,
         blockedAt: data.status === 'BLOCKED' ? new Date() : null
       }
     });
@@ -128,7 +166,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       data: {
         userId: request.user.sub,
         tenantId: id,
-        action: data.status === 'BLOCKED' ? 'TENANT_BLOCKED' : 'TENANT_UNBLOCKED',
+        action:
+          data.status === 'BLOCKED'
+            ? 'TENANT_BLOCKED'
+            : data.status === 'GRATUITY'
+            ? 'TENANT_GRATUITY_GRANTED'
+            : 'TENANT_STATUS_UPDATED',
         entityType: 'Tenant',
         entityId: id,
         details: { newStatus: data.status, reason: data.reason },
@@ -143,36 +186,72 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // PATCH /admin/tenants/:id/plan - Alteração de plano da loja (Upgrade / Downgrade)
+  // PATCH /admin/tenants/:id/plan - Alteração de plano e controle de gratuidade em qualquer plano
   app.patch('/tenants/:id/plan', async (request, reply) => {
     const { id } = request.params as { id: string };
-    const schema = z.object({ planId: z.string().uuid() });
-    const { planId } = schema.parse(request.body);
+    const schema = z.object({
+      planId: z.string().min(1, 'Informe o plano.'),
+      isGratuity: z.boolean().optional(),
+      reason: z.string().optional()
+    });
+    const data = schema.parse(request.body);
 
-    const plan = await prisma.plan.findUnique({ where: { id: planId } });
+    const plan = await PlansService.resolvePlan(data.planId);
     if (!plan) {
       return reply.status(404).send({ error: 'Não encontrado', message: 'Plano não localizado.' });
     }
 
+    const currentTenant = await prisma.tenant.findUnique({ where: { id } });
+    if (!currentTenant) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não localizado.' });
+    }
+
+    let newBillingStatus = currentTenant.billingStatus;
+    let newBlockedReason = currentTenant.blockedReason;
+
+    if (data.isGratuity === true) {
+      newBillingStatus = 'GRATUITY';
+      newBlockedReason = data.reason
+        ? `Cortesia VIP: ${data.reason}`
+        : 'Cortesia concedida pelo Super Admin';
+    } else if (data.isGratuity === false && currentTenant.billingStatus === 'GRATUITY') {
+      newBillingStatus = 'ACTIVE';
+      newBlockedReason = null;
+    }
+
     const tenant = await prisma.tenant.update({
       where: { id },
-      data: { planId }
+      data: {
+        planId: plan.id,
+        billingStatus: newBillingStatus,
+        blockedReason: newBlockedReason
+      },
+      include: { plan: true }
     });
 
     await prisma.auditLog.create({
       data: {
         userId: request.user.sub,
         tenantId: id,
-        action: 'TENANT_PLAN_CHANGED',
+        action: data.isGratuity ? 'TENANT_GRATUITY_GRANTED' : 'TENANT_PLAN_CHANGED',
         entityType: 'Tenant',
         entityId: id,
-        details: { newPlanId: planId, planName: plan.name },
+        details: {
+          newPlanId: plan.id,
+          planName: plan.name,
+          planCode: plan.code,
+          isGratuity: data.isGratuity,
+          reason: data.reason
+        },
         ipAddress: request.ip,
         userAgent: request.headers['user-agent']
       }
     });
 
-    return reply.send({ message: `Plano atualizado para ${plan.name}.`, tenant });
+    return reply.send({
+      message: `Plano atualizado para ${plan.name}${data.isGratuity ? ' com cortesia ativada' : ''}.`,
+      tenant
+    });
   });
 
   // POST /admin/tenants/:id/impersonate - Acesso transparente de suporte como dono da loja
@@ -241,5 +320,105 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return reply.send(logs);
+  });
+
+  // GET /admin/integrations - Status de todas as integrações da plataforma
+  app.get('/integrations', async (_request, reply) => {
+    const apiBaseUrl = process.env.API_URL || 'https://api.marquesuahora.com.br';
+    const resendApiKey = process.env.RESEND_API_KEY || '';
+    const resendWebhookSecret = process.env.RESEND_WEBHOOK_SECRET || '';
+    const evolutionApiUrl = process.env.EVOLUTION_API_URL || '';
+    const asaasApiKey = process.env.ASAAS_API_KEY || '';
+    const asaasWebhookSecret = process.env.ASAAS_WEBHOOK_SECRET || '';
+    const openRouterApiKey = process.env.OPENROUTER_API_KEY || '';
+
+    return reply.send({
+      resend: {
+        name: 'Resend (E-mail Transacional)',
+        status: resendApiKey ? 'CONNECTED' : 'PENDING_CONFIG',
+        domain: 'marquesuahora.com.br',
+        sender: process.env.EMAIL_FROM || 'Marque Sua Hora <notificacoes@marquesuahora.com.br>',
+        webhookUrl: `${apiBaseUrl}/webhooks/resend`,
+        apiKeyConfigured: Boolean(resendApiKey),
+        apiKeyMasked: resendApiKey ? `${resendApiKey.slice(0, 10)}...${resendApiKey.slice(-6)}` : null,
+        apiKeyRaw: resendApiKey,
+        webhookSecretConfigured: Boolean(resendWebhookSecret),
+        webhookSecretMasked: resendWebhookSecret ? `${resendWebhookSecret.slice(0, 10)}...${resendWebhookSecret.slice(-6)}` : null,
+        webhookSecretRaw: resendWebhookSecret,
+        events: ['email.sent', 'email.delivered', 'email.bounced', 'email.complained']
+      },
+      evolution: {
+        name: 'Evolution API v2 (WhatsApp Multi-Tenant)',
+        status: evolutionApiUrl ? 'CONNECTED' : 'DISCONNECTED',
+        serverUrl: evolutionApiUrl,
+        webhookUrl: `${apiBaseUrl}/webhooks/whatsapp`
+      },
+      asaas: {
+        name: 'Asaas (Gateway de Pagamentos PIX & Cartão)',
+        status: asaasApiKey ? 'CONNECTED' : 'PENDING_CONFIG',
+        environment: 'Produção',
+        webhookUrl: `${apiBaseUrl}/webhooks/asaas`,
+        apiKeyConfigured: Boolean(asaasApiKey),
+        apiKeyMasked: asaasApiKey ? `${asaasApiKey.slice(0, 12)}...${asaasApiKey.slice(-6)}` : null,
+        webhookSecretConfigured: Boolean(asaasWebhookSecret),
+        webhookSecretMasked: asaasWebhookSecret ? `${asaasWebhookSecret.slice(0, 8)}...${asaasWebhookSecret.slice(-4)}` : null,
+        events: [
+          'PAYMENT_CONFIRMED',
+          'PAYMENT_RECEIVED',
+          'PAYMENT_ANTICIPATED',
+          'PAYMENT_OVERDUE',
+          'PAYMENT_DELETED',
+          'PAYMENT_RESTORED',
+          'PAYMENT_REFUNDED',
+          'SUBSCRIPTION_CREATED',
+          'SUBSCRIPTION_UPDATED',
+          'SUBSCRIPTION_DELETED'
+        ]
+      },
+      openrouter: {
+        name: 'OpenRouter (Inteligência Artificial)',
+        status: openRouterApiKey ? 'CONNECTED' : 'PENDING_CONFIG',
+        model: process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat',
+        engine: 'Context Engine 360°'
+      }
+    });
+  });
+
+  // POST /admin/integrations/test-email - Disparo de teste para validar Resend e DNS
+  app.post('/integrations/test-email', async (request, reply) => {
+    const body = z.object({ to: z.string().email('E-mail inválido') }).parse(request.body);
+    const result = await EmailService.send({
+      to: body.to,
+      subject: 'Teste de Integração Resend — Marque Sua Hora',
+      html: `
+        <div style="font-family: sans-serif; padding: 12px 0;">
+          <h2 style="color: #7c3aed; margin-bottom: 8px;">Conexão Resend Validada com Sucesso!</h2>
+          <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+            Este e-mail confirma que a API Key do Resend e o apontamento DNS do domínio <strong>marquesuahora.com.br</strong> estão funcionando perfeitamente na plataforma <strong>Marque Sua Hora</strong>.
+          </p>
+          <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+          <ul style="font-size: 13px; color: #64748b; line-height: 1.8; padding-left: 20px;">
+            <li><strong>Domínio:</strong> marquesuahora.com.br</li>
+            <li><strong>Remetente Oficial:</strong> notificacoes@marquesuahora.com.br</li>
+            <li><strong>Webhook Endpoint:</strong> https://api.marquesuahora.com.br/webhooks/resend</li>
+            <li><strong>Data do disparo:</strong> ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</li>
+          </ul>
+        </div>
+      `,
+      tenantName: 'Marque Sua Hora (Super Admin)'
+    });
+
+    if (!result.success) {
+      return reply.status(400).send({
+        success: false,
+        error: result.error || 'Falha ao disparar e-mail pelo Resend'
+      });
+    }
+
+    return reply.send({
+      success: true,
+      messageId: result.messageId,
+      simulated: result.simulated || false
+    });
   });
 };

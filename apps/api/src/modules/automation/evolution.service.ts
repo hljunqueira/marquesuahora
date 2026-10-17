@@ -11,6 +11,41 @@ export class EvolutionService {
   }
 
   /**
+   * Gera variações de números para cobrir 8 e 9 dígitos e identificadores JID/LID do WhatsApp.
+   */
+  public static generatePhoneCandidates(phone: string): string[] {
+    const raw = (phone || '').trim();
+    let digits = raw.replace(/\D/g, '');
+    const candidates: string[] = [];
+
+    if (raw.includes('@')) {
+      candidates.push(raw);
+    } else if (digits.length > 13) {
+      candidates.push(`${digits}@lid`);
+      candidates.push(digits);
+      candidates.push(`${digits}@s.whatsapp.net`);
+    } else {
+      if (digits.length >= 10 && !digits.startsWith('55')) {
+        digits = `55${digits}`;
+      }
+      candidates.push(digits);
+
+      // Variações com e sem nono dígito para números celulares brasileiros (DDI 55)
+      if (digits.startsWith('55') && digits.length === 12) {
+        // Formato 55 + DDD (2) + 8 dígitos -> adiciona versão com 9: 55 + DDD + 9 + 8 dígitos
+        candidates.push(`${digits.slice(0, 4)}9${digits.slice(4)}`);
+      } else if (digits.startsWith('55') && digits.length === 13) {
+        // Formato 55 + DDD (2) + 9 + 8 dígitos -> adiciona versão sem o 9 (para contas antigas do WhatsApp)
+        candidates.push(`${digits.slice(0, 4)}${digits.slice(5)}`);
+      }
+
+      candidates.push(`${digits}@s.whatsapp.net`);
+    }
+
+    return Array.from(new Set(candidates));
+  }
+
+  /**
    * Sanitiza o número de telefone para o formato internacional aceito pelo WhatsApp (DDI 55 + DDD + dígitos).
    */
   public static sanitizePhone(phone: string): string {
@@ -22,7 +57,7 @@ export class EvolutionService {
   }
 
   /**
-   * Envia mensagem de texto simples usando a instância do salão.
+   * Envia mensagem de texto simples usando a instância do salão com retry em variações de 8/9 dígitos.
    */
   public static async sendTextMessage(
     tenantId: string,
@@ -33,39 +68,55 @@ export class EvolutionService {
       where: { tenantId }
     });
 
-    const sanitizedPhone = this.sanitizePhone(toPhone);
+    const candidates = this.generatePhoneCandidates(toPhone);
+    const primaryPhone = candidates[0] || this.sanitizePhone(toPhone);
 
     // Se não tiver instância configurada ou estiver desconectada em ambiente local, simula com sucesso
     if (!config || !config.isConnected || process.env.NODE_ENV === 'test') {
-      console.log(`[Evolution WhatsApp SIMULADO] Para ${sanitizedPhone}: "${message}"`);
+      console.log(`[Evolution WhatsApp SIMULADO] Para ${primaryPhone}: "${message}"`);
       return { success: true, simulated: true };
     }
 
-    try {
-      const response = await axios.post(
-        `${this.getBaseUrl()}/message/sendText/${config.instanceName}`,
-        {
-          number: sanitizedPhone,
-          text: message,
-          delay: 1200
-        },
-        {
-          headers: {
-            apikey: config.apiKey || this.getGlobalApiKey(),
-            'Content-Type': 'application/json'
-          },
-          timeout: 8000
-        }
-      );
+    let lastError: any = null;
 
-      return {
-        success: true,
-        messageId: response.data?.key?.id
-      };
-    } catch (error: any) {
-      console.warn(`[Evolution WhatsApp ERRO] Falha ao enviar para ${sanitizedPhone}:`, error.message);
-      return { success: false };
+    for (const cand of candidates) {
+      try {
+        const response = await axios.post(
+          `${this.getBaseUrl()}/message/sendText/${config.instanceName}`,
+          {
+            number: cand,
+            text: message,
+            delay: 1200
+          },
+          {
+            headers: {
+              apikey: config.apiKey || this.getGlobalApiKey(),
+              'Content-Type': 'application/json'
+            },
+            timeout: 8000
+          }
+        );
+
+        return {
+          success: true,
+          messageId: response.data?.key?.id
+        };
+      } catch (error: any) {
+        lastError = error;
+        const errMessage = error.response?.data?.message || error.message || '';
+        if (errMessage.toLowerCase().includes('not connected') || error.response?.status === 401) {
+          // Atualiza status local se a instância foi desconectada no aparelho
+          await prisma.whatsappConfig.update({
+            where: { tenantId },
+            data: { isConnected: false }
+          }).catch(() => {});
+          break;
+        }
+      }
     }
+
+    console.warn(`[Evolution WhatsApp ERRO] Falha ao enviar para ${toPhone} após tentar variações:`, lastError?.message);
+    return { success: false };
   }
 
   /**
@@ -118,4 +169,199 @@ export class EvolutionService {
       return this.sendTextMessage(tenantId, toPhone, textFallback);
     }
   }
+
+  /**
+   * Obtém o status e QR Code da instância de WhatsApp do salão.
+   */
+  public static async getInstanceStatus(tenantId: string) {
+    const config = await prisma.whatsappConfig.findUnique({
+      where: { tenantId }
+    });
+
+    if (!config) {
+      return {
+        configured: false,
+        isConnected: false,
+        instanceName: null,
+        phoneNumber: null,
+        qrCode: null
+      };
+    }
+
+    return {
+      configured: true,
+      isConnected: config.isConnected,
+      instanceName: config.instanceName,
+      phoneNumber: config.phoneNumber,
+      qrCode: config.qrCode
+    };
+  }
+
+  /**
+   * Inicializa ou conecta a instância do salão na Evolution API e retorna o QR Code para leitura no celular.
+   */
+  public static async connectInstance(tenantId: string, slug: string) {
+    let config = await prisma.whatsappConfig.findUnique({
+      where: { tenantId }
+    });
+
+    const instanceName = config?.instanceName || `tenant_${slug.replace(/[^a-zA-Z0-9]/g, '_')}_${tenantId.slice(0, 6)}`;
+    const apiKey = config?.apiKey || this.getGlobalApiKey();
+
+    let qrCodeBase64: string | null = null;
+    let isConnected = config?.isConnected || false;
+
+    const apiUrl = process.env.API_URL || 'http://localhost:3333';
+    const webhookUrl = `${apiUrl}/webhooks/whatsapp`;
+
+    try {
+      // 1. Tenta criar a instância na Evolution API já com webhook ativado
+      const createRes = await axios.post(
+        `${this.getBaseUrl()}/instance/create`,
+        {
+          instanceName,
+          qrcode: true,
+          integration: 'WHATSAPP-BAILEYS',
+          webhook: {
+            enabled: true,
+            url: webhookUrl,
+            byEvents: false,
+            base64: false,
+            events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'QRCODE_UPDATED']
+          }
+        },
+        {
+          headers: { apikey: this.getGlobalApiKey() },
+          timeout: 5000
+        }
+      );
+
+      const cData = createRes.data;
+      qrCodeBase64 =
+        cData?.qrcode?.base64 ||
+        cData?.base64 ||
+        (cData?.code ? `data:image/png;base64,${cData.code}` : null) ||
+        null;
+
+      if (cData?.instance?.status === 'open') {
+        isConnected = true;
+      }
+    } catch (err: any) {
+      // 2. Se a instância já existir, solicita o QR Code de conexão e atualiza o webhook
+      try {
+        // Assegura que o webhook esteja apontado para a nossa API
+        axios.post(
+          `${this.getBaseUrl()}/webhook/set/${instanceName}`,
+          {
+            webhook: {
+              enabled: true,
+              url: webhookUrl,
+              byEvents: false,
+              base64: false,
+              events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'QRCODE_UPDATED']
+            }
+          },
+          {
+            headers: { apikey: apiKey },
+            timeout: 3000
+          }
+        ).catch(() => {});
+
+        const connectRes = await axios.get(
+          `${this.getBaseUrl()}/instance/connect/${instanceName}`,
+          {
+            headers: { apikey: apiKey },
+            timeout: 5000
+          }
+        );
+        const connData = connectRes.data;
+        qrCodeBase64 =
+          connData?.base64 ||
+          connData?.qrcode?.base64 ||
+          (connData?.code ? `data:image/png;base64,${connData.code}` : null) ||
+          null;
+
+        if (connData?.instance?.status === 'open') {
+          isConnected = true;
+        }
+      } catch (connectErr: any) {
+        console.warn(`[Evolution WhatsApp] VPS offline ou não configurada localmente. Gerando QR Code simulado para testes:`, connectErr.message);
+        // Fallback para desenvolvimento e testes: QR Code mock em SVG Base64 em preto puro (#000000)
+        const svgMock = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200"><rect width="200" height="200" fill="#ffffff"/><rect x="20" y="20" width="50" height="50" fill="#000000"/><rect x="30" y="30" width="30" height="30" fill="#ffffff"/><rect x="37" y="37" width="16" height="16" fill="#000000"/><rect x="130" y="20" width="50" height="50" fill="#000000"/><rect x="140" y="30" width="30" height="30" fill="#ffffff"/><rect x="147" y="37" width="16" height="16" fill="#000000"/><rect x="20" y="130" width="50" height="50" fill="#000000"/><rect x="30" y="140" width="30" height="30" fill="#ffffff"/><rect x="37" y="147" width="16" height="16" fill="#000000"/><rect x="85" y="20" width="20" height="40" fill="#000000"/><rect x="85" y="80" width="30" height="30" fill="#000000"/><rect x="130" y="90" width="40" height="20" fill="#000000"/><rect x="90" y="130" width="20" height="50" fill="#000000"/><rect x="130" y="130" width="50" height="50" fill="#000000"/></svg>`;
+        qrCodeBase64 = `data:image/svg+xml;base64,${Buffer.from(svgMock).toString('base64')}`;
+      }
+    }
+
+    // Persiste ou atualiza no banco
+    const updated = await prisma.whatsappConfig.upsert({
+      where: { tenantId },
+      create: {
+        tenantId,
+        instanceName,
+        apiKey,
+        isConnected,
+        qrCode: qrCodeBase64
+      },
+      update: {
+        instanceName,
+        apiKey,
+        isConnected,
+        qrCode: qrCodeBase64
+      }
+    });
+
+    return {
+      instanceName: updated.instanceName,
+      isConnected: updated.isConnected,
+      qrCode: updated.qrCode,
+      phoneNumber: updated.phoneNumber
+    };
+  }
+
+  /**
+   * Desconecta o WhatsApp do salão na Evolution API de forma limpa (logout + delete).
+   */
+  public static async disconnectInstance(tenantId: string) {
+    const config = await prisma.whatsappConfig.findUnique({
+      where: { tenantId }
+    });
+
+    if (!config) {
+      return { success: true };
+    }
+
+    try {
+      // 1. Faz logout da sessão
+      await axios.delete(
+        `${this.getBaseUrl()}/instance/logout/${config.instanceName}`,
+        {
+          headers: { apikey: config.apiKey || this.getGlobalApiKey() },
+          timeout: 5000
+        }
+      ).catch(() => {});
+
+      // 2. Deleta a instância para evitar sessão zumbi no Baileys
+      await axios.delete(
+        `${this.getBaseUrl()}/instance/delete/${config.instanceName}`,
+        {
+          headers: { apikey: config.apiKey || this.getGlobalApiKey() },
+          timeout: 5000
+        }
+      ).catch(() => {});
+    } catch (err: any) {
+      console.warn('[Evolution WhatsApp] Erro ao deslogar instância:', err.message);
+    }
+
+    await prisma.whatsappConfig.update({
+      where: { tenantId },
+      data: {
+        isConnected: false,
+        qrCode: null,
+        phoneNumber: null
+      }
+    });
+
+    return { success: true };
+  }
 }
+

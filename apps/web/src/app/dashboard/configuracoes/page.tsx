@@ -1,883 +1,284 @@
 'use client';
 
-import React, { useState } from 'react';
-import { motion } from 'motion/react';
-import axios from 'axios';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Building2,
   Palette,
-  Briefcase,
-  Calendar,
-  DollarSign,
-  Cake,
-  Lock,
+  Clock,
+  ShieldCheck,
+  Zap,
   Save,
   CheckCircle2,
   AlertCircle,
-  Clock,
-  Sparkles,
-  Upload,
-  Camera,
-  Tag,
-  Plus,
-  Trash2,
-  Edit2,
-  X
+  ExternalLink,
+  CreditCard,
+  MessageSquare,
+  SlidersHorizontal
 } from 'lucide-react';
-import { InputMask } from '@/components/ui/InputMask';
+import { api } from '@/lib/api';
+import { TenantSettings, SettingsTab } from '@/components/settings/types';
+import { SettingsDataTab } from '@/components/settings/SettingsDataTab';
+import { SettingsVisualTab } from '@/components/settings/SettingsVisualTab';
+import { SettingsBookingTab } from '@/components/settings/SettingsBookingTab';
+import { SettingsShieldTab } from '@/components/settings/SettingsShieldTab';
+import { SettingsAutomationsTab } from '@/components/settings/SettingsAutomationsTab';
+import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab';
+import { SettingsWhatsappTab } from '@/components/settings/SettingsWhatsappTab';
+import { SettingsPlanTab } from '@/components/settings/SettingsPlanTab';
 
 export default function DashboardConfiguracoesPage() {
-  const [activeTab, setActiveTab] = useState<
-    'DATA' | 'THEME' | 'NICHE' | 'SCHEDULE' | 'FINANCE' | 'AUTOMATIONS' | 'SECURITY'
-  >('DATA');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('DATA');
+  const [settings, setSettings] = useState<TenantSettings | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  // Dados Cadastrais
-  const [name, setName] = useState('Salão Imperial');
-  const [documentNumber, setDocumentNumber] = useState('12.345.678/0001-90');
-  const [phone, setPhone] = useState('(11) 98765-4321');
-  const [cep, setCep] = useState('01310-100');
-  const [street, setStreet] = useState('Avenida Paulista');
-  const [number, setNumber] = useState('1000');
-  const [complement, setComplement] = useState('');
-  const [neighborhood, setNeighborhood] = useState('Bela Vista');
-  const [city, setCity] = useState('São Paulo');
-  const [state, setState] = useState('SP');
+  const showToast = (text: string, type: 'success' | 'error' = 'success') => {
+    setToastMessage({ text, type });
+    setTimeout(() => setToastMessage(null), 3500);
+  };
 
-  // Identidade Visual
-  const [logoUrl, setLogoUrl] = useState<string>('');
-  const [themeTemplate, setThemeTemplate] = useState('PURPLE_IMPERIAL');
-
-  React.useEffect(() => {
-    const savedLogo = localStorage.getItem('tenant_logo');
-    if (savedLogo) setLogoUrl(savedLogo);
+  const fetchSettings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/tenants/me');
+      setSettings(res.data);
+      setHasChanges(false);
+    } catch (err) {
+      console.error('Erro ao carregar configurações do estabelecimento:', err);
+      showToast('Erro ao carregar configurações.', 'error');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        setLogoUrl(dataUrl);
-        localStorage.setItem('tenant_logo', dataUrl);
-        window.dispatchEvent(new Event('storage'));
+  useEffect(() => {
+    fetchSettings();
+  }, [fetchSettings]);
+
+  const handleChange = (field: keyof TenantSettings, value: any) => {
+    setSettings((prev) => {
+      if (!prev) return null;
+      return { ...prev, [field]: value };
+    });
+    setHasChanges(true);
+  };
+
+  const handleSave = async () => {
+    if (!settings) return;
+    setSaving(true);
+    try {
+      const payload = {
+        name: settings.name,
+        legalName: settings.legalName,
+        niche: settings.niche,
+        description: settings.description,
+        phone: settings.phone,
+        instagramUrl: settings.instagramUrl,
+        themeTemplate: settings.themeTemplate,
+        primaryColor: settings.primaryColor,
+        secondaryColor: settings.secondaryColor,
+        accentColor: settings.accentColor,
+        logoUrl: settings.logoUrl,
+        googleReviewUrl: settings.googleReviewUrl,
+        npsFeedbackEnabled: settings.npsFeedbackEnabled,
+        depositRequired: settings.depositRequired,
+        depositType: settings.depositType,
+        depositAmount: Number(settings.depositAmount),
+        pixKey: settings.pixKey,
+        pixKeyType: settings.pixKeyType,
+        pixKeyHolder: settings.pixKeyHolder,
+        maxNoShowsAllowed: Number(settings.maxNoShowsAllowed),
+        churnRecoveryEnabled: settings.churnRecoveryEnabled,
+        churnAlertDays: Number(settings.churnAlertDays),
+        birthdayMessageEnabled: settings.birthdayMessageEnabled,
+        birthdayMessageCustom: settings.birthdayMessageCustom,
+        bufferMinutes: Number(settings.bufferMinutes),
+        openingTime: settings.openingTime,
+        closingTime: settings.closingTime,
+        slotIntervalMinutes: Number(settings.slotIntervalMinutes),
+        minAdvanceBookingMinutes: Number(settings.minAdvanceBookingMinutes),
+        maxAdvanceBookingDays: Number(settings.maxAdvanceBookingDays),
+        addressStreet: settings.addressStreet,
+        addressNumber: settings.addressNumber,
+        addressComplement: settings.addressComplement,
+        addressNeighborhood: settings.addressNeighborhood,
+        addressCity: settings.addressCity,
+        addressState: settings.addressState,
+        addressZip: settings.addressZip
       };
-      reader.readAsDataURL(file);
-    }
-  };
 
-  // Regras da Agenda / Configurações de Agendamento
-  const [openingTime, setOpeningTime] = useState('09:00');
-  const [closingTime, setClosingTime] = useState('19:00');
-  const [bufferMinutes, setBufferMinutes] = useState('15');
-
-  // Categorias e Tags de Clientes para Agendamento
-  const DEFAULT_TAGS = ['Novo', 'Frequente', 'VIP', 'Fiel', 'Atenção com Faltas', 'Exige Sinal'];
-  const [clientTags, setClientTags] = useState<string[]>(DEFAULT_TAGS);
-  const [newTagInput, setNewTagInput] = useState('');
-  const [editingTagIndex, setEditingTagIndex] = useState<number | null>(null);
-  const [editingTagValue, setEditingTagValue] = useState('');
-  const [tagToast, setTagToast] = useState<string | null>(null);
-
-  const showTagToast = (msg: string) => {
-    setTagToast(msg);
-    setTimeout(() => setTagToast(null), 3000);
-  };
-
-  React.useEffect(() => {
-    // Detecta aba na URL (?tab=SCHEDULE)
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      const tabParam = params.get('tab');
-      if (tabParam && ['DATA', 'THEME', 'SCHEDULE', 'FINANCE', 'AUTOMATIONS', 'SECURITY'].includes(tabParam)) {
-        setActiveTab(tabParam as any);
-      }
-    }
-
-    // Carrega tags salvas
-    const savedTags = localStorage.getItem('marquesuahora_client_tags');
-    if (savedTags) {
-      try {
-        const parsed = JSON.parse(savedTags);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setClientTags(parsed);
+      const res = await api.put('/tenants/me/settings', payload);
+      const updated = res.data?.tenant || res.data;
+      if (updated) {
+        setSettings((prev) => (prev ? { ...prev, ...updated } : updated));
+        localStorage.setItem('tenant_name', updated.name);
+        if (updated.slug) localStorage.setItem('tenant_slug', updated.slug);
+        if (updated.niche) localStorage.setItem('tenant_niche', updated.niche);
+        if (updated.primaryColor) localStorage.setItem('tenant_primary_color', updated.primaryColor);
+        if (updated.themeTemplate) localStorage.setItem('tenant_theme_template', updated.themeTemplate);
+        if (updated.logoUrl !== undefined) {
+          if (updated.logoUrl) {
+            localStorage.setItem('tenant_logo', updated.logoUrl);
+          } else {
+            localStorage.removeItem('tenant_logo');
+          }
         }
-      } catch (err) {
-        console.error('Erro ao ler tags do localStorage', err);
+        localStorage.setItem('tenant_data', JSON.stringify(updated));
+
+        window.dispatchEvent(new Event('storage'));
+        window.dispatchEvent(new CustomEvent('marquesuahora_tenant_sync', { detail: updated }));
       }
+      setHasChanges(false);
+      showToast('Configurações salvas com sucesso!');
+    } catch (err: any) {
+      console.error('Erro ao salvar configurações:', err);
+      showToast(err?.response?.data?.message || 'Erro ao salvar alterações.', 'error');
+    } finally {
+      setSaving(false);
     }
-  }, []);
-
-  const saveTagsToStorage = (tags: string[]) => {
-    setClientTags(tags);
-    localStorage.setItem('marquesuahora_client_tags', JSON.stringify(tags));
-    window.dispatchEvent(new Event('storage'));
   };
 
-  const handleAddNewTag = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = newTagInput.trim();
-    if (!trimmed) return;
-    if (clientTags.includes(trimmed)) {
-      showTagToast('Esta categoria já existe!');
-      return;
-    }
-    const updated = [...clientTags, trimmed];
-    saveTagsToStorage(updated);
-    setNewTagInput('');
-    showTagToast(`Categoria "${trimmed}" adicionada com sucesso!`);
-  };
-
-  const handleStartEditTag = (index: number) => {
-    setEditingTagIndex(index);
-    setEditingTagValue(clientTags[index]);
-  };
-
-  const handleSaveEditTag = (index: number) => {
-    const trimmed = editingTagValue.trim();
-    if (!trimmed) return;
-    const updated = [...clientTags];
-    updated[index] = trimmed;
-    saveTagsToStorage(updated);
-    setEditingTagIndex(null);
-    setEditingTagValue('');
-    showTagToast('Categoria atualizada com sucesso!');
-  };
-
-  const handleDeleteTag = (index: number) => {
-    if (clientTags.length <= 1) {
-      alert('Você precisa ter pelo menos uma categoria cadastrada.');
-      return;
-    }
-    const targetTag = clientTags[index];
-    const updated = clientTags.filter((_, i) => i !== index);
-    saveTagsToStorage(updated);
-    showTagToast(`Categoria "${targetTag}" removida.`);
-  };
-
-  // Políticas Financeiras
-  const [depositRequired, setDepositRequired] = useState(false);
-  const [depositType, setDepositType] = useState<'FIXED' | 'PERCENTAGE'>('FIXED');
-  const [depositAmount, setDepositAmount] = useState('30.00');
-  const [maxNoShows, setMaxNoShows] = useState('2');
-
-  // Troca de Senha Segura
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
-
-  const [isSaved, setIsSaved] = useState(false);
-
-  const handleSaveSettings = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
-  };
-
-  const handlePasswordChange = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordError(null);
-    setPasswordSuccess(false);
-
-    if (newPassword.length < 8) {
-      setPasswordError('A nova senha deve possuir pelo menos 8 caracteres.');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setPasswordError('A confirmação de senha não confere.');
-      return;
-    }
-
-    setPasswordSuccess(true);
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setTimeout(() => setPasswordSuccess(false), 4000);
-  };
-
-  const THEMES = [
-    {
-      id: 'PURPLE_IMPERIAL',
-      name: 'Roxo Imperial & Ouro',
-      primary: '#7C3AED',
-      secondary: '#D4AF37',
-      desc: 'Salões de alto padrão e barbearias refinadas'
-    },
-    {
-      id: 'DARK_OBSIDIAN',
-      name: 'Dark Obsidian & Grafite',
-      primary: '#0B0F19',
-      secondary: '#64748B',
-      desc: 'Barbearias urbanas e estúdios industriais'
-    },
-    {
-      id: 'ROSE_GOLD',
-      name: 'Rose Gold & Nude Estético',
-      primary: '#FAF7F5',
-      secondary: '#C07A65',
-      desc: 'Clínicas de estética, unhas e lash designers'
-    },
-    {
-      id: 'EMERALD_SAGE',
-      name: 'Verde Esmeralda & Sage',
-      primary: '#047857',
-      secondary: '#A7F3D0',
-      desc: 'Spas holísticos, massoterapia e estética natural'
-    },
-    {
-      id: 'MIDNIGHT_SAPPHIRE',
-      name: 'Azul Safira Real',
-      primary: '#2563EB',
-      secondary: '#93C5FD',
-      desc: 'Estúdios esportivos, fisioterapia e personal trainers'
-    }
+  const tabs = [
+    { id: 'DATA' as SettingsTab, label: 'Dados & Endereço', icon: Building2 },
+    { id: 'VISUAL' as SettingsTab, label: 'Identidade & Vitrine', icon: Palette },
+    { id: 'BOOKING' as SettingsTab, label: 'Regras da Agenda', icon: Clock },
+    { id: 'SHIELD' as SettingsTab, label: 'No-Show Shield & PIX', icon: ShieldCheck },
+    { id: 'AUTOMATIONS' as SettingsTab, label: 'Automações & Reviews', icon: Zap },
+    { id: 'NOTIFICATIONS' as SettingsTab, label: 'Notificações & Mensagens', icon: SlidersHorizontal },
+    { id: 'WHATSAPP' as SettingsTab, label: 'WhatsApp (QR Code)', icon: MessageSquare },
+    { id: 'PLAN' as SettingsTab, label: 'Plano & Assinatura', icon: CreditCard }
   ];
 
+  if (loading) {
+    return (
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
+        <div className="h-10 w-48 bg-slate-200/60 rounded-xl animate-pulse" />
+        <div className="h-96 bg-white rounded-2xl animate-pulse border border-slate-200/80" />
+      </div>
+    );
+  }
+
+  if (!settings) {
+    return (
+      <div className="p-12 text-center text-slate-500">
+        Estabelecimento não localizado.
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Navegação entre as Abas */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none bg-white p-1.5 rounded-2xl border border-slate-200/80 shadow-xs text-xs font-semibold">
-        {[
-          { id: 'DATA', label: 'Dados da Loja', icon: Building2 },
-          { id: 'THEME', label: 'Identidade Visual', icon: Palette },
-          { id: 'SCHEDULE', label: 'Configurações de Agendamento', icon: Calendar },
-          { id: 'FINANCE', label: 'Sinal & No-Show', icon: DollarSign },
-          { id: 'AUTOMATIONS', label: 'CRM & Aniversários', icon: Cake },
-          { id: 'SECURITY', label: 'Troca de Senha', icon: Lock }
-        ].map((tab) => {
+    <div className="p-6 max-w-6xl mx-auto space-y-6 pb-24">
+      {toastMessage && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl font-medium text-sm shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 ${
+            toastMessage.type === 'error'
+              ? 'bg-rose-600 text-white shadow-rose-900/20'
+              : 'bg-emerald-600 text-white shadow-emerald-900/20'
+          }`}
+        >
+          {toastMessage.type === 'error' ? (
+            <AlertCircle className="w-4 h-4" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4" />
+          )}
+          <span>{toastMessage.text}</span>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            Configurações do Estabelecimento
+          </h1>
+          <p className="text-sm text-slate-500">
+            Personalize dados comerciais, regras de agendamento e vitrine online
+          </p>
+        </div>
+
+        <button
+          onClick={handleSave}
+          disabled={saving || !hasChanges}
+          className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+            hasChanges
+              ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-600/20 active:scale-95 cursor-pointer'
+              : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+          }`}
+        >
+          <Save className="w-4 h-4" />
+          <span>{saving ? 'Salvando...' : hasChanges ? 'Salvar Alterações' : 'Salvo'}</span>
+        </button>
+      </div>
+
+      {/* Tabs Navigation */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-200">
+        {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
+
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-3.5 py-2 rounded-xl flex items-center gap-2 whitespace-nowrap transition-all cursor-pointer ${
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl font-medium text-sm transition-all whitespace-nowrap cursor-pointer ${
                 isActive
-                  ? 'bg-purple-600 text-white shadow-sm shadow-purple-600/20'
-                  : 'text-slate-600 hover:text-purple-700 hover:bg-purple-50/60'
+                  ? 'bg-white text-purple-700 shadow-xs border border-slate-200/90 font-semibold'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className={`w-4 h-4 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
               <span>{tab.label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Conteúdo da Aba */}
-      <div className="p-6 sm:p-8 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
-        {/* ABA 1: DADOS DA LOJA */}
-        {activeTab === 'DATA' && (
-          <form onSubmit={handleSaveSettings} className="space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-800">
-                Dados Cadastrais & Localização
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Informações visíveis para os clientes na vitrine pública e nos comprovantes de agendamento.
-              </p>
-            </div>
+      {/* Tab Contents */}
+      {activeTab === 'DATA' && (
+        <SettingsDataTab settings={settings} onChange={handleChange} />
+      )}
+      {activeTab === 'VISUAL' && (
+        <SettingsVisualTab settings={settings} onChange={handleChange} />
+      )}
+      {activeTab === 'BOOKING' && (
+        <SettingsBookingTab settings={settings} onChange={handleChange} />
+      )}
+      {activeTab === 'SHIELD' && (
+        <SettingsShieldTab settings={settings} onChange={handleChange} />
+      )}
+      {activeTab === 'AUTOMATIONS' && (
+        <SettingsAutomationsTab settings={settings} onChange={handleChange} />
+      )}
+      {activeTab === 'NOTIFICATIONS' && (
+        <SettingsNotificationsTab />
+      )}
+      {activeTab === 'WHATSAPP' && (
+        <SettingsWhatsappTab
+          settings={settings}
+          onNavigateToPlan={() => setActiveTab('PLAN')}
+        />
+      )}
+      {activeTab === 'PLAN' && (
+        <SettingsPlanTab settings={settings} onRefresh={fetchSettings} />
+      )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Nome do Estabelecimento *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  CNPJ ou CPF
-                </label>
-                <InputMask
-                  mask="document"
-                  value={documentNumber}
-                  onChangeValue={(val) => setDocumentNumber(val)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  WhatsApp Comercial da Recepção
-                </label>
-                <InputMask
-                  mask="phone"
-                  value={phone}
-                  onChangeValue={(val) => setPhone(val)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  CEP
-                </label>
-                <InputMask
-                  mask="cep"
-                  value={cep}
-                  onChangeValue={(val) => setCep(val)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
-              <div className="sm:col-span-3">
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Logradouro / Rua
-                </label>
-                <input
-                  type="text"
-                  value={street}
-                  onChange={(e) => setStreet(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-              <div className="sm:col-span-1">
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Número
-                </label>
-                <input
-                  type="text"
-                  value={number}
-                  onChange={(e) => setNumber(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
-              <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Complemento
-                </label>
-                <input
-                  type="text"
-                  value={complement}
-                  onChange={(e) => setComplement(e.target.value)}
-                  placeholder="Ex: Sala 4, Bloco B"
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Bairro
-                </label>
-                <input
-                  type="text"
-                  value={neighborhood}
-                  onChange={(e) => setNeighborhood(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
-              <div className="sm:col-span-3">
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Cidade
-                </label>
-                <input
-                  type="text"
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-                />
-              </div>
-              <div className="sm:col-span-1">
-                <label className="text-xs font-semibold text-slate-700 block mb-1">
-                  Estado (UF)
-                </label>
-                <input
-                  type="text"
-                  maxLength={2}
-                  value={state}
-                  onChange={(e) => setState(e.target.value.toUpperCase())}
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-semibold uppercase transition-all"
-                />
-              </div>
-            </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-end">
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all cursor-pointer"
-              >
-                {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                <span>{isSaved ? 'Configurações Salvas!' : 'Salvar Alterações'}</span>
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ABA 2: IDENTIDADE VISUAL */}
-        {activeTab === 'THEME' && (
-          <div className="space-y-4">
-            {/* Logo do Estabelecimento */}
-            <div className="p-5 rounded-2xl bg-purple-50/50 border border-purple-200/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-2xl bg-white border border-purple-200 shadow-2xs flex items-center justify-center overflow-hidden shrink-0">
-                  {logoUrl ? (
-                    <img src={logoUrl} alt="Logo" className="w-full h-full object-contain p-1" />
-                  ) : (
-                    <Building2 className="w-7 h-7 text-purple-400" />
-                  )}
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                    Logo Oficial do Espaço
-                  </h4>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    Exibida no menu lateral do painel e no topo da vitrine pública para seus clientes.
-                  </p>
-                </div>
-              </div>
-              <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold cursor-pointer transition-colors shadow-2xs shrink-0">
-                <Upload className="w-3.5 h-3.5" />
-                <span>{logoUrl ? 'Alterar Logo' : 'Enviar Logo'}</span>
-                <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-              </label>
-            </div>
-
-            <div className="pt-2">
-              <h3 className="text-base font-bold text-slate-900 mb-1">
-                Template Editorial da Vitrine
-              </h3>
-              <p className="text-xs text-slate-500 mb-4">
-                Escolha uma das 5 paletas de luxo desenhadas para o seu nicho:
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {THEMES.map((theme) => {
-                const isSelected = themeTemplate === theme.id;
-                return (
-                  <button
-                    key={theme.id}
-                    type="button"
-                    onClick={() => setThemeTemplate(theme.id)}
-                    className={`p-4 rounded-2xl border text-left transition-all ${
-                      isSelected
-                        ? 'border-purple-600 ring-2 ring-purple-600/10 bg-purple-50/20 shadow-sm'
-                        : 'border-slate-200 bg-white hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <span
-                        className="w-5 h-5 rounded-full border border-black/10"
-                        style={{ backgroundColor: theme.primary }}
-                      />
-                      <span
-                        className="w-5 h-5 rounded-full border border-black/10"
-                        style={{ backgroundColor: theme.secondary }}
-                      />
-                      <strong className="text-xs font-bold text-slate-900 ml-1">
-                        {theme.name}
-                      </strong>
-                    </div>
-                    <span className="text-[11px] text-slate-500">{theme.desc}</span>
-                  </button>
-                );
-              })}
-            </div>
+      {/* Floating Save Reminder if changed */}
+      {hasChanges && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white border border-slate-800 shadow-2xl px-6 py-3.5 rounded-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-2">
+          <div className="text-xs text-slate-200 font-medium">
+            Você possui alterações não salvas.
           </div>
-        )}
-
-        {/* ABA 3: CONFIGURAÇÕES DE AGENDAMENTO */}
-        {activeTab === 'SCHEDULE' && (
-          <div className="space-y-8">
-            <form onSubmit={handleSaveSettings} className="space-y-4">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Horários de Atendimento & Buffer
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Defina o período diário em que sua equipe atende e o tempo de respiro entre atendimentos.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Horário de Abertura
-                  </label>
-                  <input
-                    type="time"
-                    value={openingTime}
-                    onChange={(e) => setOpeningTime(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Horário de Fechamento
-                  </label>
-                  <input
-                    type="time"
-                    value={closingTime}
-                    onChange={(e) => setClosingTime(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Buffer Higiênico / Respiro (min)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step={5}
-                    value={bufferMinutes}
-                    onChange={(e) => setBufferMinutes(e.target.value)}
-                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end">
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer transition-all"
-                >
-                  {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                  <span>{isSaved ? 'Horários Salvos!' : 'Salvar Horários'}</span>
-                </button>
-              </div>
-            </form>
-
-            {/* SEÇÃO: CATEGORIAS E TAGS DE CLIENTES (EDITAR E COLOCAR UM NOVO) */}
-            <div className="pt-6 border-t border-slate-200/80 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Tag className="w-4 h-4 text-purple-600" />
-                    <span>Categorias e Tags de Clientes</span>
-                  </h4>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Personalize as categorias que aparecem ao cadastrar ou editar clientes e agendamentos (ex: Novo, Frequente, VIP, Noiva, etc.).
-                  </p>
-                </div>
-                {tagToast && (
-                  <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1.5 animate-fade-in shrink-0">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>{tagToast}</span>
-                  </span>
-                )}
-              </div>
-
-              {/* Formulário para Adicionar Nova Categoria */}
-              <form onSubmit={handleAddNewTag} className="flex flex-col sm:flex-row items-center gap-2.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80">
-                <div className="relative w-full sm:flex-1">
-                  <Tag className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    placeholder="Digitar nova categoria (ex: Noiva, Barba Terapia, Tratamento Químico)..."
-                    value={newTagInput}
-                    onChange={(e) => setNewTagInput(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none focus:border-purple-600 font-medium transition-all"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full sm:w-auto px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 shadow-2xs transition-colors cursor-pointer shrink-0"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Adicionar Categoria</span>
-                </button>
-              </form>
-
-              {/* Lista de Categorias com Editar e Excluir */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
-                {clientTags.map((tag, idx) => {
-                  const isEditing = editingTagIndex === idx;
-
-                  return (
-                    <div
-                      key={idx}
-                      className="p-3.5 rounded-2xl bg-white border border-slate-200/80 flex items-center justify-between gap-2 shadow-2xs hover:border-purple-300 transition-all group"
-                    >
-                      {isEditing ? (
-                        <div className="flex items-center gap-1.5 w-full">
-                          <input
-                            type="text"
-                            autoFocus
-                            value={editingTagValue}
-                            onChange={(e) => setEditingTagValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleSaveEditTag(idx);
-                              } else if (e.key === 'Escape') {
-                                setEditingTagIndex(null);
-                              }
-                            }}
-                            className="w-full px-2.5 py-1.5 text-xs border border-purple-500 rounded-lg outline-none font-medium bg-purple-50/20"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleSaveEditTag(idx)}
-                            className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-semibold rounded-lg shrink-0 cursor-pointer"
-                          >
-                            Salvar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingTagIndex(null)}
-                            className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg shrink-0 cursor-pointer"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <span className="w-2.5 h-2.5 rounded-full bg-purple-600 shrink-0" />
-                            <span className="text-xs font-bold text-slate-800 truncate">
-                              {tag}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEditTag(idx)}
-                              title="Editar nome da categoria"
-                              className="p-1.5 text-slate-400 hover:text-purple-600 rounded-lg hover:bg-purple-50 transition-colors cursor-pointer"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteTag(idx)}
-                              title="Excluir categoria"
-                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ABA 4: SINAL PIX & NO-SHOW */}
-        {activeTab === 'FINANCE' && (
-          <form onSubmit={handleSaveSettings} className="space-y-5">
-            <div>
-              <h3 className="text-base font-bold text-slate-800">
-                Políticas de Sinal & No-Show Shield
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Proteja sua agenda contra horários ociosos e prejuízos com reservas vazias.
-              </p>
-            </div>
-
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-4">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={depositRequired}
-                  onChange={(e) => setDepositRequired(e.target.checked)}
-                  className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
-                />
-                <div>
-                  <strong className="text-xs font-bold text-slate-800 block">
-                    Exigir Sinal PIX Antecipado (Reserva Garantida)
-                  </strong>
-                  <span className="text-[11px] text-slate-500">
-                    O cliente tem 15 minutos para pagar o PIX para segurar o horário.
-                  </span>
-                </div>
-              </label>
-
-              {depositRequired && (
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                      Tipo de Sinal
-                    </label>
-                    <select
-                      value={depositType}
-                      onChange={(e) => setDepositType(e.target.value as any)}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none"
-                    >
-                      <option value="FIXED">Valor Fixo (R$)</option>
-                      <option value="PERCENTAGE">Percentual do Total (%)</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
-                      Valor do Sinal
-                    </label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={depositAmount}
-                      onChange={(e) => setDepositAmount(e.target.value)}
-                      className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Limite de Faltas Consecutivas para Bloqueio Amigável (No-Show Shield)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={5}
-                value={maxNoShows}
-                onChange={(e) => setMaxNoShows(e.target.value)}
-                className="w-24 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono"
-              />
-              <span className="text-[11px] text-slate-500 block mt-1">
-                Ao atingir este número de faltas, o cliente é direcionado cordialmente para a recepção no WhatsApp.
-              </span>
-            </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-end">
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer transition-all"
-              >
-                {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                <span>{isSaved ? 'Políticas Salvas!' : 'Salvar Políticas'}</span>
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ABA 5: CRM & ANIVERSÁRIOS */}
-        {activeTab === 'AUTOMATIONS' && (
-          <form onSubmit={handleSaveSettings} className="space-y-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-800">
-                Felicitações Automáticas de Aniversário
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Disparo matinal automático às 09:00 com mensagem cordial pelo padrão Humanizer (sem presentes ou cupons forçados).
-              </p>
-            </div>
-
-            <div className="p-4 bg-amber-50/50 rounded-2xl border border-amber-200/70 text-xs text-amber-900 leading-relaxed">
-              <strong>Mensagem Oficial Humanizer:</strong>
-              <p className="mt-1 italic">
-                "Olá, [Nome]! Toda a nossa equipe deseja a você um aniversário maravilhoso, repleto de paz, saúde e momentos inesquecíveis. É uma alegria ter você conosco!"
-              </p>
-            </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-end">
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer transition-all"
-              >
-                {isSaved ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                <span>{isSaved ? 'Automações Salvas!' : 'Confirmar Automações'}</span>
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* ABA 6: SEGURANÇA E TROCA DE SENHA */}
-        {activeTab === 'SECURITY' && (
-          <form onSubmit={handlePasswordChange} className="space-y-4 max-w-md">
-            <div>
-              <h3 className="text-base font-bold text-slate-800">
-                Troca de Senha Segura
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Criptografia avançada Argon2id para proteção máxima dos seus dados de acesso.
-              </p>
-            </div>
-
-            {passwordError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-                <span>{passwordError}</span>
-              </div>
-            )}
-
-            {passwordSuccess && (
-              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-700 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-                <span>Senha atualizada com sucesso!</span>
-              </div>
-            )}
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Senha Atual
-              </label>
-              <input
-                type="password"
-                required
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Nova Senha (Mínimo 8 caracteres)
-              </label>
-              <input
-                type="password"
-                required
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Confirmar Nova Senha
-              </label>
-              <input
-                type="password"
-                required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all"
-              />
-            </div>
-
-            <div className="pt-6 mt-6 border-t border-slate-100 flex items-center justify-end">
-              <button
-                type="submit"
-                className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 cursor-pointer transition-all"
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>Atualizar Senha</span>
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
+          >
+            {saving ? 'Salvando...' : 'Salvar Agora'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

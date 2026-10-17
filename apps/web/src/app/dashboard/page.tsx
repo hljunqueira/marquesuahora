@@ -1,422 +1,629 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
-import { motion } from 'motion/react';
 import {
-  TrendingUp,
   Calendar,
   Users,
   CheckCircle2,
   Clock,
-  ArrowUpRight,
-  Cake,
   ChevronRight,
-  Scissors,
-  Sparkles,
-  Smartphone
+  Loader2,
+  AlertCircle,
+  Phone,
+  DollarSign,
+  AlertTriangle,
+  CalendarCheck,
+  TrendingUp,
+  BarChart2
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { AgendaHeader } from '@/components/agenda/AgendaHeader';
+import { AgendaWeeklyGrid } from '@/components/agenda/AgendaWeeklyGrid';
+import { AgendaAppointmentModal } from '@/components/agenda/AgendaAppointmentModal';
+import { AgendaAppointmentDetailsModal } from '@/components/agenda/AgendaAppointmentDetailsModal';
+import { AgendaBlockModal } from '@/components/agenda/AgendaBlockModal';
+import { AgendaUnblockModal } from '@/components/agenda/AgendaUnblockModal';
+import {
+  ScheduleAppointment,
+  ProfessionalItem,
+  ServiceOption,
+  BlockItem
+} from '@/components/agenda/types';
 
-export default function DashboardOverviewPage() {
-  const [stats] = useState({
-    todayBookings: 12,
-    todayBookingsGrowth: '+20% vs. ontem',
-    activeClients: 86,
-    activeClientsGrowth: '+12% vs. mês anterior',
-    todayRevenue: 2480.0,
-    todayRevenueGrowth: '+18% vs. ontem',
-    attendanceRate: 96,
-    attendanceRateGrowth: '+4% vs. mês anterior',
-    birthdayCount: 2
-  });
+interface DashboardSummary {
+  todayBookings: number;
+  monthRevenue: number;
+  noShowRatePercent: number;
+  activeClientsCount: number;
+  nextAppointments: Array<{
+    id: string;
+    date: string;
+    time: string;
+    endTime: string;
+    client: string;
+    clientPhone: string;
+    service: string;
+    additionalServices: string[];
+    professional: string;
+    professionalColor?: string | null;
+    totalPrice: number;
+    totalDurationMinutes: number;
+    status: string;
+  }>;
+}
 
-  const weeklyData = [
-    { day: 'Seg', date: '21/04', count: 18, height: '45%' },
-    { day: 'Ter', date: '22/04', count: 22, height: '55%' },
-    { day: 'Qua', date: '23/04', count: 26, height: '65%' },
-    { day: 'Qui', date: '24/04', count: 25, height: '62%' },
-    { day: 'Sex', date: '25/04', count: 28, height: '70%' },
-    { day: 'Dom', date: '27/04', count: 38, height: '95%', isPeak: true }
-  ];
+export default function DashboardPage() {
+  // ==========================================
+  // ESTADOS DA AGENDA (TOPO DA PÁGINA)
+  // ==========================================
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>('');
 
-  const topServices = [
-    { name: 'Corte de Cabelo', count: 42, percentage: 35 },
-    { name: 'Coloração', count: 28, percentage: 23 },
-    { name: 'Manicure', count: 18, percentage: 15 },
-    { name: 'Limpeza de Pele', count: 12, percentage: 10 },
-    { name: 'Hidratação Capilar', count: 10, percentage: 8 }
-  ];
+  const [appointments, setAppointments] = useState<ScheduleAppointment[]>([]);
+  const [blocks, setBlocks] = useState<BlockItem[]>([]);
+  const [professionals, setProfessionals] = useState<ProfessionalItem[]>([]);
+  const [services, setServices] = useState<ServiceOption[]>([]);
 
-  const nextAppointments = [
-    {
-      id: '1',
-      time: '09:00',
-      client: 'Juliana Costa',
-      service: 'Corte de Cabelo',
-      status: 'CONFIRMED',
-      avatarColor: 'bg-purple-100 text-purple-700',
-      isBirthday: true
-    },
-    {
-      id: '2',
-      time: '10:30',
-      client: 'Mariana Lima',
-      service: 'Coloração',
-      status: 'CONFIRMED',
-      avatarColor: 'bg-emerald-100 text-emerald-700',
-      isBirthday: false
-    },
-    {
-      id: '3',
-      time: '14:00',
-      client: 'Fernanda Alves',
-      service: 'Manicure',
-      status: 'PENDING',
-      avatarColor: 'bg-amber-100 text-amber-700',
-      isBirthday: false
-    },
-    {
-      id: '4',
-      time: '16:30',
-      client: 'Camila Rodrigues',
-      service: 'Limpeza de Pele',
-      status: 'CONFIRMED',
-      avatarColor: 'bg-indigo-100 text-indigo-700',
-      isBirthday: false
+  const [loadingAgenda, setLoadingAgenda] = useState(true);
+  const [errorAgenda, setErrorAgenda] = useState<string | null>(null);
+
+  // Estados dos modais da Agenda
+  const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
+  const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
+  const [selectedBlockForUnblock, setSelectedBlockForUnblock] = useState<BlockItem | null>(null);
+  const [activeSlot, setActiveSlot] = useState<{
+    date: string;
+    time: string;
+    professionalId?: string;
+  } | null>(null);
+  const [selectedAppointmentForDetails, setSelectedAppointmentForDetails] =
+    useState<ScheduleAppointment | null>(null);
+
+  // ==========================================
+  // ESTADOS DO RESUMO OPERACIONAL (ABAIXO DA AGENDA)
+  // ==========================================
+  const [summaryData, setSummaryData] = useState<DashboardSummary | null>(null);
+  const [loadingSummary, setLoadingSummary] = useState(true);
+
+  // Calcula lista de dias visíveis (7 dias para semana ou 1 dia para dia)
+  const visibleDates = useMemo(() => {
+    if (viewMode === 'day') {
+      return [new Date(currentDate)];
     }
-  ];
+
+    const d = new Date(currentDate);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d.setDate(diff));
+
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+      const nextD = new Date(monday);
+      nextD.setDate(monday.getDate() + i);
+      weekDays.push(nextD);
+    }
+    return weekDays;
+  }, [currentDate, viewMode]);
+
+  // Carrega opções de profissionais e serviços (uma única vez)
+  useEffect(() => {
+    Promise.all([
+      api.get('/professionals').catch(() => ({ data: [] })),
+      api.get('/services').catch(() => ({ data: [] }))
+    ]).then(([profRes, servRes]) => {
+      setProfessionals(profRes.data || []);
+      setServices(servRes.data || []);
+    });
+  }, []);
+
+  // Carrega agendamentos e bloqueios reais para a grade
+  const fetchCalendarData = useCallback(() => {
+    if (visibleDates.length === 0) return;
+
+    setLoadingAgenda(true);
+    setErrorAgenda(null);
+
+    const startDate = visibleDates[0].toISOString().slice(0, 10);
+    const endDate = visibleDates[visibleDates.length - 1].toISOString().slice(0, 10);
+
+    const params = new URLSearchParams({ startDate, endDate });
+    if (selectedProfessionalId) {
+      params.set('professionalId', selectedProfessionalId);
+    }
+
+    Promise.all([
+      api.get(`/schedules/calendar?${params.toString()}`),
+      api.get(`/blocks?${params.toString()}`).catch(() => ({ data: [] }))
+    ])
+      .then(([schedRes, blocksRes]) => {
+        setAppointments(schedRes.data || []);
+        setBlocks(blocksRes.data || []);
+      })
+      .catch((err) => {
+        setErrorAgenda(
+          err?.response?.data?.message || 'Não foi possível carregar os dados da agenda.'
+        );
+      })
+      .finally(() => {
+        setLoadingAgenda(false);
+      });
+  }, [visibleDates, selectedProfessionalId]);
+
+  // Carrega resumo de métricas do negócio
+  const fetchDashboardSummary = useCallback(() => {
+    setLoadingSummary(true);
+    api
+      .get('/schedules/dashboard-summary')
+      .then((res) => {
+        setSummaryData(res.data);
+      })
+      .catch(() => {
+        // silencioso
+      })
+      .finally(() => {
+        setLoadingSummary(false);
+      });
+  }, []);
+
+  // Dispara buscas principais
+  useEffect(() => {
+    fetchCalendarData();
+  }, [fetchCalendarData]);
+
+  useEffect(() => {
+    fetchDashboardSummary();
+  }, [fetchDashboardSummary]);
+
+  // Atualização unificada após qualquer operação na agenda
+  const handleCalendarRefresh = () => {
+    fetchCalendarData();
+    fetchDashboardSummary();
+  };
+
+  // Navegação de datas
+  const navigatePrev = () => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() - (viewMode === 'week' ? 7 : 1));
+    setCurrentDate(d);
+  };
+
+  const navigateNext = () => {
+    const d = new Date(currentDate);
+    d.setDate(d.getDate() + (viewMode === 'week' ? 7 : 1));
+    setCurrentDate(d);
+  };
+
+  const navigateToday = () => {
+    setCurrentDate(new Date());
+  };
+
+  const handleSlotClick = (dateStr: string, timeStr: string, professionalId?: string) => {
+    setActiveSlot({ date: dateStr, time: timeStr, professionalId });
+    setIsNewBookingModalOpen(true);
+  };
+
+  const handleAppointmentClick = (appt: ScheduleAppointment) => {
+    setSelectedAppointmentForDetails(appt);
+  };
+
+  const handleReschedule = async (
+    appointmentId: string,
+    targetDateStr: string,
+    targetTimeStr: string,
+    targetProfessionalId?: string
+  ) => {
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === appointmentId
+          ? {
+              ...a,
+              date: targetDateStr,
+              startTime: targetTimeStr,
+              professionalId: targetProfessionalId || a.professionalId
+            }
+          : a
+      )
+    );
+
+    try {
+      await api.patch(`/schedules/${appointmentId}`, {
+        dateStr: targetDateStr,
+        startTime: targetTimeStr,
+        professionalId: targetProfessionalId || undefined
+      });
+      handleCalendarRefresh();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'Não foi possível mover o agendamento.');
+      handleCalendarRefresh();
+    }
+  };
+
+  const handleUpdateStatus = async (id: string, newStatus: string) => {
+    try {
+      await api.post(`/schedules/${id}/status`, { status: newStatus });
+      handleCalendarRefresh();
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'Falha ao atualizar status.');
+    }
+  };
+
+  // Estatísticas do período visível para o cabeçalho da agenda
+  const stats = useMemo(() => {
+    const nonCancelled = appointments.filter((a) => a.status !== 'CANCELLED');
+    const totalAppointments = nonCancelled.length;
+    const totalRevenue = nonCancelled.reduce(
+      (acc, a) => acc + Number(a.totalPrice || 0),
+      0
+    );
+    return { totalAppointments, totalRevenue };
+  }, [appointments]);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* 1. Barra de Ações Rápidas do Topo */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200/80 shadow-xs">
-        <div>
-          <h2 className="text-sm font-bold text-slate-800 tracking-tight">
-            Resumo Operacional
-          </h2>
-          <p className="text-xs text-slate-500">
-            Métricas de agendamentos e faturamento em tempo real
-          </p>
-        </div>
+    <div className="w-full space-y-8 pb-12">
+      {/* ========================================================= */}
+      {/* 1. SEÇÃO PRINCIPAL (HERO): AGENDA INTERATIVA COMPLETA     */}
+      {/* ========================================================= */}
+      <section className="space-y-4">
+        {/* Cabeçalho da Agenda */}
+        <AgendaHeader
+          currentDate={currentDate}
+          onDateChange={setCurrentDate}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          onNavigatePrev={navigatePrev}
+          onNavigateNext={navigateNext}
+          onNavigateToday={navigateToday}
+          professionals={professionals}
+          selectedProfessionalId={selectedProfessionalId}
+          setSelectedProfessionalId={setSelectedProfessionalId}
+          onNewBookingClick={() => {
+            setActiveSlot(null);
+            setIsNewBookingModalOpen(true);
+          }}
+          onNewBlockClick={() => {
+            setIsBlockModalOpen(true);
+          }}
+          stats={stats}
+        />
 
-        <div className="flex items-center gap-3">
-          <div className="px-3.5 py-1.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs font-semibold text-slate-700 flex items-center gap-2">
-            <Calendar className="w-3.5 h-3.5 text-purple-600" />
-            <span>Hoje, {new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
+        {/* Grade Semanal / Diária */}
+        {loadingAgenda ? (
+          <div className="w-full py-24 bg-white rounded-3xl border border-slate-200/80 flex flex-col items-center justify-center text-slate-500">
+            <Loader2 className="w-8 h-8 animate-spin text-tenant-primary mb-2" />
+            <p className="text-xs font-semibold">Atualizando grade de horários da equipe...</p>
           </div>
-          <Link
-            href="/dashboard/agenda"
-            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-purple-600/20 flex items-center gap-2 transition-all active:scale-95 cursor-pointer"
-          >
-            <span>Ver Agenda</span>
-            <ChevronRight className="w-4 h-4" />
-          </Link>
-        </div>
-      </div>
+        ) : errorAgenda ? (
+          <div className="p-6 bg-red-50 border border-red-200 rounded-3xl text-red-800 text-center">
+            <p className="text-xs font-bold">{errorAgenda}</p>
+            <button
+              onClick={handleCalendarRefresh}
+              className="mt-3 px-3.5 py-1.5 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-700 cursor-pointer"
+            >
+              Recarregar grade
+            </button>
+          </div>
+        ) : (
+          <AgendaWeeklyGrid
+            dates={visibleDates}
+            viewMode={viewMode}
+            professionals={professionals}
+            selectedProfessionalId={selectedProfessionalId}
+            appointments={appointments}
+            blocks={blocks}
+            onSlotClick={handleSlotClick}
+            onAppointmentClick={handleAppointmentClick}
+            onBlockClick={(block) => setSelectedBlockForUnblock(block)}
+            onReschedule={handleReschedule}
+          />
+        )}
+      </section>
 
-      {/* 2. Banner de Aniversariantes */}
-      {stats.birthdayCount > 0 && (
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/70 flex items-center justify-between shadow-xs">
+      {/* ========================================================= */}
+      {/* 2. SEÇÃO INFERIOR: RESUMO OPERACIONAL & INDICADORES       */}
+      {/* ========================================================= */}
+      <section className="space-y-5 pt-4 border-t border-slate-200/80">
+        {/* Barra de Título do Resumo */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
-              <Cake className="w-5 h-5 text-amber-600" />
+            <div className="w-10 h-10 rounded-2xl bg-tenant-light text-tenant-primary flex items-center justify-center font-bold">
+              <BarChart2 className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="text-xs font-bold text-amber-950">
-                🎂 {stats.birthdayCount} clientes comemoram aniversário hoje!
-              </h4>
-              <p className="text-[11px] text-amber-700">
-                Mensagens cordiais automáticas programadas pelo padrão Humanizer via WhatsApp.
+              <h2 className="text-base font-bold text-slate-900 tracking-tight">
+                Resumo Operacional & Desempenho
+              </h2>
+              <p className="text-xs text-slate-500">
+                Faturamento acumulado, taxa de no-show e próximos atendimentos do espaço
               </p>
             </div>
           </div>
-          <Link
-            href="/dashboard/clientes?tab=birthdays"
-            className="text-xs font-semibold text-amber-900 hover:underline flex items-center gap-1"
-          >
-            <span>Ver aniversariantes</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
-      )}
 
-      {/* 3. 4 KPIs com Sparklines Oficiais */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Agendamentos Hoje */}
-        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Agendamentos hoje</span>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Calendar className="w-4 h-4" />
+          <div className="flex items-center gap-3">
+            <div className="px-3.5 py-1.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs font-semibold text-slate-700 flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-tenant-primary" />
+              <span>
+                {new Date().toLocaleDateString('pt-BR', {
+                  day: '2-digit',
+                  month: 'long',
+                  year: 'numeric'
+                })}
+              </span>
+            </div>
+            <Link
+              href="/dashboard/agendamentos"
+              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            >
+              <span>Ver todos</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+
+        {/* 4 Cards de Métricas Principais */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* KPI 1: Agendamentos Hoje */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Agendamentos Hoje
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-tenant-light text-tenant-primary flex items-center justify-center font-bold">
+                <CalendarCheck className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-slate-900">
+                {summaryData ? summaryData.todayBookings : 0}
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                atendimentos marcados para hoje
+              </p>
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-display font-extrabold text-slate-800">
-              {stats.todayBookings}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> {stats.todayBookingsGrowth}
-            </span>
-            {/* Sparkline SVG */}
-            <svg className="w-16 h-6 text-purple-500 overflow-visible" viewBox="0 0 64 24" fill="none">
-              <path
-                d="M2 18 C 15 16, 25 22, 35 12 C 45 4, 55 10, 62 2"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        </div>
 
-        {/* KPI 2: Clientes Ativos */}
-        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Clientes ativos</span>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
+          {/* KPI 2: Faturamento do Mês */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Receita do Mês
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                <DollarSign className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-slate-900">
+                R${' '}
+                {summaryData
+                  ? summaryData.monthRevenue.toFixed(2).replace('.', ',')
+                  : '0,00'}
+              </h3>
+              <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">
+                acumulado no mês corrente
+              </p>
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-display font-extrabold text-slate-800">
-              {stats.activeClients}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> {stats.activeClientsGrowth}
-            </span>
-            <svg className="w-16 h-6 text-purple-500 overflow-visible" viewBox="0 0 64 24" fill="none">
-              <path
-                d="M2 20 C 18 18, 30 14, 42 12 C 50 10, 58 6, 62 3"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        </div>
 
-        {/* KPI 3: Faturamento Hoje */}
-        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Faturamento hoje</span>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs">
-              $
+          {/* KPI 3: Taxa de No-Show */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Taxa de No-Show
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-slate-900">
+                {summaryData ? summaryData.noShowRatePercent : 0}%
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                índice de não comparecimento
+              </p>
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-mono font-bold text-slate-800">
-              R$ {stats.todayRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> {stats.todayRevenueGrowth}
-            </span>
-            <svg className="w-16 h-6 text-purple-500 overflow-visible" viewBox="0 0 64 24" fill="none">
-              <path
-                d="M2 22 C 16 20, 26 12, 38 14 C 48 16, 56 6, 62 2"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-        </div>
 
-        {/* KPI 4: Taxa de Comparecimento */}
-        <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md hover:border-purple-200">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Taxa de comparecimento</span>
-            <div className="w-7 h-7 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
-              <Clock className="w-4 h-4" />
+          {/* KPI 4: Base de Clientes */}
+          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Base de Clientes
+              </span>
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
+                <Users className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="mt-4">
+              <h3 className="text-2xl font-black text-slate-900">
+                {summaryData ? summaryData.activeClientsCount : 0}
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                clientes cadastrados no sistema
+              </p>
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-3xl font-display font-extrabold text-slate-800">
-              {stats.attendanceRate}%
-            </span>
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-600 flex items-center gap-1">
-              <TrendingUp className="w-3 h-3" /> {stats.attendanceRateGrowth}
-            </span>
-            <svg className="w-16 h-6 text-purple-500 overflow-visible" viewBox="0 0 64 24" fill="none">
-              <path
-                d="M2 18 C 14 18, 28 14, 40 10 C 50 8, 58 4, 62 2"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
         </div>
-      </div>
 
-      {/* 4. Gráficos em Duas Colunas (Agendamentos Semanal + Serviços Mais Agendados) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Gráfico de Barras: Agendamentos Últimos 7 dias */}
-        <div className="lg:col-span-2 p-6 rounded-3xl bg-white border border-slate-200/80 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-6">
+        {/* Fila de Próximos Atendimentos */}
+        <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
+          <div className="flex items-center justify-between mb-5">
             <div>
-              <h3 className="text-base font-display font-bold text-slate-900">
-                Agendamentos
+              <h3 className="text-base font-bold text-slate-900">
+                Próximos Atendimentos
               </h3>
               <p className="text-xs text-slate-500">
-                Volume diário atendido pela equipe
+                Fila cronológica de atendimentos a partir de hoje
               </p>
             </div>
-            <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-xl">
-              Últimos 7 dias
-            </span>
+            <Link
+              href="/dashboard/agendamentos"
+              className="text-xs font-bold text-tenant-primary hover:opacity-80 flex items-center gap-1 transition-opacity"
+            >
+              <span>Ver lista completa</span>
+              <ChevronRight className="w-4 h-4" />
+            </Link>
           </div>
 
-          {/* Gráfico de barras estilizado */}
-          <div className="h-52 flex items-end justify-between gap-3 pt-6 pb-2 px-4">
-            {weeklyData.map((item, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
-                {/* Tooltip no pico */}
-                {item.isPeak && (
-                  <div className="px-2 py-0.5 rounded-lg bg-slate-900 text-white text-[10px] font-bold shadow-md -mb-1 animate-bounce">
-                    {item.count} agendamentos
-                  </div>
-                )}
-                <div
-                  style={{ height: item.height }}
-                  className={`w-full max-w-[42px] rounded-xl transition-all duration-300 ${
-                    item.isPeak
-                      ? 'bg-purple-700 shadow-md shadow-purple-600/30'
-                      : 'bg-purple-200/70 group-hover:bg-purple-300'
-                  }`}
-                />
-                <div className="text-center">
-                  <span className="text-[11px] font-bold text-slate-700 block">
-                    {item.day}
-                  </span>
-                  <span className="text-[9px] text-slate-400 block font-mono">
-                    {item.date}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Serviços Mais Agendados */}
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-base font-display font-bold text-slate-800">
-                Serviços mais agendados
-              </h3>
-              <Link href="/dashboard/servicos" className="text-xs text-purple-600 font-semibold hover:underline">
-                Ver todos
-              </Link>
+          {!summaryData || summaryData.nextAppointments.length === 0 ? (
+            <div className="py-10 text-center text-slate-400">
+              <Calendar className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+              <p className="text-sm font-semibold text-slate-600">
+                Nenhum agendamento futuro na fila
+              </p>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                Novos agendamentos marcados na grade acima ou através do seu link público aparecerão aqui automaticamente.
+              </p>
             </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {summaryData.nextAppointments.map((appt) => (
+                <div
+                  key={appt.id}
+                  className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 px-3 rounded-2xl transition-colors"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="text-center sm:text-left w-14 flex-shrink-0">
+                      <span className="text-xs font-bold text-slate-900 block">
+                        {appt.time}
+                      </span>
+                      <span className="text-[10px] text-slate-400 block font-mono">
+                        {appt.date.split('-').reverse().slice(0, 2).join('/')}
+                      </span>
+                    </div>
 
-            <div className="space-y-4">
-              {topServices.map((service, idx) => (
-                <div key={idx} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-semibold text-slate-800">{service.name}</span>
-                    <span className="text-slate-500 font-mono text-[11px]">
-                      {service.count} agendamentos ({service.percentage}%)
-                    </span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                     <div
-                      className="bg-purple-600 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${service.percentage}%` }}
-                    />
+                      className="w-9 h-9 rounded-full text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs"
+                      style={{
+                        backgroundColor: appt.professionalColor || '#7C3AED'
+                      }}
+                    >
+                      {appt.client.charAt(0).toUpperCase()}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <strong className="text-xs font-bold text-slate-900">
+                          {appt.client}
+                        </strong>
+                        {appt.clientPhone && (
+                          <a
+                            href={`https://wa.me/55${appt.clientPhone.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-slate-400 hover:text-emerald-600 transition-colors"
+                            title="Falar no WhatsApp"
+                          >
+                            <Phone className="w-3 h-3" />
+                          </a>
+                        )}
+                      </div>
+                      <span className="text-[11px] text-slate-500 block">
+                        {appt.service} · {appt.totalDurationMinutes} min ·{' '}
+                        <span className="font-semibold text-slate-700">
+                          R$ {Number(appt.totalPrice || 0).toFixed(2).replace('.', ',')}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                    <span
+                      className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
+                        appt.status === 'CONFIRMED'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : appt.status === 'IN_SERVICE'
+                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                          : appt.status === 'COMPLETED'
+                          ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                          : 'bg-amber-50 text-amber-700 border border-amber-200'
+                      }`}
+                    >
+                      {appt.status === 'CONFIRMED'
+                        ? 'Confirmado'
+                        : appt.status === 'IN_SERVICE'
+                        ? 'Em Atendimento'
+                        : appt.status === 'COMPLETED'
+                        ? 'Concluído'
+                        : 'Pendente'}
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      {appt.status !== 'COMPLETED' && (
+                        <button
+                          onClick={() => handleUpdateStatus(appt.id, 'COMPLETED')}
+                          className="p-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+                          title="Marcar como Concluído"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      {appt.status !== 'CANCELLED' && (
+                        <button
+                          onClick={() => {
+                            if (confirm('Deseja realmente cancelar este agendamento?')) {
+                              handleUpdateStatus(appt.id, 'CANCELLED');
+                            }
+                          }}
+                          className="p-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Cancelar Agendamento"
+                        >
+                          <AlertCircle className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
-          </div>
-
-          <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span className="flex items-center gap-1.5 font-medium">
-              <Sparkles className="w-3.5 h-3.5 text-purple-600" /> Ticket Médio Estimado
-            </span>
-            <span className="font-mono font-bold text-slate-800">R$ 135,00</span>
-          </div>
+          )}
         </div>
-      </div>
+      </section>
 
-      {/* 5. Tabela de Próximos Agendamentos */}
-      <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
-        <div className="flex items-center justify-between mb-5">
-          <div>
-            <h3 className="text-base font-display font-bold text-slate-800">
-              Próximos agendamentos
-            </h3>
-            <p className="text-xs text-slate-500">
-              Horários confirmados para hoje
-            </p>
-          </div>
-          <Link
-            href="/dashboard/agenda"
-            className="text-xs font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-1"
-          >
-            <span>Ver todos</span>
-            <ChevronRight className="w-3.5 h-3.5" />
-          </Link>
-        </div>
+      {/* ========================================================= */}
+      {/* 3. MODAIS DA AGENDA (CRIAÇÃO, DETALHES, BLOQUEIOS)        */}
+      {/* ========================================================= */}
+      {isNewBookingModalOpen && (
+        <AgendaAppointmentModal
+          initialDate={activeSlot?.date}
+          initialTime={activeSlot?.time}
+          initialProfessionalId={activeSlot?.professionalId}
+          professionals={professionals}
+          services={services}
+          onClose={() => setIsNewBookingModalOpen(false)}
+          onSuccess={handleCalendarRefresh}
+        />
+      )}
 
-        <div className="divide-y divide-slate-100">
-          {nextAppointments.map((appt) => (
-            <div
-              key={appt.id}
-              className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/60 px-3 rounded-2xl transition-colors"
-            >
-              <div className="flex items-center gap-4">
-                <span className="text-xs font-mono font-bold text-slate-700 w-12">
-                  {appt.time}
-                </span>
-                <div className={`w-8 h-8 rounded-full ${appt.avatarColor} font-bold text-xs flex items-center justify-center shrink-0`}>
-                  {appt.client.charAt(0)}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <strong className="text-xs font-bold text-slate-800">
-                      {appt.client}
-                    </strong>
-                    {appt.isBirthday && (
-                      <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded-full">
-                        🎂
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-[11px] text-slate-500 block">
-                    {appt.service}
-                  </span>
-                </div>
-              </div>
+      {selectedAppointmentForDetails && (
+        <AgendaAppointmentDetailsModal
+          appointment={selectedAppointmentForDetails}
+          professionals={professionals}
+          onClose={() => setSelectedAppointmentForDetails(null)}
+          onSuccess={handleCalendarRefresh}
+        />
+      )}
 
-              <div className="flex items-center gap-3">
-                <span
-                  className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
-                    appt.status === 'CONFIRMED'
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : 'bg-amber-50 text-amber-700 border border-amber-200'
-                  }`}
-                >
-                  {appt.status === 'CONFIRMED' ? 'Confirmado' : 'Pendente'}
-                </span>
-                <ChevronRight className="w-4 h-4 text-slate-300" />
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {isBlockModalOpen && (
+        <AgendaBlockModal
+          initialDate={activeSlot?.date}
+          initialTime={activeSlot?.time}
+          professionals={professionals}
+          onClose={() => setIsBlockModalOpen(false)}
+          onSuccess={handleCalendarRefresh}
+        />
+      )}
+
+      {selectedBlockForUnblock && (
+        <AgendaUnblockModal
+          block={selectedBlockForUnblock}
+          professionals={professionals}
+          onClose={() => setSelectedBlockForUnblock(null)}
+          onSuccess={handleCalendarRefresh}
+        />
+      )}
     </div>
   );
 }

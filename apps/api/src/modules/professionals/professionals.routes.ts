@@ -5,6 +5,8 @@ import { onlyDigits } from '@marquesuahora/shared';
 
 const professionalInputSchema = z.object({
   name: z.string().min(2, 'O nome do profissional é obrigatório.'),
+  role: z.string().optional().nullable(),
+  avatarUrl: z.string().optional().nullable(),
   phone: z
     .string()
     .transform((val) => onlyDigits(val))
@@ -82,16 +84,20 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
     const data = professionalInputSchema.parse(request.body);
 
     const professional = await prisma.$transaction(async (tx) => {
+      const createData: any = {
+        tenantId,
+        name: data.name,
+        role: data.role || null,
+        phone: data.phone,
+        avatarUrl: data.avatarUrl || null,
+        color: data.color,
+        commissionRate: data.commissionRate,
+        scheduleConfig: data.scheduleConfig,
+        isActive: data.isActive
+      };
+
       const prof = await tx.professional.create({
-        data: {
-          tenantId,
-          name: data.name,
-          phone: data.phone,
-          color: data.color,
-          commissionRate: data.commissionRate,
-          scheduleConfig: data.scheduleConfig,
-          isActive: data.isActive
-        }
+        data: createData
       });
 
       if (data.serviceIds && data.serviceIds.length > 0) {
@@ -133,16 +139,20 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
     const data = professionalInputSchema.partial().parse(request.body);
 
     const updated = await prisma.$transaction(async (tx) => {
+      const updateData: any = {
+        name: data.name,
+        role: data.role !== undefined ? data.role : undefined,
+        phone: data.phone,
+        avatarUrl: data.avatarUrl !== undefined ? data.avatarUrl : undefined,
+        color: data.color,
+        commissionRate: data.commissionRate,
+        scheduleConfig: data.scheduleConfig,
+        isActive: data.isActive
+      };
+
       const prof = await tx.professional.update({
         where: { id },
-        data: {
-          name: data.name,
-          phone: data.phone,
-          color: data.color,
-          commissionRate: data.commissionRate,
-          scheduleConfig: data.scheduleConfig,
-          isActive: data.isActive
-        }
+        data: updateData
       });
 
       if (data.serviceIds) {
@@ -163,5 +173,52 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return reply.send(updated);
+  });
+
+  // DELETE /professionals/:id - Exclusão inteligente ou desativação segura
+  app.delete('/:id', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const { id } = request.params as { id: string };
+
+    const professional = await prisma.professional.findFirst({
+      where: { id, tenantId },
+      include: {
+        _count: {
+          select: { schedules: true }
+        }
+      }
+    });
+
+    if (!professional) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Profissional não localizado.' });
+    }
+
+    if (professional._count.schedules > 0) {
+      // Desativa para manter histórico de agendamentos e repasses
+      await prisma.professional.update({
+        where: { id },
+        data: { isActive: false }
+      });
+
+      return reply.send({
+        action: 'DEACTIVATED',
+        message: 'O profissional possui histórico de agendamentos e foi desativado da agenda para preservar o histórico financeiro.'
+      });
+    }
+
+    // Se 0 agendamentos, remove fisicamente
+    await prisma.$transaction(async (tx) => {
+      await tx.serviceProfessional.deleteMany({ where: { professionalId: id } });
+      await tx.professional.delete({ where: { id } });
+    });
+
+    return reply.send({
+      action: 'DELETED',
+      message: 'Profissional removido com sucesso.'
+    });
   });
 };

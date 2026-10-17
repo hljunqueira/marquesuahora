@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Sparkles, AlertCircle, Clock, Check, X, ShieldAlert } from 'lucide-react';
+import { AlertCircle, Clock, Check, X, ShieldAlert, Layers } from 'lucide-react';
 
 interface LashNailPhaseSelectorModalProps {
   isOpen: boolean;
@@ -44,7 +44,7 @@ export const LashNailPhaseSelectorModal: React.FC<LashNailPhaseSelectorModalProp
           </button>
 
           <div className="w-16 h-16 mx-auto rounded-2xl bg-rose-50 text-rose-700 flex items-center justify-center mb-4 shadow-inner">
-            <Sparkles className="w-8 h-8" />
+            <Layers className="w-8 h-8" />
           </div>
 
           <h3 className="text-2xl font-display font-bold text-slate-900">

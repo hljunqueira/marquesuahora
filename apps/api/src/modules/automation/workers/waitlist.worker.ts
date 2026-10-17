@@ -46,11 +46,14 @@ export const waitlistWorker = new Worker<WaitlistAutoFillData>(
       data: {
         status: 'NOTIFIED',
         notifiedAt: new Date(),
-        expiresAt
+        expiresAt,
+        preferredShift: startTime
       }
     });
 
-    const message = `Olá, ${candidate.client.name}! ✨\n\nUma vaga acabou de abrir no *${candidate.tenant.name}* para *${dateStr}* às *${startTime}*.\n\nComo você estava na nossa lista de espera, este horário está reservado exclusivamente para você pelos próximos *10 minutos*.\n\nResponda *SIM* para confirmar agora e garantir seu atendimento!`;
+    const [y, m, d] = dateStr.split('-');
+    const formattedDate = `${d}/${m}/${y}`;
+    const message = `Olá, ${candidate.client.name}! ✨\n\nUma vaga acabou de abrir no *${candidate.tenant.name}* para o dia *${formattedDate}* às *${startTime}*.\n\nComo você estava na nossa lista de espera, este horário está reservado exclusivamente para você pelos próximos *10 minutos*.\n\nResponda *SIM* para confirmar agora e garantir seu atendimento!`;
 
     await EvolutionService.sendTextMessage(candidate.tenant.id, candidate.client.phone, message);
 

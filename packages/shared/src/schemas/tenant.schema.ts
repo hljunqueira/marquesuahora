@@ -23,21 +23,18 @@ export const themeTemplates = [
 export type ThemeTemplate = (typeof themeTemplates)[number];
 
 export const onboardingSchema = z.object({
-  niche: z.enum(businessNiches, {
-    errorMap: () => ({ message: 'Selecione o nicho de atuação do seu estabelecimento.' })
-  }),
-  documentType: z.enum(['CNPJ', 'CPF']),
+  niche: z.enum(businessNiches).optional().default('OTHER'),
+  documentType: z.enum(['CNPJ', 'CPF']).default('CPF'),
   documentNumber: z
     .string()
     .transform((val) => onlyDigits(val))
-    .refine((val) => val.length === 11 || val.length === 14, {
-      message: 'O documento deve ser um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.'
-    }),
-  name: z.string().min(2, 'O nome fantasia do estabelecimento é obrigatório.'),
-  legalName: z.string().optional(),
+    .optional()
+    .nullable(),
+  name: z.string().min(2, 'O nome do estabelecimento é obrigatório.'),
+  legalName: z.string().optional().nullable(),
   slug: z
     .string()
-    .min(3, 'O link do salão deve ter no mínimo 3 caracteres.')
+    .min(3, 'O link da vitrine deve ter no mínimo 3 caracteres.')
     .regex(/^[a-z0-9-]+$/, 'O link deve conter apenas letras minúsculas, números e traços.'),
   phone: z
     .string()
@@ -45,20 +42,23 @@ export const onboardingSchema = z.object({
     .refine((val) => val.length === 10 || val.length === 11, {
       message: 'O telefone/WhatsApp deve ter 10 ou 11 dígitos com DDD.'
     }),
-  addressZip: z.string().transform((val) => onlyDigits(val)),
-  addressStreet: z.string().min(2, 'O logradouro é obrigatório.'),
-  addressNumber: z.string().min(1, 'O número é obrigatório.'),
-  addressComplement: z.string().optional(),
-  addressNeighborhood: z.string().min(2, 'O bairro é obrigatório.'),
-  addressCity: z.string().min(2, 'A cidade é obrigatória.'),
-  addressState: z.string().length(2, 'O estado deve ter 2 letras (UF).'),
+  addressZip: z.string().transform((val) => onlyDigits(val)).optional().default('01001000'),
+  addressStreet: z.string().optional().default('Endereço principal'),
+  addressNumber: z.string().optional().default('S/N'),
+  addressComplement: z.string().optional().nullable(),
+  addressNeighborhood: z.string().optional().default('Centro'),
+  addressCity: z.string().optional().default('São Paulo'),
+  addressState: z.string().optional().default('SP'),
   isSingleCityZip: z.boolean().default(false),
   themeTemplate: z.enum(themeTemplates).default('PURPLE_GOLD'),
-  logoUrl: z.string().url().optional().nullable(),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  logoUrl: z.string().optional().nullable(),
   ownerName: z.string().min(2, 'O nome do responsável é obrigatório.'),
   ownerEmail: z.string().email('E-mail inválido para acesso.'),
   ownerPassword: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres.'),
-  planId: z.string().uuid().optional(),
+  planId: z.string().optional(),
   selectedServices: z
     .array(
       z.object({
@@ -68,35 +68,51 @@ export const onboardingSchema = z.object({
         category: z.string().default('Geral')
       })
     )
-    .min(1, 'Selecione ou cadastre pelo menos um serviço inicial.')
+    .optional()
 });
 
 export const updateTenantSettingsSchema = z.object({
+  planCode: z.string().optional(),
   name: z.string().min(2).optional(),
+  legalName: z.string().optional().nullable(),
   description: z.string().max(500).optional().nullable(),
+  niche: z.enum(businessNiches).optional(),
   phone: z
     .string()
     .transform((val) => onlyDigits(val))
     .optional(),
-  instagramUrl: z.string().url().optional().nullable(),
+  instagramUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   themeTemplate: z.enum(themeTemplates).optional(),
   primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
   accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-  logoUrl: z.string().url().optional().nullable(),
-  googleReviewUrl: z.string().url().optional().nullable(),
+  logoUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+  googleReviewUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   npsFeedbackEnabled: z.boolean().optional(),
   depositRequired: z.boolean().optional(),
   depositType: z.enum(['FIXED', 'PERCENTAGE']).optional(),
   depositAmount: z.number().min(0).optional(),
+  pixKey: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+  pixKeyType: z.enum(['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'RANDOM']).optional().nullable(),
+  pixKeyHolder: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   maxNoShowsAllowed: z.number().int().min(1).max(10).optional(),
   churnRecoveryEnabled: z.boolean().optional(),
   churnAlertDays: z.number().int().min(15).max(180).optional(),
   birthdayMessageEnabled: z.boolean().optional(),
   birthdayMessageCustom: z.string().max(300).optional().nullable(),
   bufferMinutes: z.number().int().min(0).max(60).optional(),
+  openingTime: z.string().optional(),
+  closingTime: z.string().optional(),
+  slotIntervalMinutes: z.number().int().min(5).max(120).optional(),
   minAdvanceBookingMinutes: z.number().int().min(0).optional(),
-  maxAdvanceBookingDays: z.number().int().min(1).max(90).optional()
+  maxAdvanceBookingDays: z.number().int().min(1).max(90).optional(),
+  addressStreet: z.string().optional(),
+  addressNumber: z.string().optional(),
+  addressComplement: z.string().optional().nullable(),
+  addressNeighborhood: z.string().optional(),
+  addressCity: z.string().optional(),
+  addressState: z.string().optional(),
+  addressZip: z.string().optional()
 });
 
 export type OnboardingInput = z.infer<typeof onboardingSchema>;

@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AlertCircle, Clock, Sparkles, Check, X, ShieldAlert } from 'lucide-react';
+import { AlertCircle, Clock, Check, X, ShieldAlert } from 'lucide-react';
 
 interface SalonPatchTestNoticeModalProps {
   isOpen: boolean;
@@ -52,7 +52,7 @@ export const SalonPatchTestNoticeModal: React.FC<SalonPatchTestNoticeModalProps>
           </h3>
 
           <p className="mt-2 text-sm text-slate-600 leading-relaxed">
-            Procedimentos químicos intensos (coloração global, mechas ou alisamentos) exigem avaliação prévia da fibra capilar para garantir total integridade dos fios.
+            Procedimentos capilares profundos (como coloração, mechas ou alinhamento) exigem avaliação prévia da fibra capilar para garantir total saúde dos fios.
           </p>
 
           <div className="mt-5 p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-left text-xs text-slate-600 space-y-2">
@@ -61,7 +61,7 @@ export const SalonPatchTestNoticeModal: React.FC<SalonPatchTestNoticeModalProps>
               <span>Recomendação do Profissional</span>
             </div>
             <p>
-              Caso seja a sua primeira química conosco neste ano, recomendamos agendar ou comparecer 48 horas antes para um teste de mecha gratuito de 15 minutos.
+              Caso seja a sua primeira transformação capilar conosco neste ano, recomendamos agendar ou comparecer 48 horas antes para um teste de mecha gratuito de 15 minutos.
             </p>
           </div>
 
@@ -156,8 +156,8 @@ export const SalonTimelineSummaryModal: React.FC<SalonTimelineSummaryModalProps>
 
             <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-100 flex items-center justify-between">
               <div>
-                <span className="text-xs font-semibold text-amber-900 block">2. Pausa Química Ativa</span>
-                <span className="text-[11px] text-amber-600">Tempo de ação dos pigmentos e ativos</span>
+                <span className="text-xs font-semibold text-amber-900 block">2. Tempo de Ação & Espera</span>
+                <span className="text-[11px] text-amber-600">Tempo de ação do produto no cabelo</span>
               </div>
               <span className="font-mono text-xs font-bold text-amber-800">{processingMins} min</span>
             </div>

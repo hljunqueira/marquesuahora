@@ -263,10 +263,10 @@ A tabela a seguir apresenta os planos de referência sugeridos para a plataforma
 
 | Plano | Preço | Limite de Profissionais | Limite de Agendamentos | WhatsApp & Lembretes | Diferenciais & Features Exclusivas |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Gratuito (Híbrido)** | **R$ 0,00** | 1 Profissional | 20 agendamentos / mês | Lembretes automáticos 24h e 12h | **Modo Pós-Pago:** R$ 0,79 por agendamento extra após os 20 gratuitos. Não bloqueia a agenda. Sem necessidade de cartão no cadastro. |
-| **Solo** | **R$ 29,90** /mês | 1 Profissional | **Ilimitados** | Lembretes automáticos 24h e 12h | Ideal para autônomos. Link público customizável (`/seu-salao`), gestão financeira de entradas/saídas e histórico completo de clientes. |
-| **Equipe Pro** | **R$ 49,90** /mês | Até 5 Profissionais | **Ilimitados** | Lembretes automáticos 24h e 12h | Logins individuais para os profissionais, cálculo automático de comissões por colaborador, Ficha de Anamnese Digital com fotos antes/depois, sincronização Google Calendar e exportação PDF/CSV. |
-| **VIP + Atendente IA** | **R$ 79,90** /mês | **Ilimitados** | **Ilimitados** | **Atendente Virtual 24/7 com IA** | **Atendente IA no WhatsApp do Salão:** responde clientes com linguagem humana e natural, tira dúvidas sobre serviços, consulta horários livres em tempo real e agenda direto pelo chat. White-label total e suporte prioritário. Cobrança do SaaS integrada via Asaas. |
+| **Gratuito (Híbrido)** | **R$ 0,00** | 1 Profissional | 30 agendamentos / mês | Lembretes automáticos 24h e 12h | **Modo Pós-Pago:** R$ 0,79 por agendamento extra após os 30 gratuitos. Não bloqueia a agenda. Sem necessidade de cartão no cadastro. |
+| **Solo** | **R$ 29,90** /mês | 1 Profissional | **Ilimitados** (ou até 100 na franquia) | Lembretes automáticos 24h e 12h | Ideal para autônomos. Link público customizável (`/seu-salao`), gestão financeira de entradas/saídas e histórico completo de clientes. |
+| **Equipe Pro** | **R$ 59,90** /mês | Até 5 Profissionais | **Ilimitados** | Lembretes automáticos 24h e 12h | Logins individuais para os profissionais, cálculo automático de comissões por colaborador, Ficha de Anamnese Digital com fotos antes/depois, gestão de produtos e exportação PDF/CSV. |
+| **VIP + Atendente IA** | **R$ 89,90** /mês | Até 10 Profissionais | **Ilimitados** | **Atendente Virtual 24/7 com IA** | **Atendente IA no WhatsApp do Salão:** responde clientes com linguagem humana e natural, tira dúvidas sobre serviços, consulta horários livres em tempo real e agenda direto pelo chat. White-label total e suporte prioritário. Cobrança do SaaS integrada via Asaas. |
 
 ---
 
