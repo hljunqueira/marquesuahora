@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -108,6 +108,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     Object.entries(PAGE_TITLES).find(
       ([key]) => key !== '/dashboard' && pathname?.startsWith(key)
     )?.[1] || { title: 'Painel', subtitle: '' };
+
+  const displayTitle = useMemo(() => {
+    if (pathname === '/dashboard' || pathname === '/dashboard/agenda') {
+      return subscriberName ? `Agenda (${subscriberName})` : 'Agenda do Espaço';
+    }
+    return pageInfo.title;
+  }, [pathname, subscriberName, pageInfo.title]);
 
   useEffect(() => {
     const loadTenantData = () => {
@@ -470,7 +477,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <header className="min-h-[64px] px-6 sm:px-8 bg-white border-b border-slate-200/80 flex items-center justify-between shrink-0 shadow-[0_1px_3px_rgba(0,0,0,0.02)] sticky top-0 z-20">
           <div className="min-w-0 flex flex-col md:flex-row md:items-center md:gap-3">
             <h1 className="text-sm sm:text-base font-display font-bold text-slate-800 tracking-tight shrink-0">
-              {pageInfo.title}
+              {displayTitle}
             </h1>
             {pageInfo.subtitle && (
               <span className="text-xs text-slate-500 hidden md:inline-block truncate md:border-l md:border-slate-200 md:pl-3">

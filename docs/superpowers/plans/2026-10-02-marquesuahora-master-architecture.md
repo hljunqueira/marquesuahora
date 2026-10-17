@@ -15,10 +15,10 @@
 - `apps/api`: Node.js com Fastify v4+, TypeScript, Prisma ORM, BullMQ/Redis e integração Gemini Flash para a atendente virtual.
 - `apps/mobile`: React Native com Expo, focado exclusivamente no uso prático do profissional na bancada.
 - `packages/shared`: DTOs, regras de validação Zod e tipagens TypeScript compartilhadas.
-- `infra/`: Docker Compose na VPS (`46.202.144.181`) com PostgreSQL 16, Redis 7 e Evolution API v2.
+- `infra/`: Docker Compose na VPS (`23.80.89.116`) com PostgreSQL 16, Redis 7 e Evolution API v2.
 
 **Servidor VPS Homologado:**
-- Host: `46.202.144.181` | SO: Ubuntu 24.04 LTS | Docker 29.1.3 + Docker Compose ativos.
+- Host: `23.80.89.116` | SO: Ubuntu 24.04 LTS | Docker 29.1.3 + Docker Compose ativos.
 - Acesso SSH sem senha configurado com chave pública Ed25519/RSA.
 
 ---
@@ -251,7 +251,7 @@ flowchart TD
 #### Status de Homologação & Chave no Ambiente
 - **Ambiente Local:** Variável `TYPESAFE_API_KEY` configurada e validada globalmente no sistema operacional.
 - **Teste de Conectividade em Tempo Real:** Executado com sucesso contra o endpoint `https://api.typesafe.ai/v1/systemone` utilizando `jev-latest` (respondendo como `jev-1.13.0`), com inferência em frações de segundo e acurácia de 99% na classificação de intenção de agendamento (`new_booking`).
-- **Prontidão de Produção:** A chave será propagada no `.env` do backend Fastify em `apps/api` e no serviço de Docker Compose na VPS (`46.202.144.181`).
+- **Prontidão de Produção:** A chave será propagada no `.env` do backend Fastify em `apps/api` e no serviço de Docker Compose na VPS (`23.80.89.116`).
 
 ---
 
@@ -1783,7 +1783,7 @@ model AuditLog {
   - **Testes unitários de máscaras e sanitização (`masks.spec.ts`):** testes exaustivos cobrindo CPF (11 dígitos), CNPJ (14 dígitos), telefones de 10 e 11 dígitos, CEPs, conversão monetária BRL <-> Decimal e tratamento de inputs incompletos ou nulos.
   - **Testes unitários do Humanizer (`humanizer.spec.ts`):** validação rigorosa das 25 regras (detecção de termos banidos como *crucial/robusto*, travessões universais, tríades forçadas, contrastes "não X mas Y" e resíduos de chatbot).
   - **Testes unitários de perguntas Jev (`typesafe.spec.ts`):** validação dos esquemas de perguntas Choice, Noul e Score com inferência de tipos.
-- [ ] **Tarefa 1.5:** Configuração do `infra/docker-compose.prod.yml` na VPS (`46.202.144.181`) subindo PostgreSQL 16 e Redis 7.
+- [ ] **Tarefa 1.5:** Configuração do `infra/docker-compose.prod.yml` na VPS (`23.80.89.116`) subindo PostgreSQL 16 e Redis 7.
 - [ ] **Tarefa 1.6:** Inicialização do Prisma ORM em `apps/api` e aplicação das migrações do schema no PostgreSQL da VPS. **Ambiente 100% Limpo (Zero Seeds / Zero Mocks):** Nenhuma empresa, cliente, profissional, agendamento de teste ou seed artificial de salão modelo será inserido no banco de dados, mantendo a base totalmente limpa para que os testes sejam realizados organicamente pelo fluxo real de onboarding e uso do sistema.
 
 ### Fase 2: Motor de Backend Fastify, Segurança & Algoritmo de Slots

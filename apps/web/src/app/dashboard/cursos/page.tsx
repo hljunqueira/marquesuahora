@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { WhatsAppIcon } from '@/components/icons/WhatsAppIcon';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 interface Lesson {
   id: string;
@@ -54,6 +55,30 @@ export default function CursosPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Toast Feedback Notifier
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  // Modal de Confirmação Seguro
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    isDestructive?: boolean;
+    isLoading?: boolean;
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    onConfirm: () => {}
+  });
 
   // Modal Curso (Criar / Editar)
   const [isCourseModalOpen, setIsCourseModalOpen] = useState(false);
@@ -92,43 +117,83 @@ export default function CursosPage() {
   // Disparo de Curso no WhatsApp com Anti-Ban
   const [broadcastingCourseId, setBroadcastingCourseId] = useState<string | null>(null);
 
-  const handleBroadcastCourse = async (course: Course) => {
-    const confirmed = window.confirm(
-      `Deseja divulgar o curso "${course.title}" para todas as clientes cadastradas no WhatsApp?\n\nO envio ocorre em segundo plano com cadência segura anti-ban (8 a 10s entre contatos).`
-    );
-    if (!confirmed) return;
-
-    setBroadcastingCourseId(course.id);
-    try {
-      const res = await api.post(`/courses/${course.id}/broadcast`, {
-        audienceFilter: 'ALL'
-      });
-      alert(res.data?.message || 'Divulgação iniciada com sucesso!');
-    } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao iniciar divulgação do curso.');
-    } finally {
-      setBroadcastingCourseId(null);
-    }
+  const notifyCoursesSync = () => {
+    window.dispatchEvent(new CustomEvent('marquesuahora_courses_sync'));
+    window.dispatchEvent(new Event('storage'));
   };
 
-  // 1. Carrega cursos do estabelecimento
-  const fetchCourses = () => {
-    setLoading(true);
-    api
-      .get('/courses')
-      .then((res) => {
-        setCourses(res.data || []);
-      })
-      .catch((err) => {
+  const handleBroadcastCourse = (course: Course) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Divulgar Curso no WhatsApp',
+      description: `Deseja divulgar o curso "${course.title}" para todas as clientes cadastradas no WhatsApp? O envio ocorre em segundo plano com cadência segura anti-ban (8 a 10s entre contatos).`,
+      confirmLabel: 'Iniciar Envio WhatsApp',
+      cancelLabel: 'Cancelar',
+      isDestructive: false,
+      onConfirm: async () => {
+        setBroadcastingCourseId(course.id);
+        try {
+          const res = await api.post(`/courses/${course.id}/broadcast`, {
+            audienceFilter: 'ALL'
+          });
+          showToast(res.data?.message || 'Divulgação iniciada com sucesso!');
+        } catch (err: any) {
+          showToast(err?.response?.data?.message || 'Erro ao iniciar divulgação do curso.');
+        } finally {
+          setBroadcastingCourseId(null);
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
+  // 1. Carrega cursos do estabelecimento com revalidação silenciosa
+  const fetchCourses = async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      const res = await api.get('/courses');
+      setCourses(res.data || []);
+      setError(null);
+    } catch (err: any) {
+      if (!silent) {
         setError(err?.response?.data?.message || 'Erro ao carregar cursos.');
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      }
+    } finally {
+      if (!silent) setLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchCourses();
+
+    // 1. Polling silencioso a cada 30 segundos se a aba estiver visível
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchCourses(true);
+      }
+    }, 30000);
+
+    // 2. Foco e visibilidade da aba
+    const handleFocus = () => fetchCourses(true);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCourses(true);
+      }
+    };
+
+    // 3. Sincronização entre abas e módulos
+    const handleCoursesSync = () => fetchCourses(true);
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('marquesuahora_courses_sync', handleCoursesSync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('marquesuahora_courses_sync', handleCoursesSync);
+    };
   }, []);
 
   // 2. Abre gerenciador de aulas para um curso
@@ -179,7 +244,7 @@ export default function CursosPage() {
       const url = await handleUploadFile(file);
       setCourseCover(url);
     } catch {
-      alert('Não foi possível carregar a imagem.');
+      showToast('Não foi possível carregar a imagem da capa.');
     } finally {
       setUploadingCover(false);
     }
@@ -194,7 +259,7 @@ export default function CursosPage() {
       const url = await handleUploadFile(file);
       setCourseVideoUrl(url);
     } catch {
-      alert('Não foi possível carregar o vídeo.');
+      showToast('Não foi possível carregar o vídeo de apresentação.');
     } finally {
       setUploadingCourseVideo(false);
     }
@@ -209,7 +274,7 @@ export default function CursosPage() {
       const url = await handleUploadFile(file);
       setLessonVideoUrl(url);
     } catch {
-      alert('Não foi possível carregar o vídeo.');
+      showToast('Não foi possível carregar o vídeo da aula.');
     } finally {
       setUploadingLessonVideo(false);
     }
@@ -233,16 +298,19 @@ export default function CursosPage() {
 
       if (editingCourse) {
         await api.put(`/courses/${editingCourse.id}`, payload);
+        showToast('Curso atualizado com sucesso!');
       } else {
         await api.post('/courses', payload);
+        showToast('Novo curso criado com sucesso!');
       }
 
       setIsCourseModalOpen(false);
       setEditingCourse(null);
       resetCourseForm();
-      fetchCourses();
+      fetchCourses(true);
+      notifyCoursesSync();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao salvar curso.');
+      showToast(err?.response?.data?.message || 'Erro ao salvar curso.');
     } finally {
       setSavingCourse(false);
     }
@@ -270,17 +338,30 @@ export default function CursosPage() {
     setIsCourseModalOpen(true);
   };
 
-  const handleDeleteCourse = async (courseId: string) => {
-    if (!confirm('Deseja realmente excluir este curso e todas as suas aulas e acessos?')) return;
-    try {
-      await api.delete(`/courses/${courseId}`);
-      if (selectedCourseForLessons?.id === courseId) {
-        setSelectedCourseForLessons(null);
+  const handleDeleteCourse = (courseId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Curso',
+      description: 'Deseja realmente excluir este curso e todas as suas aulas e acessos associados? Esta ação é irreversível.',
+      confirmLabel: 'Sim, Excluir Curso',
+      cancelLabel: 'Cancelar',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          await api.delete(`/courses/${courseId}`);
+          if (selectedCourseForLessons?.id === courseId) {
+            setSelectedCourseForLessons(null);
+          }
+          fetchCourses(true);
+          notifyCoursesSync();
+          showToast('Curso excluído com sucesso!');
+        } catch (err: any) {
+          showToast(err?.response?.data?.message || 'Erro ao excluir curso.');
+        } finally {
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        }
       }
-      fetchCourses();
-    } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao excluir curso.');
-    }
+    });
   };
 
   // 4. Salvar Aula
@@ -299,8 +380,10 @@ export default function CursosPage() {
 
       if (editingLesson) {
         await api.put(`/courses/lessons/${editingLesson.id}`, payload);
+        showToast('Aula atualizada com sucesso!');
       } else {
         await api.post(`/courses/${selectedCourseForLessons.id}/lessons`, payload);
+        showToast('Nova aula adicionada!');
       }
 
       setIsLessonModalOpen(false);
@@ -313,25 +396,39 @@ export default function CursosPage() {
 
       // Recarrega aulas
       openLessonsManager(selectedCourseForLessons);
-      fetchCourses();
+      fetchCourses(true);
+      notifyCoursesSync();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao salvar aula.');
+      showToast(err?.response?.data?.message || 'Erro ao salvar aula.');
     } finally {
       setSavingLesson(false);
     }
   };
 
-  const handleDeleteLesson = async (lessonId: string) => {
-    if (!confirm('Excluir esta aula?')) return;
-    try {
-      await api.delete(`/courses/lessons/${lessonId}`);
-      if (selectedCourseForLessons) {
-        openLessonsManager(selectedCourseForLessons);
-        fetchCourses();
+  const handleDeleteLesson = (lessonId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Excluir Aula',
+      description: 'Tem certeza que deseja excluir esta aula? As alunas não terão mais acesso a este vídeo.',
+      confirmLabel: 'Sim, Excluir Aula',
+      cancelLabel: 'Cancelar',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          await api.delete(`/courses/lessons/${lessonId}`);
+          if (selectedCourseForLessons) {
+            openLessonsManager(selectedCourseForLessons);
+            fetchCourses(true);
+            notifyCoursesSync();
+          }
+          showToast('Aula excluída com sucesso!');
+        } catch (err: any) {
+          showToast(err?.response?.data?.message || 'Erro ao excluir aula.');
+        } finally {
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        }
       }
-    } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao excluir aula.');
-    }
+    });
   };
 
   // Converte URL de vídeo para Embed compatível (YouTube, Vimeo ou direto)
@@ -1197,6 +1294,27 @@ export default function CursosPage() {
               {renderVideoPlayerPreview(previewVideoUrl)}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação Acessível */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        description={confirmModal.description}
+        confirmLabel={confirmModal.confirmLabel}
+        cancelLabel={confirmModal.cancelLabel}
+        isDestructive={confirmModal.isDestructive}
+        isLoading={confirmModal.isLoading}
+      />
+
+      {/* Toast Feedback */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 border border-slate-800 text-xs font-semibold">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>{toastMsg}</span>
         </div>
       )}
     </div>

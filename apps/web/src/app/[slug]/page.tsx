@@ -9,7 +9,9 @@ import { ShowcaseHeader } from '@/components/showcase/ShowcaseHeader';
 import { ShowcaseGallery } from '@/components/showcase/ShowcaseGallery';
 import { ShowcaseInfoCards } from '@/components/showcase/ShowcaseInfoCards';
 import { ShowcaseCourses } from '@/components/showcase/ShowcaseCourses';
+import { ShowcaseProducts } from '@/components/showcase/ShowcaseProducts';
 import { BookingWizard } from '@/components/showcase/BookingWizard';
+import { ClientPortalModal } from '@/components/showcase/ClientPortalModal';
 
 export default function PublicShowcasePage() {
   const params = useParams();
@@ -18,6 +20,7 @@ export default function PublicShowcasePage() {
   const [tenant, setTenant] = useState<TenantShowcase | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isPortalOpen, setIsPortalOpen] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -86,7 +89,11 @@ export default function PublicShowcasePage() {
   return (
     <div className="min-h-screen bg-[#FAF9F6] text-slate-900 flex flex-col">
       {/* 1. Topo da Marca (Header Panorâmico + Avatar + Bio + Redes) */}
-      <ShowcaseHeader tenant={tenant} onBookClick={scrollToBooking} />
+      <ShowcaseHeader
+        tenant={tenant}
+        onBookClick={scrollToBooking}
+        onPortalClick={() => setIsPortalOpen(true)}
+      />
 
       {/* 2. Conteúdo em 2 Colunas no Desktop (Empilhado no Mobile) */}
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 w-full flex-1">
@@ -94,6 +101,7 @@ export default function PublicShowcasePage() {
           {/* Coluna Esquerda: Vitrine, Galeria, Cursos e Confiança (lg:col-span-6) */}
           <div className="lg:col-span-6 space-y-6 order-2 lg:order-1">
             <ShowcaseGallery photos={tenant.galleryPhotos} tenantName={tenant.name} />
+            <ShowcaseProducts tenant={tenant} />
             <ShowcaseCourses tenant={tenant} />
             <ShowcaseInfoCards tenant={tenant} />
           </div>
@@ -127,6 +135,17 @@ export default function PublicShowcasePage() {
           <span className="font-bold text-slate-600">Marque Sua Hora</span>
         </p>
       </footer>
+
+      {/* Modal do Portal da Cliente */}
+      {isPortalOpen && (
+        <ClientPortalModal
+          slug={slug}
+          tenantName={tenant.name}
+          tenantPhone={tenant.phone}
+          brandColor={tenant.primaryColor || '#7C3AED'}
+          onClose={() => setIsPortalOpen(false)}
+        />
+      )}
     </div>
   );
 }

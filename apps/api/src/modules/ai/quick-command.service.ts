@@ -1,0 +1,640 @@
+import axios from 'axios';
+import { prisma } from '../../lib/prisma';
+import { BookingService } from '../schedules/booking.service';
+import { BookingSource, PaymentMethod, TransactionType, CreditAccountStatus } from '@prisma/client';
+
+export interface QuickCommandPreview {
+  action: 'CREATE_EXPENSE' | 'CREATE_INCOME' | 'CREATE_SCHEDULE' | 'BLOCK_SCHEDULE' | 'CREATE_CREDIT' | 'UNKNOWN';
+  confidence: number;
+  summary: string;
+  spokenFeedback: string;
+  payload: {
+    // Financeiro
+    amount?: number;
+    description?: string;
+    category?: string;
+    date?: string; // YYYY-MM-DD
+    paymentMethod?: string;
+
+    // Agendamento
+    clientName?: string;
+    clientPhone?: string;
+    serviceId?: string;
+    serviceName?: string;
+    professionalId?: string;
+    professionalName?: string;
+    dateStr?: string; // YYYY-MM-DD
+    startTime?: string; // HH:MM
+
+    // Bloqueio
+    blockDate?: string;
+    blockStartTime?: string;
+    blockEndTime?: string;
+    blockReason?: string;
+
+    // Crediário
+    creditClientName?: string;
+    creditAmount?: number;
+    creditDueDate?: string;
+    creditNotes?: string;
+  };
+  missingInfo?: string[];
+}
+
+export class QuickCommandService {
+  private static getOpenRouterApiKey(): string | undefined {
+    return process.env.OPENROUTER_API_KEY;
+  }
+
+  private static getModel(): string {
+    return process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat';
+  }
+
+  /**
+   * 1. Interpreta o comando em linguagem natural gerando a prévia estruturada
+   */
+  public static async parseCommand(params: {
+    tenantId: string;
+    transcript: string;
+    referenceDate?: Date;
+  }): Promise<QuickCommandPreview> {
+    const { tenantId, transcript } = params;
+    const now = params.referenceDate || new Date();
+    const currentDateStr = now.toISOString().slice(0, 10);
+
+    // Carrega contexto do catálogo do salão (com tratamento resiliente)
+    let rawServices: any[] = [];
+    let professionals: any[] = [];
+
+    try {
+      const results = await Promise.all([
+        prisma.service.findMany({
+          where: { tenantId },
+          select: { id: true, name: true, price: true }
+        }),
+        prisma.professional.findMany({
+          where: { tenantId, isActive: true },
+          select: { id: true, name: true }
+        })
+      ]);
+      rawServices = results[0];
+      professionals = results[1];
+    } catch {
+      rawServices = [];
+      professionals = [];
+    }
+
+    const services = rawServices.map((s) => ({
+      id: s.id,
+      name: s.name,
+      price: Number(s.price)
+    }));
+
+    // Tenta primeiro via LLM (se houver chave de API)
+    const apiKey = this.getOpenRouterApiKey();
+    if (apiKey) {
+      try {
+        const llmResult = await this.parseWithLlm({
+          transcript,
+          services,
+          professionals,
+          currentDateStr,
+          apiKey
+        });
+        if (llmResult && llmResult.action !== 'UNKNOWN') {
+          return llmResult;
+        }
+      } catch (err) {
+        console.warn('[QuickCommand] LLM indisponível ou falhou, acionando fallback determinístico:', err);
+      }
+    }
+
+    // Fallback Inteligente baseado em regras determinísticas (NLP em Português)
+    return this.parseWithRules({
+      transcript,
+      services,
+      professionals,
+      currentDateStr,
+      now
+    });
+  }
+
+  /**
+   * Parser via LLM (OpenRouter / DeepSeek / Gemini) com schema JSON estrito
+   */
+  private static async parseWithLlm(params: {
+    transcript: string;
+    services: Array<{ id: string; name: string; price: number }>;
+    professionals: Array<{ id: string; name: string }>;
+    currentDateStr: string;
+    apiKey: string;
+  }): Promise<QuickCommandPreview | null> {
+    const servicesList = params.services.map((s) => `ID: "${s.id}", Nome: "${s.name}", Preço: R$ ${s.price}`).join('; ');
+    const professionalsList = params.professionals.map((p) => `ID: "${p.id}", Nome: "${p.name}"`).join('; ');
+
+    const systemPrompt = `Você é o interpretador de comandos por voz do aplicativo de gestão de salão de beleza e barbearia "MarqueSuaHora".
+A data de hoje é: ${params.currentDateStr}.
+
+Serviços cadastrados no salão: [${servicesList || 'Nenhum'}]
+Profissionais cadastrados no salão: [${professionalsList || 'Nenhum'}]
+
+Sua tarefa é analisar a frase falada pela dona do salão e classificá-la estritamente em uma das ações:
+1. CREATE_EXPENSE: Registra uma saída/despesa financeira (ex: "gastei 150 no mercado", "anotar 150 reais em produtos loja Fraceto", "paguei 40 de conta de luz").
+2. CREATE_INCOME: Registra uma entrada/receita avulsa (ex: "recebi 200 de venda de shampoo", "entrou 80 em dinheiro").
+3. CREATE_SCHEDULE: Registra um agendamento de cliente (ex: "agendar Maria dia 22 às 17h", "marcar corte com Paula para amanhã às 14h").
+4. BLOCK_SCHEDULE: Registra bloqueio de horário (ex: "bloquear minha agenda amanhã das 12h às 13h almoço").
+5. CREATE_CREDIT: Registra crediário/fiado para cliente (ex: "anotar crediário de 180 reais para Carla vencer dia 30").
+6. UNKNOWN: Frase não compreendida como comando.
+
+Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) no formato:
+{
+  "action": "CREATE_EXPENSE" | "CREATE_INCOME" | "CREATE_SCHEDULE" | "BLOCK_SCHEDULE" | "CREATE_CREDIT" | "UNKNOWN",
+  "confidence": 0.95,
+  "summary": "Resumo amigável em português do que será feito",
+  "spokenFeedback": "Texto curto para falar de volta para a usuária confirmando a ação",
+  "payload": {
+    "amount": 150.00,
+    "description": "Produtos loja Fraceto",
+    "category": "PRODUTOS" | "INSUMOS" | "OUTROS" | "SERVICOS",
+    "date": "YYYY-MM-DD",
+    "clientName": "Nome do cliente se aplicável",
+    "serviceId": "ID do serviço se identificado",
+    "serviceName": "Nome do serviço se identificado",
+    "professionalId": "ID do profissional se identificado",
+    "professionalName": "Nome do profissional se identificado",
+    "dateStr": "YYYY-MM-DD",
+    "startTime": "HH:MM",
+    "blockDate": "YYYY-MM-DD",
+    "blockStartTime": "HH:MM",
+    "blockEndTime": "HH:MM",
+    "blockReason": "Motivo do bloqueio",
+    "creditClientName": "Nome cliente crediário",
+    "creditAmount": 180.00,
+    "creditDueDate": "YYYY-MM-DD",
+    "creditNotes": "Observações do crediário"
+  }
+}`;
+
+    const res = await axios.post(
+      'https://openrouter.ai/api/v1/chat/completions',
+      {
+        model: this.getModel(),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: params.transcript }
+        ],
+        temperature: 0.1,
+        response_format: { type: 'json_object' }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 10000
+      }
+    );
+
+    const content = res.data?.choices?.[0]?.message?.content;
+    if (!content) return null;
+
+    const parsed = JSON.parse(content);
+    return parsed as QuickCommandPreview;
+  }
+
+  /**
+   * Parser Determinístico de Regras (Executado instantaneamente sem necessidade de rede externa)
+   */
+  private static parseWithRules(params: {
+    transcript: string;
+    services: Array<{ id: string; name: string; price: number }>;
+    professionals: Array<{ id: string; name: string }>;
+    currentDateStr: string;
+    now: Date;
+  }): QuickCommandPreview {
+    const text = params.transcript.trim();
+    const lower = text.toLowerCase();
+
+    // 1. Extração de valor monetário (ex: "150 reais", "R$ 150", "150,00", "85")
+    const amountMatch = lower.match(/(?:r\$\s*|reais\s*)?(\d+(?:[.,]\d{1,2})?)\s*(?:reais)?/i);
+    let amount: number | undefined = undefined;
+    if (amountMatch) {
+      amount = parseFloat(amountMatch[1].replace(',', '.'));
+    }
+
+    // 2. Extração de horário (ex: "às 17 horas", "17h", "17:00", "das 14h às 16h", "das 14:00 as 16:00")
+    const timeRangeMatch = lower.match(/das\s*(\d{1,2})(?:h|:(\d{2}))?\s*(?:às|as)\s*(\d{1,2})(?:h|:(\d{2}))?/);
+    const singleTimeMatch = lower.match(/(?:às|as)\s*(\d{1,2})(?:h|:(\d{2}))?/);
+
+    // 3. Extração de data (ex: "hoje", "amanhã", "dia 22 do 10", "dia 22/10", "dia 30")
+    let targetDateStr = params.currentDateStr;
+    if (lower.includes('amanhã') || lower.includes('amanha')) {
+      const tomorrow = new Date(params.now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      targetDateStr = tomorrow.toISOString().slice(0, 10);
+    } else {
+      const dayMonthMatch = lower.match(/dia\s*(\d{1,2})(?:\s*(?:de|do|\/)\s*(\d{1,2}))?/);
+      if (dayMonthMatch) {
+        const day = parseInt(dayMonthMatch[1], 10);
+        const currentYear = params.now.getFullYear();
+        let month = params.now.getMonth() + 1;
+        if (dayMonthMatch[2]) {
+          month = parseInt(dayMonthMatch[2], 10);
+        }
+        targetDateStr = `${currentYear}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      }
+    }
+
+    // =========================================================================
+    // REGRA A: DESPESA FINANCEIRA
+    // =========================================================================
+    const isExpense =
+      lower.includes('gasto') ||
+      lower.includes('gastei') ||
+      lower.includes('despesa') ||
+      lower.includes('paguei') ||
+      lower.includes('comprei') ||
+      lower.includes('mercado') ||
+      lower.includes('loja');
+
+    if (isExpense && amount) {
+      let desc = 'Despesa Lançada por Voz';
+      if (lower.includes('mercado')) desc = 'Compras no Mercado';
+      else if (lower.includes('loja')) {
+        const lojaMatch = text.match(/loja\s+([^,.\n]+)/i);
+        desc = lojaMatch ? `Produtos loja ${lojaMatch[1].trim()}` : 'Produtos da Loja';
+      } else if (lower.includes('produtos')) {
+        desc = 'Produtos e Insumos';
+      }
+
+      return {
+        action: 'CREATE_EXPENSE',
+        confidence: 0.95,
+        summary: `Lançar despesa de R$ ${amount.toFixed(2).replace('.', ',')} (${desc})`,
+        spokenFeedback: `Despesa de ${amount.toFixed(0)} reais em ${desc} pronta para confirmar.`,
+        payload: {
+          amount,
+          description: desc,
+          category: lower.includes('mercado') ? 'INSUMOS' : 'PRODUTOS',
+          date: targetDateStr,
+          paymentMethod: 'PIX'
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA B: CREDIÁRIO / FIADO
+    // =========================================================================
+    const isCredit = lower.includes('crediário') || lower.includes('crediario') || lower.includes('fiado') || lower.includes('conta de');
+    if (isCredit && amount) {
+      const clientMatch = text.match(/(?:para|da|do|de)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i);
+      const clientName = clientMatch ? clientMatch[1].trim() : 'Cliente';
+
+      return {
+        action: 'CREATE_CREDIT',
+        confidence: 0.92,
+        summary: `Abrir crediário de R$ ${amount.toFixed(2).replace('.', ',')} para ${clientName} com vencimento em ${targetDateStr.slice(8, 10)}/${targetDateStr.slice(5, 7)}`,
+        spokenFeedback: `Crediário de ${amount.toFixed(0)} reais para ${clientName} pronto para lançar.`,
+        payload: {
+          creditClientName: clientName,
+          creditAmount: amount,
+          creditDueDate: targetDateStr,
+          creditNotes: `Anotado via comando de voz: "${text}"`
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA C: RECEITA AVULSA
+    // =========================================================================
+    const isIncome = lower.includes('recebi') || lower.includes('entrou') || lower.includes('venda de') || lower.includes('receita');
+    if (isIncome && amount) {
+      return {
+        action: 'CREATE_INCOME',
+        confidence: 0.9,
+        summary: `Registrar receita de R$ ${amount.toFixed(2).replace('.', ',')} no financeiro`,
+        spokenFeedback: `Receita de ${amount.toFixed(0)} reais pronta para lançar.`,
+        payload: {
+          amount,
+          description: 'Receita avulsa lançada por voz',
+          category: 'PRODUTOS',
+          date: targetDateStr,
+          paymentMethod: 'CASH'
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA D: BLOQUEIO DE HORÁRIO
+    // =========================================================================
+    const isBlock = lower.includes('bloquear') || lower.includes('bloqueio') || lower.includes('fechar horário') || lower.includes('fechar agenda');
+    if (isBlock) {
+      let startTime = '12:00';
+      let endTime = '13:00';
+      if (timeRangeMatch) {
+        startTime = `${String(timeRangeMatch[1]).padStart(2, '0')}:${timeRangeMatch[2] || '00'}`;
+        endTime = `${String(timeRangeMatch[3]).padStart(2, '0')}:${timeRangeMatch[4] || '00'}`;
+      } else if (singleTimeMatch) {
+        startTime = `${String(singleTimeMatch[1]).padStart(2, '0')}:${singleTimeMatch[2] || '00'}`;
+        const endHour = Math.min(23, parseInt(singleTimeMatch[1], 10) + 1);
+        endTime = `${String(endHour).padStart(2, '0')}:${singleTimeMatch[2] || '00'}`;
+      }
+
+      const defaultProf = params.professionals[0];
+
+      return {
+        action: 'BLOCK_SCHEDULE',
+        confidence: 0.9,
+        summary: `Bloquear agenda no dia ${targetDateStr.slice(8, 10)}/${targetDateStr.slice(5, 7)} das ${startTime} às ${endTime}`,
+        spokenFeedback: `Bloqueio das ${startTime} às ${endTime} pronto para confirmar.`,
+        payload: {
+          blockDate: targetDateStr,
+          blockStartTime: startTime,
+          blockEndTime: endTime,
+          blockReason: 'Bloqueio rápido via comando de voz',
+          professionalId: defaultProf?.id,
+          professionalName: defaultProf?.name
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA E: AGENDAMENTO DE CLIENTE
+    // =========================================================================
+    const isSchedule = lower.includes('agendar') || lower.includes('marcar') || lower.includes('agendamento');
+    if (isSchedule) {
+      // Tenta achar nome da cliente
+      const clientMatch = text.match(/(?:cliente|para|com)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i);
+      const clientName = clientMatch ? clientMatch[1].trim() : 'Cliente';
+
+      // Horário
+      let startTime = '17:00';
+      if (singleTimeMatch) {
+        startTime = `${String(singleTimeMatch[1]).padStart(2, '0')}:${singleTimeMatch[2] || '00'}`;
+      }
+
+      // Serviço mais próximo ou primeiro ativo
+      let matchedService = params.services[0];
+      for (const s of params.services) {
+        if (lower.includes(s.name.toLowerCase())) {
+          matchedService = s;
+          break;
+        }
+      }
+
+      const defaultProf = params.professionals[0];
+
+      return {
+        action: 'CREATE_SCHEDULE',
+        confidence: 0.88,
+        summary: `Agendar ${clientName} para dia ${targetDateStr.slice(8, 10)}/${targetDateStr.slice(5, 7)} às ${startTime} (${matchedService?.name || 'Serviço'})`,
+        spokenFeedback: `Agendamento de ${clientName} para ${targetDateStr.slice(8, 10)} do ${targetDateStr.slice(5, 7)} às ${startTime} pronto para confirmar.`,
+        payload: {
+          clientName,
+          clientPhone: '00000000000',
+          serviceId: matchedService?.id,
+          serviceName: matchedService?.name,
+          professionalId: defaultProf?.id,
+          professionalName: defaultProf?.name,
+          dateStr: targetDateStr,
+          startTime
+        }
+      };
+    }
+
+    return {
+      action: 'UNKNOWN',
+      confidence: 0.2,
+      summary: `Não foi possível identificar uma ação para "${text}".`,
+      spokenFeedback: 'Não consegui entender o comando. Pode repetir por favor?',
+      payload: {},
+      missingInfo: ['Ação não identificada']
+    };
+  }
+
+  /**
+   * 2. Executa a ação confirmada no banco de dados com isolamento multi-tenant
+   */
+  public static async executeCommand(params: {
+    tenantId: string;
+    userId: string;
+    preview: QuickCommandPreview;
+    ip?: string;
+    userAgent?: string;
+  }) {
+    const { tenantId, userId, preview, ip, userAgent } = params;
+    const { action, payload } = preview;
+
+    switch (action) {
+      case 'CREATE_EXPENSE': {
+        if (!payload.amount) throw new Error('Valor da despesa não informado.');
+
+        const entry = await prisma.financialEntry.create({
+          data: {
+            tenantId,
+            type: TransactionType.EXPENSE,
+            amount: payload.amount,
+            description: payload.description || 'Despesa lançada por voz',
+            paymentMethod: PaymentMethod.PIX,
+            paidAt: payload.date ? new Date(`${payload.date}T12:00:00Z`) : new Date()
+          }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            tenantId,
+            action: 'AI_QUICK_COMMAND_EXPENSE',
+            entityType: 'FinancialEntry',
+            entityId: entry.id,
+            details: { amount: payload.amount, description: payload.description, date: payload.date },
+            ipAddress: ip,
+            userAgent
+          }
+        }).catch(() => null);
+
+        return {
+          success: true,
+          message: `Despesa de R$ ${payload.amount.toFixed(2).replace('.', ',')} lançada no financeiro!`,
+          spokenFeedback: `Pronto! Despesa de ${payload.amount.toFixed(0)} reais lançada com sucesso no financeiro.`,
+          data: entry
+        };
+      }
+
+      case 'CREATE_INCOME': {
+        if (!payload.amount) throw new Error('Valor da receita não informado.');
+
+        const entry = await prisma.financialEntry.create({
+          data: {
+            tenantId,
+            type: TransactionType.INCOME,
+            amount: payload.amount,
+            description: payload.description || 'Receita lançada por voz',
+            paymentMethod: PaymentMethod.CASH,
+            paidAt: payload.date ? new Date(`${payload.date}T12:00:00Z`) : new Date()
+          }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            tenantId,
+            action: 'AI_QUICK_COMMAND_INCOME',
+            entityType: 'FinancialEntry',
+            entityId: entry.id,
+            details: { amount: payload.amount, description: payload.description, date: payload.date },
+            ipAddress: ip,
+            userAgent
+          }
+        }).catch(() => null);
+
+        return {
+          success: true,
+          message: `Receita de R$ ${payload.amount.toFixed(2).replace('.', ',')} anotada no financeiro!`,
+          spokenFeedback: `Pronto! Receita de ${payload.amount.toFixed(0)} reais anotada com sucesso.`,
+          data: entry
+        };
+      }
+
+      case 'CREATE_CREDIT': {
+        if (!payload.creditAmount || !payload.creditClientName) {
+          throw new Error('Nome do cliente e valor do crediário são obrigatórios.');
+        }
+
+        // Localiza ou cria cliente
+        let client = await prisma.client.findFirst({
+          where: {
+            tenantId,
+            name: { equals: payload.creditClientName.trim(), mode: 'insensitive' }
+          }
+        });
+
+        if (!client) {
+          client = await prisma.client.create({
+            data: {
+              tenantId,
+              name: payload.creditClientName.trim(),
+              phone: '00000000000'
+            }
+          });
+        }
+
+        const dueDate = payload.creditDueDate ? new Date(`${payload.creditDueDate}T23:59:59Z`) : new Date();
+
+        const creditAccount = await prisma.creditAccount.create({
+          data: {
+            tenantId,
+            clientId: client.id,
+            clientName: payload.creditClientName.trim(),
+            clientPhone: client.phone || '00000000000',
+            serviceOrDescription: payload.creditNotes || 'Conta aberta por comando de voz',
+            totalAmount: payload.creditAmount,
+            remainingAmount: payload.creditAmount,
+            paidAmount: 0,
+            dueDate,
+            status: CreditAccountStatus.OPEN,
+            notes: payload.creditNotes || 'Conta aberta por comando de voz'
+          }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            tenantId,
+            action: 'AI_QUICK_COMMAND_CREDIT',
+            entityType: 'CreditAccount',
+            entityId: creditAccount.id,
+            details: { clientId: client.id, amount: payload.creditAmount, dueDate: payload.creditDueDate },
+            ipAddress: ip,
+            userAgent
+          }
+        }).catch(() => null);
+
+        return {
+          success: true,
+          message: `Crediário de R$ ${payload.creditAmount.toFixed(2).replace('.', ',')} para ${client.name} registrado!`,
+          spokenFeedback: `Crediário de ${payload.creditAmount.toFixed(0)} reais para ${client.name} criado com sucesso.`,
+          data: creditAccount
+        };
+      }
+
+      case 'BLOCK_SCHEDULE': {
+        if (!payload.blockStartTime || !payload.blockEndTime) {
+          throw new Error('Horários inicial e final do bloqueio são obrigatórios.');
+        }
+
+        const block = await prisma.scheduleBlock.create({
+          data: {
+            tenantId,
+            professionalId: payload.professionalId || null,
+            date: payload.blockDate || new Date().toISOString().slice(0, 10),
+            startTime: payload.blockStartTime,
+            endTime: payload.blockEndTime,
+            reason: payload.blockReason || 'Bloqueio via comando de voz'
+          }
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            tenantId,
+            action: 'AI_QUICK_COMMAND_BLOCK',
+            entityType: 'ScheduleBlock',
+            entityId: block.id,
+            details: payload,
+            ipAddress: ip,
+            userAgent
+          }
+        }).catch(() => null);
+
+        return {
+          success: true,
+          message: `Horário das ${payload.blockStartTime} às ${payload.blockEndTime} bloqueado na agenda!`,
+          spokenFeedback: `Agenda bloqueada das ${payload.blockStartTime} às ${payload.blockEndTime}.`,
+          data: block
+        };
+      }
+
+      case 'CREATE_SCHEDULE': {
+        if (!payload.serviceId || !payload.professionalId || !payload.dateStr || !payload.startTime) {
+          throw new Error('Dados de agendamento incompletos.');
+        }
+
+        const booking = await BookingService.createBooking({
+          tenantId,
+          serviceIds: [payload.serviceId],
+          professionalId: payload.professionalId,
+          dateStr: payload.dateStr,
+          startTime: payload.startTime,
+          clientName: payload.clientName || 'Cliente Balcão',
+          clientPhone: payload.clientPhone || '00000000000',
+          source: BookingSource.MANUAL_RECEPTION,
+          notes: 'Agendamento rápido via comando de voz'
+        });
+
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            tenantId,
+            action: 'AI_QUICK_COMMAND_SCHEDULE',
+            entityType: 'Schedule',
+            entityId: booking.id,
+            details: payload,
+            ipAddress: ip,
+            userAgent
+          }
+        }).catch(() => null);
+
+        return {
+          success: true,
+          message: `Agendamento de ${payload.clientName} confirmado para ${payload.dateStr.slice(8, 10)}/${payload.dateStr.slice(5, 7)} às ${payload.startTime}!`,
+          spokenFeedback: `Agendamento de ${payload.clientName} marcado com sucesso para às ${payload.startTime}.`,
+          data: booking
+        };
+      }
+
+      default:
+        throw new Error('Comando não reconhecido ou ação não suportada.');
+    }
+  }
+}

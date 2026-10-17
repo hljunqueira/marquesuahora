@@ -8,6 +8,7 @@ import {
 } from '@marquesuahora/shared';
 import { prisma } from '../../lib/prisma';
 import { Role, TicketStatus, TicketSenderType, TicketCategory, TicketPriority } from '@prisma/client';
+import { SupportAiService } from './support.ai.service.js';
 
 export const supportRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', app.authenticate);
@@ -45,6 +46,131 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return reply.send(tickets);
+  });
+
+  // POST /support/ai-chat - Atendimento interativo com IA e escalação para ticket do admin em até 24h se houver erro
+  app.post('/ai-chat', async (request, reply) => {
+    try {
+      let tenantId = request.user?.tenantId;
+
+      const body = request.body as {
+        message: string;
+        category?: string;
+        protocol?: string;
+      };
+
+      if (!body?.message || typeof body.message !== 'string' || !body.message.trim()) {
+        return reply.status(400).send({ error: 'Dados inválidos', message: 'Mensagem obrigatória.' });
+      }
+
+      // Mapeia categoria enviada pelo frontend de forma tolerante
+      let mappedCategory: TicketCategory = TicketCategory.DOUBT;
+      if (body.category === 'MELHORIA' || body.category === TicketCategory.FEATURE_REQUEST) {
+        mappedCategory = TicketCategory.FEATURE_REQUEST;
+      } else if (body.category === 'FINANCEIRO' || body.category === TicketCategory.BILLING) {
+        mappedCategory = TicketCategory.BILLING;
+      } else if (body.category === TicketCategory.TECHNICAL_ISSUE) {
+        mappedCategory = TicketCategory.TECHNICAL_ISSUE;
+      }
+
+      let tenantName: string | undefined;
+      let tenantSlug: string | undefined;
+      let tenantNiche: string | undefined;
+      let userName = request.user?.name;
+      let userEmail = request.user?.email;
+
+      // Recuperação resiliente de dados com tolerância a falhas no banco de dados
+      try {
+        if (!tenantId && request.user?.sub) {
+          const owned = await prisma.tenant.findFirst({
+            where: { users: { some: { id: request.user.sub } } },
+            select: { id: true, name: true, slug: true, niche: true }
+          });
+          if (owned) {
+            tenantId = owned.id;
+            tenantName = owned.name;
+            tenantSlug = owned.slug;
+            tenantNiche = owned.niche;
+          }
+        }
+
+        if (tenantId && !tenantName) {
+          const tenant = await prisma.tenant.findUnique({
+            where: { id: tenantId },
+            select: { name: true, slug: true, niche: true }
+          });
+          if (tenant) {
+            tenantName = tenant.name;
+            tenantSlug = tenant.slug;
+            tenantNiche = tenant.niche;
+          }
+        }
+
+        if (request.user?.sub && (!userName || !userEmail)) {
+          const user = await prisma.user.findUnique({
+            where: { id: request.user.sub },
+            select: { name: true, email: true }
+          });
+          if (user) {
+            userName = user.name;
+            userEmail = user.email;
+          }
+        }
+      } catch (dbErr) {
+        console.warn('[Support Routes] Aviso: Banco inacessível ao buscar dados de tenant/usuário, continuando com atendimento IA:', dbErr);
+      }
+
+      const result = await SupportAiService.processMessage({
+        tenantId: tenantId || 'general',
+        userId: request.user?.sub || 'user-anonymous',
+        userName,
+        userEmail,
+        tenantName,
+        tenantSlug,
+        tenantNiche,
+        messageText: body.message.trim(),
+        category: mappedCategory,
+        protocol: body.protocol
+      });
+
+      return reply.send(result);
+    } catch (routeErr: any) {
+      console.error('[Support Routes] Erro inesperado na rota /ai-chat, aplicando resposta de contingência:', routeErr);
+      const protocol = (request.body as any)?.protocol || `#TK-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      return reply.send({
+        replyText: 'Olá! Sou o assistente de inteligência artificial do MarqueSuaHora. Estou pronto para te orientar sobre agendamentos, serviços, vitrine ou sinal anti-falta. Como posso te ajudar agora?',
+        isTechnicalError: false,
+        category: TicketCategory.DOUBT,
+        priority: TicketPriority.LOW,
+        protocol
+      });
+    }
+  });
+
+  // GET /support/active-ticket - Retorna o último chamado ativo do salão com histórico de mensagens
+  app.get('/active-ticket', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const ticket = await prisma.supportTicket.findFirst({
+      where: {
+        tenantId,
+        status: { in: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT] }
+      },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' }
+        },
+        tasks: {
+          orderBy: { position: 'asc' }
+        }
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    return reply.send(ticket || null);
   });
 
   // POST /support/tickets - Assinante abre novo chamado
@@ -134,6 +260,19 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
       }
     });
 
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'SUPPORT_TICKET_CREATE',
+        entityType: 'SupportTicket',
+        entityId: ticket.id,
+        details: { protocol, subject: data.subject, category: data.category, priority: data.priority },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
+
     return reply.status(201).send(fullTicket);
   });
 
@@ -213,7 +352,7 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string };
     const data = updateTicketStatusSchema.parse(request.body);
 
-    const updated = await prisma.supportTicket.update({
+      const updated = await prisma.supportTicket.update({
       where: { id },
       data: {
         status: data.status,
@@ -222,6 +361,19 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
           : { closedAt: null })
       }
     });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId: updated.tenantId,
+        action: 'SUPPORT_TICKET_STATUS_UPDATE',
+        entityType: 'SupportTicket',
+        entityId: id,
+        details: { status: data.status },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
 
     return reply.send(updated);
   });

@@ -3,10 +3,18 @@ import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { AvailabilityService } from './availability.service';
 import { BookingService } from './booking.service';
-import { ScheduleStatus, BookingSource, NotificationCategory, NotificationPriority } from '@prisma/client';
+import {
+  ScheduleStatus,
+  BookingSource,
+  NotificationCategory,
+  NotificationPriority,
+  TransactionType,
+  PaymentMethod
+} from '@prisma/client';
 import { whatsappQueue } from '../automation/queues';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcherService } from '../notifications/dispatcher.service';
+import { parseTimeToMinutes, formatMinutesToTime } from '@marquesuahora/shared';
 
 export const schedulesRoutes: FastifyPluginAsync = async (app) => {
   // =========================================================================
@@ -245,10 +253,16 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
           : {}),
         ...(query.search
           ? {
-              OR: [
-                { client: { name: { contains: query.search, mode: 'insensitive' } } },
-                { client: { phone: { contains: query.search.replace(/\D/g, '') } } }
-              ]
+              OR: (() => {
+                const cleanedPhone = query.search.replace(/\D/g, '');
+                const conditions: any[] = [
+                  { client: { name: { contains: query.search, mode: 'insensitive' } } }
+                ];
+                if (cleanedPhone.length > 0) {
+                  conditions.push({ client: { phone: { contains: cleanedPhone } } });
+                }
+                return conditions;
+              })()
             }
           : {})
       };
@@ -278,7 +292,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
       });
     });
 
-    // GET /schedules/calendar - Listagem de agendamentos no período para o Grid Semanal
+    // GET /schedules/calendar - Listagem otimizada de agendamentos para o Grid Semanal
     authScope.get('/calendar', async (request, reply) => {
       const tenantId = request.user.tenantId;
       if (!tenantId) {
@@ -300,11 +314,39 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
           },
           ...(professionalId ? { professionalId } : {})
         },
-        include: {
-          client: true,
-          professional: true,
-          service: true,
-          items: { include: { service: true } }
+        select: {
+          id: true,
+          clientId: true,
+          professionalId: true,
+          serviceId: true,
+          date: true,
+          startTime: true,
+          endTime: true,
+          totalPrice: true,
+          totalDurationMinutes: true,
+          status: true,
+          notes: true,
+          depositAmount: true,
+          depositPaid: true,
+          arrivalPhotoUrl: true,
+          resultPhotoUrl: true,
+          source: true,
+          client: {
+            select: { id: true, name: true, phone: true, anamnesis: true, anamnesisToken: true }
+          },
+          professional: {
+            select: { id: true, name: true, color: true }
+          },
+          service: {
+            select: { id: true, name: true, price: true, durationMinutes: true }
+          },
+          items: {
+            select: {
+              service: {
+                select: { id: true, name: true, price: true, durationMinutes: true }
+              }
+            }
+          }
         },
         orderBy: [{ date: 'asc' }, { startTime: 'asc' }]
       });
@@ -327,7 +369,8 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         clientName: z.string().min(2, 'Nome do cliente é obrigatório.'),
         clientPhone: z.string().min(10, 'Telefone do cliente é obrigatório.'),
         clientEmail: z.string().email().optional().nullable(),
-        notes: z.string().max(500).optional().nullable()
+        notes: z.string().max(500).optional().nullable(),
+        customTotalPrice: z.coerce.number().min(0, 'Valor total não pode ser negativo.').optional()
       });
 
       const body = createSchema.parse(request.body);
@@ -342,6 +385,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         clientPhone: body.clientPhone,
         clientEmail: body.clientEmail || undefined,
         notes: body.notes || undefined,
+        customTotalPrice: body.customTotalPrice,
         source: BookingSource.MANUAL_RECEPTION
       });
 
@@ -381,14 +425,23 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
       }
 
-      // Validação das transições permitidas da Seção 6.3:
-      // Status finais não voltam
-      const finalStatuses: ScheduleStatus[] = [ScheduleStatus.COMPLETED, ScheduleStatus.CANCELLED, ScheduleStatus.NO_SHOW];
+      // Validação das transições: Status realmente finais não voltam
+      const finalStatuses: ScheduleStatus[] = [ScheduleStatus.COMPLETED, ScheduleStatus.CANCELLED];
       if (finalStatuses.includes(existing.status) && existing.status !== newStatus) {
         return reply.status(400).send({
           error: 'Transição Inválida',
           message: `Agendamentos no status "${existing.status}" não podem ser alterados.`
         });
+      }
+
+      // Se estava como NO_SHOW e foi retificado para outro status (ex: cliente chegou atrasado ou engano)
+      if (existing.status === ScheduleStatus.NO_SHOW && newStatus !== ScheduleStatus.NO_SHOW) {
+        if (existing.client && existing.client.noShowCount > 0) {
+          await prisma.client.update({
+            where: { id: existing.clientId },
+            data: { noShowCount: { decrement: 1 } }
+          });
+        }
       }
 
       // Se virar NO_SHOW, incrementa contador de faltas do cliente
@@ -483,7 +536,88 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
       return reply.send(updated);
     });
 
-    // PATCH /schedules/:id - Remarcar ou editar notas
+    // POST /schedules/:id/confirm-deposit - Confirmar recebimento do Sinal (PIX) com lançamento automático no Financeiro
+    authScope.post('/:id/confirm-deposit', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const { id } = request.params as { id: string };
+
+      const existing = await prisma.schedule.findFirst({
+        where: { id, tenantId },
+        include: { client: true, service: true, professional: true }
+      });
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
+      }
+
+      if (existing.depositPaid) {
+        return reply.status(400).send({ error: 'Já Confirmado', message: 'O sinal deste agendamento já foi confirmado anteriormente.' });
+      }
+
+      const depositAmountNumber = Number(existing.depositAmount || 0);
+
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Atualiza agendamento
+        const updatedSchedule = await tx.schedule.update({
+          where: { id },
+          data: {
+            depositPaid: true,
+            status: ScheduleStatus.CONFIRMED
+          },
+          include: {
+            client: true,
+            professional: true,
+            service: true
+          }
+        });
+
+        // 2. Se houver valor de sinal, lança entrada de receita no Financeiro
+        let financialEntry = null;
+        if (depositAmountNumber > 0) {
+          financialEntry = await tx.financialEntry.create({
+            data: {
+              tenantId,
+              scheduleId: existing.id,
+              professionalId: existing.professionalId,
+              type: TransactionType.INCOME,
+              amount: depositAmountNumber,
+              paidAt: new Date(),
+              description: `Sinal PIX: ${existing.client?.name || 'Cliente'} - ${existing.service?.name || 'Serviço'}`,
+              paymentMethod: PaymentMethod.PIX
+            }
+          });
+        }
+
+        // 3. Auditoria
+        await tx.auditLog.create({
+          data: {
+            userId: request.user.sub,
+            tenantId,
+            action: 'CONFIRM_SCHEDULE_DEPOSIT',
+            entityType: 'Schedule',
+            entityId: id,
+            details: { depositAmount: depositAmountNumber, clientName: existing.client?.name },
+            ipAddress: request.ip,
+            userAgent: request.headers['user-agent']
+          }
+        }).catch(() => null);
+
+        return { updatedSchedule, financialEntry };
+      });
+
+      return reply.status(200).send({
+        success: true,
+        message: `Sinal de R$ ${depositAmountNumber.toFixed(2).replace('.', ',')} confirmado e horário garantido!`,
+        schedule: result.updatedSchedule,
+        financialEntry: result.financialEntry
+      });
+    });
+
+    // PATCH /schedules/:id - Remarcar ou editar notas com recálculo de endTime e validação de conflitos
     authScope.patch('/:id', async (request, reply) => {
       const tenantId = request.user.tenantId;
       if (!tenantId) {
@@ -495,7 +629,10 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         dateStr: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
         professionalId: z.string().uuid().optional(),
-        notes: z.string().max(500).optional().nullable()
+        notes: z.string().max(500).optional().nullable(),
+        totalPrice: z.coerce.number().min(0, 'Valor total não pode ser negativo.').optional(),
+        arrivalPhotoUrl: z.string().nullable().optional(),
+        resultPhotoUrl: z.string().nullable().optional()
       });
 
       const body = editSchema.parse(request.body);
@@ -508,13 +645,67 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
       }
 
+      // Calcula novo horário e término com base na duração total
+      const targetDate = body.dateStr ? new Date(`${body.dateStr}T00:00:00`) : existing.date;
+      const targetStartTime = body.startTime || existing.startTime;
+      const targetProfessionalId = body.professionalId || existing.professionalId;
+      const duration = existing.totalDurationMinutes || 30;
+      const startMinutes = parseTimeToMinutes(targetStartTime);
+      const endMinutes = startMinutes + duration;
+      const targetEndTime = formatMinutesToTime(endMinutes);
+
+      // Validação de conflito se data, horário ou profissional foram alterados
+      if (body.dateStr || body.startTime || body.professionalId) {
+        const conflictingSchedule = await prisma.schedule.findFirst({
+          where: {
+            tenantId,
+            id: { not: id },
+            professionalId: targetProfessionalId,
+            date: targetDate,
+            status: { in: [ScheduleStatus.PENDING, ScheduleStatus.CONFIRMED, ScheduleStatus.IN_SERVICE] },
+            startTime: { lt: targetEndTime },
+            endTime: { gt: targetStartTime }
+          }
+        });
+
+        if (conflictingSchedule) {
+          return reply.status(409).send({
+            error: 'Conflito de Horário',
+            message: 'Este horário já está ocupado por outro agendamento.'
+          });
+        }
+
+        const conflictingBlock = await prisma.scheduleBlock.findFirst({
+          where: {
+            tenantId,
+            isPaused: false,
+            OR: [{ date: targetDate }, { dayOfWeek: targetDate.getDay() }],
+            AND: [
+              { OR: [{ professionalId: null }, { professionalId: targetProfessionalId }] },
+              { startTime: { lt: targetEndTime }, endTime: { gt: targetStartTime } }
+            ]
+          }
+        });
+
+        if (conflictingBlock) {
+          return reply.status(409).send({
+            error: 'Horário Bloqueado',
+            message: `Este horário está bloqueado (${conflictingBlock.reason}).`
+          });
+        }
+      }
+
       const updated = await prisma.schedule.update({
         where: { id },
         data: {
-          ...(body.dateStr ? { date: new Date(`${body.dateStr}T00:00:00`) } : {}),
-          ...(body.startTime ? { startTime: body.startTime } : {}),
-          ...(body.professionalId ? { professionalId: body.professionalId } : {}),
-          ...(body.notes !== undefined ? { notes: body.notes?.trim() || null } : {})
+          date: targetDate,
+          startTime: targetStartTime,
+          endTime: targetEndTime,
+          professionalId: targetProfessionalId,
+          ...(body.notes !== undefined ? { notes: body.notes?.trim() || null } : {}),
+          ...(body.totalPrice !== undefined ? { totalPrice: body.totalPrice } : {}),
+          ...(body.arrivalPhotoUrl !== undefined ? { arrivalPhotoUrl: body.arrivalPhotoUrl } : {}),
+          ...(body.resultPhotoUrl !== undefined ? { resultPhotoUrl: body.resultPhotoUrl } : {})
         },
         include: {
           client: true,

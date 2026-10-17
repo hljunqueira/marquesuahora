@@ -6,6 +6,7 @@ import { PlansService } from '../plans/plans.service';
 import { EvolutionService } from '../automation/evolution.service';
 import { AsaasService } from '../payments/asaas.service';
 import { Role, ScheduleStatus } from '@prisma/client';
+import { EmailService } from '../notifications/email.service';
 
 export const tenantsRoutes: FastifyPluginAsync = async (app) => {
   // Mapeamento editorial de terminologia por nicho
@@ -41,6 +42,18 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(409).send({
         error: 'Conflito',
         message: 'Já existe uma conta cadastrada com este endereço de e-mail.'
+      });
+    }
+
+    // Verifica se telefone / WhatsApp já está em uso por outro estabelecimento
+    const cleanPhone = data.phone;
+    const existingPhone = await prisma.tenant.findFirst({
+      where: { phone: cleanPhone }
+    });
+    if (existingPhone) {
+      return reply.status(409).send({
+        error: 'Conflito',
+        message: 'Este número de WhatsApp/telefone já está cadastrado em outro estabelecimento.'
       });
     }
 
@@ -94,8 +107,10 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
     const resolvedPlan = await PlansService.resolvePlan(data.planId);
     const planId = resolvedPlan?.id || null;
 
-    const passwordHash = await argon2.hash(data.ownerPassword);
-    const terminology = nicheTerminologyMap[data.niche] || nicheTerminologyMap.OTHER;
+    const effectivePassword = data.ownerPassword?.trim() || `MSH_${Math.random().toString(36).slice(-8)}!Aa1`;
+    const passwordHash = await argon2.hash(effectivePassword);
+    const effectiveNiche: any = data.niche || 'OTHER';
+    const terminology = nicheTerminologyMap[effectiveNiche] || nicheTerminologyMap.OTHER;
 
     // Transação Atômica no Banco de Dados
     const result = await prisma.$transaction(async (tx) => {
@@ -116,7 +131,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           addressCity: data.addressCity,
           addressState: data.addressState.toUpperCase(),
           isSingleCityZip: data.isSingleCityZip,
-          niche: data.niche,
+          niche: effectiveNiche,
           themeTemplate: data.themeTemplate,
           primaryColor: data.primaryColor || '#7C3AED',
           secondaryColor: data.secondaryColor || '#0B0F19',
@@ -144,7 +159,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       // 3. Cadastra os Serviços Selecionados ou Serviços Padrão do Nicho
       const servicesToCreate = (data.selectedServices && data.selectedServices.length > 0)
         ? data.selectedServices
-        : (defaultServicesByNiche[data.niche] || defaultServicesByNiche.OTHER);
+        : (defaultServicesByNiche[effectiveNiche] || defaultServicesByNiche.OTHER);
 
       await tx.service.createMany({
         data: servicesToCreate.map((svc) => ({
@@ -172,6 +187,39 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       });
 
       return { tenant, user };
+    });
+
+    // Emite link seguro para confirmação de conta e redefinição de senha
+    const resetToken = app.jwt.sign(
+      { sub: result.user.id, email: result.user.email, type: 'PASSWORD_RESET' },
+      { expiresIn: '24h' }
+    );
+    const resetLink = `https://marquesuahora.com.br/redefinir-senha?token=${resetToken}`;
+
+    // Dispara e-mail transacional de confirmação
+    EmailService.send({
+      to: result.user.email,
+      subject: 'Confirme seu e-mail e defina sua senha — Marque Sua Hora',
+      html: `
+        <p>Olá, <strong>${result.user.name}</strong>!</p>
+        <p>Seu espaço <strong>${result.tenant.name}</strong> foi cadastrado com sucesso na plataforma <strong>Marque Sua Hora</strong>.</p>
+        <p>Para confirmar seu e-mail e definir sua senha definitiva de acesso, clique no botão abaixo:</p>
+        <p style="margin: 24px 0;">
+          <a href="${resetLink}" style="background-color: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-block;">
+            Confirmar e Definir Minha Senha
+          </a>
+        </p>
+        <p style="font-size: 13px; color: #475569;">
+          <strong>Link da sua vitrine pública:</strong> <a href="https://marquesuahora.com.br/${result.tenant.slug}">marquesuahora.com.br/${result.tenant.slug}</a><br/>
+          <strong>E-mail de acesso:</strong> ${result.user.email}
+        </p>
+        <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin-top: 24px;">
+          Este link expira em 24 horas. Se você não solicitou este cadastro, desconsidere esta mensagem.
+        </p>
+      `,
+      tenantName: result.tenant.name
+    }).catch((err) => {
+      console.warn('[Onboarding Email] Falha no disparo do e-mail de confirmação:', err.message);
     });
 
     // Emite Tokens JWT para Login Imediato
@@ -227,7 +275,9 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         email: result.user.email,
         role: result.user.role
       },
-      accessToken
+      accessToken,
+      emailConfirmationSent: true,
+      resetLink
     });
   });
 
@@ -350,6 +400,10 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           depositRequired: data.depositRequired,
           depositType: data.depositType,
           depositAmount: data.depositAmount,
+          depositOnFirstBooking: data.depositOnFirstBooking,
+          depositFirstBookingType: data.depositFirstBookingType,
+          depositFirstBookingValue: data.depositFirstBookingValue,
+          depositFirstBookingPercent: data.depositFirstBookingValue !== undefined ? data.depositFirstBookingValue : data.depositFirstBookingPercent,
           // PIX Direto do Salão
           pixKey: data.pixKey,
           pixKeyType: data.pixKeyType,
@@ -516,6 +570,40 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       }
       const result = await EvolutionService.disconnectInstance(request.user.tenantId);
       return reply.send(result);
+    });
+
+    // GET /tenants/me/ai-settings - Configurações da Atendente IA
+    tenantScope.get('/me/ai-settings', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Acesso restrito ao salão.' });
+      }
+      const aiSettings = await prisma.tenantAiSettings.upsert({
+        where: { tenantId: request.user.tenantId },
+        create: { tenantId: request.user.tenantId },
+        update: {}
+      });
+      return reply.send(aiSettings);
+    });
+
+    // PUT /tenants/me/ai-settings - Atualiza instruções e FAQ da Atendente IA
+    tenantScope.put('/me/ai-settings', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Acesso restrito ao salão.' });
+      }
+      const body = request.body as { customInstructions?: string; knowledgeBaseFaq?: any };
+      const updated = await prisma.tenantAiSettings.upsert({
+        where: { tenantId: request.user.tenantId },
+        create: {
+          tenantId: request.user.tenantId,
+          customInstructions: body.customInstructions,
+          knowledgeBaseFaq: body.knowledgeBaseFaq || []
+        },
+        update: {
+          customInstructions: body.customInstructions,
+          ...(body.knowledgeBaseFaq !== undefined ? { knowledgeBaseFaq: body.knowledgeBaseFaq } : {})
+        }
+      });
+      return reply.send({ success: true, aiSettings: updated });
     });
   });
 };

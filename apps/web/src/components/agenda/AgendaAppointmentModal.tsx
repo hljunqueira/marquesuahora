@@ -56,6 +56,10 @@ export function AgendaAppointmentModal({
     existingAppointment?.client?.phone || ''
   );
   const [notes, setNotes] = useState<string>(existingAppointment?.notes || '');
+  const [customPrice, setCustomPrice] = useState<string>(
+    existingAppointment?.totalPrice ? String(existingAppointment.totalPrice) : ''
+  );
+  const [isCustomPriceEdited, setIsCustomPriceEdited] = useState(false);
 
   // Autocomplete de clientes do CRM
   const [clientSuggestions, setClientSuggestions] = useState<any[]>([]);
@@ -160,12 +164,16 @@ export function AgendaAppointmentModal({
     setError(null);
 
     try {
+      const parsedCustomPrice = customPrice !== '' ? parseFloat(customPrice) : summary.totalPrice;
+      const finalPriceToSend = !isNaN(parsedCustomPrice) ? parsedCustomPrice : undefined;
+
       if (isEditing) {
         await api.patch(`/schedules/${existingAppointment.id}`, {
           dateStr,
           startTime,
           professionalId: selectedProfessionalId || undefined,
-          notes: notes.trim() || null
+          notes: notes.trim() || null,
+          totalPrice: finalPriceToSend
         });
       } else {
         await api.post('/schedules', {
@@ -175,7 +183,8 @@ export function AgendaAppointmentModal({
           startTime,
           clientName: clientName.trim(),
           clientPhone: clientPhone.trim(),
-          notes: notes.trim() || undefined
+          notes: notes.trim() || undefined,
+          customTotalPrice: finalPriceToSend
         });
       }
 
@@ -449,6 +458,53 @@ export function AgendaAppointmentModal({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Valor do Atendimento / Manutenção Flexível */}
+          <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                Valor Cobrado (R$)
+              </label>
+              {isCustomPriceEdited && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomPrice(summary.totalPrice.toFixed(2));
+                    setIsCustomPriceEdited(false);
+                  }}
+                  className="text-[11px] font-semibold text-tenant-primary hover:underline cursor-pointer"
+                >
+                  Restaurar tabela (R$ {summary.totalPrice.toFixed(2).replace('.', ',')})
+                </button>
+              )}
+            </div>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
+                R$
+              </span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={
+                  customPrice !== ''
+                    ? customPrice
+                    : summary.totalPrice > 0
+                    ? summary.totalPrice.toFixed(2)
+                    : ''
+                }
+                onChange={(e) => {
+                  setCustomPrice(e.target.value);
+                  setIsCustomPriceEdited(true);
+                }}
+                placeholder="0,00"
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold font-mono outline-hidden focus:border-purple-600 bg-white"
+              />
+            </div>
+            <p className="text-[10px] text-slate-500">
+              Valor flexível para a manutenção (ex: reposição de unhas quebradas ou valor especial).
+            </p>
           </div>
 
           {/* Data e Horário */}

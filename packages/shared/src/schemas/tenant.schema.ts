@@ -23,7 +23,7 @@ export const themeTemplates = [
 export type ThemeTemplate = (typeof themeTemplates)[number];
 
 export const onboardingSchema = z.object({
-  niche: z.enum(businessNiches).optional().default('OTHER'),
+  niche: z.enum(businessNiches).optional().nullable(),
   documentType: z.enum(['CNPJ', 'CPF']).default('CPF'),
   documentNumber: z
     .string()
@@ -57,7 +57,7 @@ export const onboardingSchema = z.object({
   logoUrl: z.string().optional().nullable(),
   ownerName: z.string().min(2, 'O nome do responsável é obrigatório.'),
   ownerEmail: z.string().email('E-mail inválido para acesso.'),
-  ownerPassword: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres.'),
+  ownerPassword: z.string().min(6, 'A senha deve ter no mínimo 6 caracteres.').optional(),
   planId: z.string().optional(),
   selectedServices: z
     .array(
@@ -92,6 +92,10 @@ export const updateTenantSettingsSchema = z.object({
   depositRequired: z.boolean().optional(),
   depositType: z.enum(['FIXED', 'PERCENTAGE']).optional(),
   depositAmount: z.number().min(0).optional(),
+  depositOnFirstBooking: z.boolean().optional(),
+  depositFirstBookingType: z.enum(['FIXED', 'PERCENTAGE']).optional(),
+  depositFirstBookingValue: z.number().min(0).optional(),
+  depositFirstBookingPercent: z.number().min(0).max(100).optional(),
   pixKey: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   pixKeyType: z.enum(['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'RANDOM']).optional().nullable(),
   pixKeyHolder: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),

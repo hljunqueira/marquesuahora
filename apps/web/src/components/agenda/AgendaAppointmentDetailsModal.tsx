@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ScheduleAppointment, ProfessionalItem } from './types';
 
@@ -22,6 +22,12 @@ export function AgendaAppointmentDetailsModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Estados de confirmação do sinal
+  const [depositPaid, setDepositPaid] = useState<boolean>(Boolean(appointment.depositPaid));
+  const [confirmingDeposit, setConfirmingDeposit] = useState<boolean>(false);
+  const [depositSuccessMsg, setDepositSuccessMsg] = useState<string | null>(null);
+  const depositAmountNum = Number(appointment.depositAmount || 0);
+
   // Estados de edição inline
   const [editDate, setEditDate] = useState(
     typeof appointment.date === 'string'
@@ -33,6 +39,74 @@ export function AgendaAppointmentDetailsModal({
     appointment.professionalId || (professionals[0]?.id || '')
   );
   const [editNotes, setEditNotes] = useState(appointment.notes || '');
+  const [editTotalPrice, setEditTotalPrice] = useState<string>(
+    String(Number(appointment.totalPrice || appointment.service?.price || 0).toFixed(2))
+  );
+
+  // Estados do Registro Fotográfico (Entrada e Saída)
+  const [arrivalPhotoUrl, setArrivalPhotoUrl] = useState<string | null>(appointment.arrivalPhotoUrl || null);
+  const [resultPhotoUrl, setResultPhotoUrl] = useState<string | null>(appointment.resultPhotoUrl || null);
+  const [uploadingArrival, setUploadingArrival] = useState(false);
+  const [uploadingResult, setUploadingResult] = useState(false);
+  const [photoPreviewModal, setPhotoPreviewModal] = useState<{ url: string; title: string } | null>(null);
+
+  // Upload direto de foto com suporte à câmera mobile
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'arrival' | 'result') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (type === 'arrival') setUploadingArrival(true);
+    else setUploadingResult(true);
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await api.post('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      const uploadedUrl = res.data?.url;
+      if (!uploadedUrl) throw new Error('Não foi possível obter o endereço da foto.');
+
+      // Persiste imediatamente no agendamento
+      await api.patch(`/schedules/${appointment.id}`, {
+        [type === 'arrival' ? 'arrivalPhotoUrl' : 'resultPhotoUrl']: uploadedUrl
+      });
+
+      if (type === 'arrival') {
+        setArrivalPhotoUrl(uploadedUrl);
+      } else {
+        setResultPhotoUrl(uploadedUrl);
+      }
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Falha ao enviar foto.');
+    } finally {
+      if (type === 'arrival') setUploadingArrival(false);
+      else setUploadingResult(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleRemovePhoto = async (type: 'arrival' | 'result') => {
+    if (!confirm('Deseja remover esta foto do agendamento?')) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.patch(`/schedules/${appointment.id}`, {
+        [type === 'arrival' ? 'arrivalPhotoUrl' : 'resultPhotoUrl']: null
+      });
+      if (type === 'arrival') setArrivalPhotoUrl(null);
+      else setResultPhotoUrl(null);
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Falha ao remover foto.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Status dropdown
   const [selectedStatus, setSelectedStatus] = useState(appointment.status);
@@ -98,17 +172,59 @@ export function AgendaAppointmentDetailsModal({
     }
   };
 
+  // Confirmação de sinal em 1 clique
+  const handleConfirmDeposit = async () => {
+    setConfirmingDeposit(true);
+    setError(null);
+    setDepositSuccessMsg(null);
+    try {
+      await api.post(`/schedules/${appointment.id}/confirm-deposit`);
+      setDepositPaid(true);
+      setSelectedStatus('CONFIRMED');
+      setDepositSuccessMsg(`Sinal de R$ ${depositAmountNum.toFixed(2)} confirmado com sucesso! Lançamento registrado no Financeiro.`);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+        window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
+      }
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Erro ao confirmar sinal.');
+    } finally {
+      setConfirmingDeposit(false);
+    }
+  };
+
+  // Envio de mensagem de cobrança do sinal no WhatsApp
+  const handleOpenDepositWhatsApp = () => {
+    const rawPhone = appointment.client?.phone || '';
+    const cleanPhone = rawPhone.replace(/\D/g, '');
+    const phoneWithDdd =
+      cleanPhone.length === 11 || cleanPhone.length === 10
+        ? `55${cleanPhone}`
+        : cleanPhone;
+
+    const formattedDate = formatDateBR(appointment.date);
+    const serviceName = appointment.service?.name || 'seu atendimento';
+
+    const msg = encodeURIComponent(
+      `Olá, ${appointment.client?.name}! Tudo bem?\n\nPassando para lembrar que para confirmar seu horário para *${serviceName}* no dia *${formattedDate}* às *${appointment.startTime}*, é necessário o envio do comprovante do sinal de reserva no valor de *R$ ${depositAmountNum.toFixed(2)}* (PIX).\n\nAssim que você enviar o comprovante por aqui, seu horário fica 100% confirmado na nossa agenda! ✨`
+    );
+    window.open(`https://wa.me/${phoneWithDdd}?text=${msg}`, '_blank');
+  };
+
   // Salvar edição de data/horário/profissional
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     try {
+      const parsedPrice = parseFloat(editTotalPrice);
       await api.patch(`/schedules/${appointment.id}`, {
         dateStr: editDate,
         startTime: editStartTime,
         professionalId: editProfessionalId || undefined,
-        notes: editNotes.trim() || null
+        notes: editNotes.trim() || null,
+        totalPrice: !isNaN(parsedPrice) ? parsedPrice : undefined
       });
       onSuccess();
       setIsEditing(false);
@@ -144,8 +260,11 @@ export function AgendaAppointmentDetailsModal({
     COMPLETED: { label: 'Concluído', bg: 'bg-slate-100 text-slate-700 border-slate-200' },
     NO_SHOW: { label: 'Não Compareceu', bg: 'bg-amber-50 text-amber-700 border-amber-200' },
     CANCELLED: { label: 'Cancelado', bg: 'bg-red-50 text-red-700 border-red-200' },
-    PENDING: { label: 'Pendente', bg: 'bg-blue-50 text-blue-700 border-blue-200' }
-  }[appointment.status] || { label: appointment.status, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
+    PENDING: {
+      label: depositAmountNum > 0 && !depositPaid ? 'Aguardando Sinal' : 'Pendente',
+      bg: depositAmountNum > 0 && !depositPaid ? 'bg-amber-50 text-amber-800 border-amber-300 font-bold' : 'bg-blue-50 text-blue-700 border-blue-200'
+    }
+  }[selectedStatus] || { label: selectedStatus, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -171,6 +290,13 @@ export function AgendaAppointmentDetailsModal({
           {error && (
             <div className="p-3 bg-red-50 text-red-700 text-xs rounded-xl font-medium">
               {error}
+            </div>
+          )}
+
+          {depositSuccessMsg && (
+            <div className="p-3 bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs rounded-xl font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{depositSuccessMsg}</span>
             </div>
           )}
 
@@ -208,6 +334,122 @@ export function AgendaAppointmentDetailsModal({
             </div>
           </div>
 
+          {/* Alerta de Anamnese Técnica da Cliente (se preenchida) */}
+          {Boolean((appointment.client as any)?.anamnesis) && (
+            <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="font-bold uppercase tracking-wider text-[10px] text-amber-900">
+                  Ficha de Anamnese Técnica da Cliente
+                </span>
+                <span className="font-mono text-[10px] text-amber-700 font-semibold">
+                  Preenchida
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                {(appointment.client as any).anamnesis.allergies && (
+                  <span>
+                    <strong>Alergias:</strong> {(appointment.client as any).anamnesis.allergies}
+                  </span>
+                )}
+                {(appointment.client as any).anamnesis.hasAllergies && !(appointment.client as any).anamnesis.allergies && (
+                  <span>
+                    <strong>Alergias:</strong> Histórico assinalado pela cliente
+                  </span>
+                )}
+                {(appointment.client as any).anamnesis.isDiabetic && (
+                  <span className="text-red-700 font-bold">
+                    Atenção: Cliente Diabética (cuidado redobrado com cutilagem)
+                  </span>
+                )}
+                {(appointment.client as any).anamnesis.preferredShape && (
+                  <span>
+                    <strong>Formato Predileto:</strong> {(appointment.client as any).anamnesis.preferredShape}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Card de Gestão de Sinal de Reserva (Quando o serviço ou regra exige sinal) */}
+          {depositAmountNum > 0 && (
+            <div>
+              {!depositPaid ? (
+                <div className="p-4 rounded-2xl bg-amber-50/90 border border-amber-200 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0 mt-0.5">
+                      <AlertCircle className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-amber-900">
+                          Aguardando Sinal de Reserva
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-amber-200/80 text-amber-900 font-mono text-xs font-extrabold">
+                          R$ {depositAmountNum.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-amber-800 mt-1">
+                        Solicite o comprovante PIX à cliente ou confirme o recebimento assim que for creditado.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 self-end md:self-auto">
+                    {appointment.client?.phone && (
+                      <button
+                        type="button"
+                        onClick={handleOpenDepositWhatsApp}
+                        className="px-3 py-2 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        Cobrar no WhatsApp
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleConfirmDeposit}
+                      disabled={confirmingDeposit}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      {confirmingDeposit ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4" />
+                      )}
+                      Confirmar Sinal (PIX)
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                      <CheckCircle2 className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+                          Sinal de Reserva Confirmado
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-200/70 text-emerald-900 font-mono text-xs font-extrabold">
+                          R$ {depositAmountNum.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-emerald-700 mt-0.5">
+                        Lançamento automático gerado no Financeiro. Restante no dia:{' '}
+                        <strong className="font-mono">
+                          R$ {Math.max(0, Number(appointment.totalPrice || appointment.service?.price || 0) - depositAmountNum).toFixed(2)}
+                        </strong>
+                      </p>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 shrink-0 self-start sm:self-auto">
+                    ✓ Pago via PIX
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Visualização Normal: 4 Grids Compactos Lado a Lado */}
           {!isEditing ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -224,10 +466,29 @@ export function AgendaAppointmentDetailsModal({
                     Duração: {formatDuration(appointment.totalDurationMinutes || appointment.service?.durationMinutes)}
                   </p>
                 </div>
-                <div className="mt-3 pt-2 border-t border-slate-200/60">
-                  <span className="text-sm font-extrabold text-tenant-primary font-mono">
-                    R$ {Number(appointment.totalPrice || appointment.service?.price || 0).toFixed(2)}
-                  </span>
+                <div className="mt-3 pt-2 border-t border-slate-200/60 space-y-1">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-[11px] font-semibold text-slate-500">Valor Cobrado:</span>
+                    <span className="text-sm font-extrabold text-tenant-primary font-mono">
+                      R$ {Number(appointment.totalPrice || appointment.service?.price || 0).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  {depositAmountNum > 0 && (
+                    <div className="flex items-baseline justify-between text-[11px] text-slate-600 font-mono">
+                      <span>{depositPaid ? 'Sinal abatido:' : 'Sinal pendente:'}</span>
+                      <span className={depositPaid ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
+                        - R$ {depositAmountNum.toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                  )}
+                  {depositAmountNum > 0 && (
+                    <div className="flex items-baseline justify-between text-[11px] font-bold text-slate-900 pt-1 border-t border-dashed border-slate-200 font-mono">
+                      <span>Saldo a pagar:</span>
+                      <span>
+                        R$ {Math.max(0, Number(appointment.totalPrice || appointment.service?.price || 0) - (depositPaid ? depositAmountNum : 0)).toFixed(2).replace('.', ',')}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -276,15 +537,29 @@ export function AgendaAppointmentDetailsModal({
 
               {/* Grid 4: Origem e Observações */}
               <div className="p-4 rounded-2xl bg-slate-50/60 border border-slate-200/80 flex flex-col justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
-                  Observações / Notas
-                </span>
-                <p className="text-xs text-slate-600 italic line-clamp-3">
-                  {appointment.notes || 'Sem observações cadastradas para este horário.'}
-                </p>
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Canal
+                    </span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold font-mono bg-slate-200/80 text-slate-800">
+                      {appointment.source === 'WHATSAPP'
+                        ? 'WhatsApp'
+                        : appointment.source === 'MANUAL_RECEPTION' || appointment.source === 'MANUAL'
+                        ? 'Balcão / Recepção'
+                        : 'Site / Vitrine'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mt-1 mb-0.5">
+                    Observações
+                  </span>
+                  <p className="text-xs text-slate-600 italic line-clamp-2">
+                    {appointment.notes || 'Sem observações cadastradas.'}
+                  </p>
+                </div>
                 <div className="mt-3 pt-2 border-t border-slate-200/60">
-                  <span className="text-[10px] text-slate-400 block truncate">
-                    ID: {appointment.id.slice(0, 8)}...
+                  <span className="text-[10px] text-slate-400 block truncate font-mono">
+                    ID: {appointment.id.slice(0, 8)}
                   </span>
                 </div>
               </div>
@@ -339,6 +614,25 @@ export function AgendaAppointmentDetailsModal({
                     ))}
                   </select>
                 </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    Valor Cobrado (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editTotalPrice}
+                    onChange={(e) => setEditTotalPrice(e.target.value)}
+                    required
+                    placeholder="0,00"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold font-mono bg-white outline-hidden focus:border-purple-600"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Altere livremente o valor da manutenção (ex: reposição de unha quebrada).
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -372,6 +666,124 @@ export function AgendaAppointmentDetailsModal({
               </div>
             </form>
           )}
+
+          {/* Seção Registro Fotográfico do Atendimento (Como Chegou vs. Como Ficou) */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 block">
+                  Prova Visual do Atendimento
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Anexe até 2 fotos para resguardo técnico e histórico de manutenção.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Foto 1: Entrada (Como Chegou) */}
+              <div className="p-3 rounded-xl bg-white border border-slate-200/80 flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">1. Entrada (Como Chegou)</span>
+                  {arrivalPhotoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto('arrival')}
+                      className="text-[10px] font-bold text-red-600 hover:underline cursor-pointer"
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+
+                {arrivalPhotoUrl ? (
+                  <div
+                    onClick={() => setPhotoPreviewModal({ url: arrivalPhotoUrl, title: 'Foto de Entrada — Como a cliente chegou' })}
+                    className="relative aspect-video rounded-lg overflow-hidden bg-slate-100 border border-slate-200 group cursor-pointer"
+                  >
+                    <img
+                      src={arrivalPhotoUrl}
+                      alt="Como chegou"
+                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="px-2 py-1 rounded bg-black/60 text-white text-[10px] font-semibold">
+                        Ampliar
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="border border-dashed border-slate-300 rounded-lg p-4 text-center flex flex-col items-center justify-center gap-1 hover:border-slate-400 transition-colors cursor-pointer bg-slate-50/50">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => handlePhotoUpload(e, 'arrival')}
+                      disabled={uploadingArrival}
+                      className="hidden"
+                    />
+                    <span className="text-xs font-bold text-slate-700">
+                      {uploadingArrival ? 'Enviando...' : 'Fotografar / Anexar'}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Unhas quebradas ou estado inicial
+                    </span>
+                  </label>
+                )}
+              </div>
+
+              {/* Foto 2: Saída (Como Ficou) */}
+              <div className="p-3 rounded-xl bg-white border border-slate-200/80 flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700">2. Saída (Como Ficou)</span>
+                  {resultPhotoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePhoto('result')}
+                      className="text-[10px] font-bold text-red-600 hover:underline cursor-pointer"
+                    >
+                      Remover
+                    </button>
+                  )}
+                </div>
+
+                {resultPhotoUrl ? (
+                  <div
+                    onClick={() => setPhotoPreviewModal({ url: resultPhotoUrl, title: 'Foto de Saída — Resultado final' })}
+                    className="relative aspect-video rounded-lg overflow-hidden bg-slate-100 border border-slate-200 group cursor-pointer"
+                  >
+                    <img
+                      src={resultPhotoUrl}
+                      alt="Como ficou"
+                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="px-2 py-1 rounded bg-black/60 text-white text-[10px] font-semibold">
+                        Ampliar
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <label className="border border-dashed border-slate-300 rounded-lg p-4 text-center flex flex-col items-center justify-center gap-1 hover:border-slate-400 transition-colors cursor-pointer bg-slate-50/50">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={(e) => handlePhotoUpload(e, 'result')}
+                      disabled={uploadingResult}
+                      className="hidden"
+                    />
+                    <span className="text-xs font-bold text-slate-700">
+                      {uploadingResult ? 'Enviando...' : 'Fotografar / Anexar'}
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Resultado final entregue
+                    </span>
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
 
           {/* Seção Corrigir Status (dropdown + botão aplicar) */}
           <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -473,6 +885,39 @@ export function AgendaAppointmentDetailsModal({
           </div>
         </div>
       </div>
+
+      {/* Visualizador de Foto Ampliada (Prova Visual) */}
+      {photoPreviewModal && (
+        <div
+          onClick={() => setPhotoPreviewModal(null)}
+          className="fixed inset-0 z-60 bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-3xl w-full bg-slate-900 rounded-3xl overflow-hidden border border-slate-700 shadow-2xl flex flex-col max-h-[90vh]"
+          >
+            <div className="px-5 py-3.5 border-b border-slate-800 flex items-center justify-between text-white">
+              <span className="text-xs font-bold font-mono text-slate-200">
+                {photoPreviewModal.title}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPhotoPreviewModal(null)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-2 flex items-center justify-center overflow-auto bg-black/95">
+              <img
+                src={photoPreviewModal.url}
+                alt={photoPreviewModal.title}
+                className="max-h-[75vh] w-auto object-contain rounded-xl"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

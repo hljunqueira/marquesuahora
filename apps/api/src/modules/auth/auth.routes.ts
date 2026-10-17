@@ -271,4 +271,70 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         'Se existir uma conta associada a este e-mail, as instruções de recuperação foram enviadas.'
     });
   });
+
+  // Confirmação e Redefinição de Senha
+  app.post('/reset-password', async (request, reply) => {
+    const { token, newPassword } = z
+      .object({
+        token: z.string().min(1, 'Token de segurança é obrigatório.'),
+        newPassword: z.string().min(6, 'A nova senha deve ter no mínimo 6 caracteres.')
+      })
+      .parse(request.body);
+
+    let decoded: any;
+    try {
+      decoded = app.jwt.verify(token);
+    } catch {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'O link de confirmação/redefinição é inválido ou expirou. Solicite um novo link.'
+      });
+    }
+
+    if (decoded.type !== 'PASSWORD_RESET' || !decoded.sub) {
+      return reply.status(400).send({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Token inválido para esta operação.'
+      });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.sub },
+      include: { tenant: true }
+    });
+
+    if (!user) {
+      return reply.status(404).send({
+        statusCode: 404,
+        error: 'Not Found',
+        message: 'Usuário não localizado.'
+      });
+    }
+
+    const passwordHash = await argon2.hash(newPassword);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        tenantId: user.tenantId,
+        userId: user.id,
+        action: 'USER_PASSWORD_RESET',
+        entityType: 'User',
+        entityId: user.id,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    });
+
+    return reply.send({
+      success: true,
+      message: 'Senha definida com sucesso! Agora você já pode acessar sua conta.'
+    });
+  });
 };

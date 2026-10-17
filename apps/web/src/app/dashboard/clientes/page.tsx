@@ -45,8 +45,10 @@ export default function DashboardClientesPage() {
     }
   }, []);
 
-  const fetchClients = useCallback(async () => {
-    setLoading(true);
+  const fetchClients = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const res = await api.get('/clients', {
         params: {
@@ -58,9 +60,13 @@ export default function DashboardClientesPage() {
       setClients(res.data.data || []);
     } catch (err) {
       console.error('Erro ao carregar clientes:', err);
-      showToast('Erro ao carregar lista de clientes.');
+      if (!silent) {
+        showToast('Erro ao carregar lista de clientes.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [activeTab, searchTerm]);
 
@@ -75,6 +81,28 @@ export default function DashboardClientesPage() {
     return () => clearTimeout(timer);
   }, [fetchClients]);
 
+  // Revalidação Automática Inteligente (30s, foco na janela e eventos do ecossistema)
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        fetchMetrics();
+        fetchClients(true);
+      }
+    };
+
+    const interval = setInterval(handleRevalidate, 30000);
+    window.addEventListener('focus', handleRevalidate);
+    document.addEventListener('visibilitychange', handleRevalidate);
+    window.addEventListener('marquesuahora_agenda_sync', handleRevalidate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleRevalidate);
+      document.removeEventListener('visibilitychange', handleRevalidate);
+      window.removeEventListener('marquesuahora_agenda_sync', handleRevalidate);
+    };
+  }, [fetchMetrics, fetchClients]);
+
   const handleSaveClient = async (data: Partial<ClientItem>) => {
     if (editingClient) {
       await api.put(`/clients/${editingClient.id}`, data);
@@ -85,6 +113,7 @@ export default function DashboardClientesPage() {
     }
     fetchMetrics();
     fetchClients();
+    window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
   };
 
   const handleToggleBlock = async (client: ClientItem) => {
@@ -98,6 +127,7 @@ export default function DashboardClientesPage() {
       );
       fetchMetrics();
       fetchClients();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch {
       showToast('Erro ao alterar status de bloqueio do cliente.');
     }
@@ -113,8 +143,9 @@ export default function DashboardClientesPage() {
       showToast('Cliente removido com sucesso.');
       fetchMetrics();
       fetchClients();
-    } catch {
-      showToast('Erro ao remover cliente.');
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || 'Erro ao remover cliente.');
     }
   };
 

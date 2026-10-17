@@ -151,9 +151,11 @@ export default function AgendamentosPage() {
     return { startDate: undefined, endDate: undefined };
   }, [periodFilter]);
 
-  // 3. Busca lista paginada de agendamentos
-  const fetchSchedules = () => {
-    setLoading(true);
+  // 3. Busca lista paginada de agendamentos (com suporte a refetch silencioso de fundo)
+  const fetchSchedules = (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
 
     const params = new URLSearchParams();
     params.set('page', String(page));
@@ -176,13 +178,36 @@ export default function AgendamentosPage() {
         setTotalCount(0);
       })
       .finally(() => {
-        setLoading(false);
+        if (!silent) {
+          setLoading(false);
+        }
       });
   };
 
   useEffect(() => {
     fetchSchedules();
   }, [page, statusFilter, periodFilter, selectedProfessionalId, dateRange]);
+
+  // Revalidação Automática Inteligente em Segundo Plano (30s e foco na janela)
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSchedules(true);
+      }
+    };
+
+    const interval = setInterval(handleRevalidate, 30000);
+    window.addEventListener('focus', handleRevalidate);
+    document.addEventListener('visibilitychange', handleRevalidate);
+    window.addEventListener('marquesuahora_agenda_sync', handleRevalidate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleRevalidate);
+      document.removeEventListener('visibilitychange', handleRevalidate);
+      window.removeEventListener('marquesuahora_agenda_sync', handleRevalidate);
+    };
+  }, [page, statusFilter, periodFilter, selectedProfessionalId, dateRange, search]);
 
   // Busca após digitação com debounce
   useEffect(() => {
@@ -200,6 +225,7 @@ export default function AgendamentosPage() {
     try {
       await api.post(`/schedules/${scheduleId}/status`, { status: newStatus });
       fetchSchedules();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Erro ao alterar status.');
     } finally {
@@ -495,26 +521,32 @@ export default function AgendamentosPage() {
 
                           {/* Dropdown de Troca Rápida de Status */}
                           {openStatusMenuId === item.id && (
-                            <div className="absolute left-0 mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-200 z-30 py-1.5 overflow-hidden animate-in fade-in zoom-in-95">
-                              <p className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                Mudar Status
-                              </p>
-                              {[
-                                { key: 'CONFIRMED', label: 'Confirmado' },
-                                { key: 'IN_SERVICE', label: 'Em Atendimento' },
-                                { key: 'COMPLETED', label: 'Concluído' },
-                                { key: 'NO_SHOW', label: 'Não Compareceu' },
-                                { key: 'CANCELLED', label: 'Cancelar' }
-                              ].map((opt) => (
-                                <button
-                                  key={opt.key}
-                                  onClick={() => handleQuickStatusChange(item.id, opt.key)}
-                                  className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
-                            </div>
+                            <>
+                              <div
+                                className="fixed inset-0 z-20 cursor-default"
+                                onClick={() => setOpenStatusMenuId(null)}
+                              />
+                              <div className="absolute left-0 mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-200 z-30 py-1.5 overflow-hidden animate-in fade-in zoom-in-95">
+                                <p className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                  Mudar Status
+                                </p>
+                                {[
+                                  { key: 'CONFIRMED', label: 'Confirmado' },
+                                  { key: 'IN_SERVICE', label: 'Em Atendimento' },
+                                  { key: 'COMPLETED', label: 'Concluído' },
+                                  { key: 'NO_SHOW', label: 'Não Compareceu' },
+                                  { key: 'CANCELLED', label: 'Cancelar' }
+                                ].map((opt) => (
+                                  <button
+                                    key={opt.key}
+                                    onClick={() => handleQuickStatusChange(item.id, opt.key)}
+                                    className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                                  >
+                                    {opt.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
                           )}
                         </div>
                       </td>
@@ -614,6 +646,7 @@ export default function AgendamentosPage() {
           }}
           onSuccess={() => {
             fetchSchedules();
+            window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
           }}
         />
       )}

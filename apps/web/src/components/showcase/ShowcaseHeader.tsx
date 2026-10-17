@@ -20,9 +20,10 @@ import { TenantShowcase } from './types';
 interface ShowcaseHeaderProps {
   tenant: TenantShowcase;
   onBookClick?: () => void;
+  onPortalClick?: () => void;
 }
 
-export function ShowcaseHeader({ tenant, onBookClick }: ShowcaseHeaderProps) {
+export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseHeaderProps) {
   const [bioExpanded, setBioExpanded] = useState(false);
 
   const brandColor = tenant.primaryColor || '#7C3AED';
@@ -179,6 +180,16 @@ export function ShowcaseHeader({ tenant, onBookClick }: ShowcaseHeaderProps) {
                   <WhatsAppIcon size={14} color="#059669" />
                   <span>WhatsApp</span>
                 </a>
+              )}
+
+              {onPortalClick && (
+                <button
+                  type="button"
+                  onClick={onPortalClick}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 transition-all cursor-pointer shadow-2xs active:scale-97"
+                >
+                  <span>Portal da Cliente</span>
+                </button>
               )}
 
               {tenant.googleReviewUrl && (

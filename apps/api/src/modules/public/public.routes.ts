@@ -40,6 +40,19 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             price: true,
             coverUrl: true
           }
+        },
+        products: {
+          where: { isActive: true, showInVitrine: true },
+          orderBy: [{ category: 'asc' }, { name: 'asc' }],
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            description: true,
+            salePrice: true,
+            stockQuantity: true,
+            imageUrl: true
+          }
         }
       }
     });
@@ -93,6 +106,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       depositRequired: tenant.depositRequired,
       depositType: tenant.depositType,
       depositAmount: Number(tenant.depositAmount),
+      depositOnFirstBooking: tenant.depositOnFirstBooking,
+      depositFirstBookingType: tenant.depositFirstBookingType || 'PERCENTAGE',
+      depositFirstBookingValue: Number(tenant.depositFirstBookingValue ?? tenant.depositFirstBookingPercent ?? 50),
+      depositFirstBookingPercent: Number(tenant.depositFirstBookingValue ?? tenant.depositFirstBookingPercent ?? 50),
       // PIX Direto do Salão
       pixKey: tenant.pixKey,
       pixKeyType: tenant.pixKeyType,
@@ -113,6 +130,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         durationMinutes: s.durationMinutes,
         serviceType: s.serviceType,
         requiresRemovalCheck: s.requiresRemovalCheck,
+        requiresDeposit: s.requiresDeposit,
+        depositType: s.depositType,
+        depositAmount: Number(s.depositAmount || 50),
         resourceName: s.resource?.name || null
       })),
       professionals: tenant.professionals.map((p) => ({
@@ -128,6 +148,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         description: c.description,
         price: c.price ? Number(c.price) : null,
         coverUrl: c.coverUrl
+      })),
+      products: tenant.products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        description: p.description,
+        salePrice: Number(p.salePrice),
+        stockQuantity: p.stockQuantity,
+        imageUrl: p.imageUrl
       }))
     });
   };
@@ -552,6 +581,268 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           sortOrder: l.sortOrder
         }))
       }
+    });
+  });
+
+  // =========================================================================
+  // FICHA DE ANAMNESE PÚBLICA (Preenchimento pela Cliente via Link Único)
+  // =========================================================================
+
+  // GET /public/anamnesis/:token - Buscar dados para formulário clean de anamnese
+  app.get('/anamnesis/:token', async (request, reply) => {
+    const { token } = request.params as { token: string };
+
+    const client = await prisma.client.findUnique({
+      where: { anamnesisToken: token },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            phone: true,
+            logoUrl: true,
+            primaryColor: true
+          }
+        }
+      }
+    });
+
+    if (!client) {
+      return reply.status(404).send({
+        error: 'Não encontrada',
+        message: 'Ficha de anamnese não localizada ou link inválido.'
+      });
+    }
+
+    return reply.send({
+      client: {
+        id: client.id,
+        name: client.name,
+        phone: client.phone,
+        anamnesis: client.anamnesis
+      },
+      tenant: client.tenant
+    });
+  });
+
+  // POST /public/anamnesis/:token - Submissão do formulário clean de anamnese
+  app.post('/anamnesis/:token', async (request, reply) => {
+    const { token } = request.params as { token: string };
+
+    const client = await prisma.client.findUnique({
+      where: { anamnesisToken: token }
+    });
+
+    if (!client) {
+      return reply.status(404).send({
+        error: 'Não encontrada',
+        message: 'Ficha de anamnese não localizada ou link inválido.'
+      });
+    }
+
+    const anamnesisSchema = z.object({
+      hasAllergies: z.boolean().default(false),
+      allergies: z.string().max(500).optional().nullable(),
+      isDiabetic: z.boolean().default(false),
+      hasNailMycosis: z.boolean().default(false),
+      isPregnant: z.boolean().default(false),
+      bitesNails: z.boolean().default(false),
+      chemicalHandling: z.boolean().default(false),
+      preferredShape: z.string().max(50).optional().nullable(),
+      notes: z.string().max(500).optional().nullable()
+    });
+
+    const body = anamnesisSchema.parse(request.body);
+
+    const updated = await prisma.client.update({
+      where: { id: client.id },
+      data: {
+        anamnesis: {
+          ...body,
+          updatedAt: new Date().toISOString()
+        }
+      }
+    });
+
+    return reply.send({
+      success: true,
+      message: 'Ficha de anamnese enviada com sucesso! Suas informações foram salvas para seus próximos atendimentos.',
+      anamnesis: updated.anamnesis
+    });
+  });
+
+  // =========================================================================
+  // PORTAL DA CLIENTE DA ASSINANTE (Histórico, Canal de Origem, Anamnese e Cursos)
+  // =========================================================================
+
+  // GET /public/client-portal/:slug - Consulta de agendamentos e área da cliente
+  app.get('/client-portal/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const querySchema = z.object({
+      phone: z.string().min(10, 'Telefone com DDD é obrigatório.')
+    });
+
+    const query = querySchema.parse(request.query);
+    const normalizedPhone = query.phone.replace(/\D/g, '');
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: slug.toLowerCase() },
+      include: {
+        courses: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            price: true,
+            coverUrl: true
+          }
+        },
+        products: {
+          where: { isActive: true, showInVitrine: true },
+          orderBy: [{ category: 'asc' }, { name: 'asc' }],
+          select: {
+            id: true,
+            name: true,
+            category: true,
+            description: true,
+            salePrice: true,
+            stockQuantity: true,
+            imageUrl: true
+          }
+        }
+      }
+    });
+
+    if (!tenant) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não localizado.' });
+    }
+
+    const client = await prisma.client.findFirst({
+      where: {
+        tenantId: tenant.id,
+        phone: normalizedPhone
+      },
+      include: {
+        schedules: {
+          orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
+          take: 10,
+          include: {
+            service: { select: { id: true, name: true, price: true, durationMinutes: true } },
+            professional: { select: { id: true, name: true, color: true } },
+            items: { include: { service: true } }
+          }
+        }
+      }
+    });
+
+    if (!client) {
+      return reply.send({
+        client: null,
+        tenant: {
+          name: tenant.name,
+          slug: tenant.slug,
+          phone: tenant.phone,
+          addressStreet: tenant.addressStreet,
+          addressNumber: tenant.addressNumber,
+          addressNeighborhood: tenant.addressNeighborhood,
+          addressCity: tenant.addressCity,
+          addressState: tenant.addressState,
+          openingTime: tenant.openingTime,
+          closingTime: tenant.closingTime,
+          pixKey: tenant.pixKey,
+          pixKeyType: tenant.pixKeyType,
+          pixKeyHolder: tenant.pixKeyHolder,
+          googleReviewUrl: tenant.googleReviewUrl,
+          courses: tenant.courses.map((c) => ({
+            id: c.id,
+            title: c.title,
+            description: c.description,
+            price: c.price ? Number(c.price) : null,
+            coverUrl: c.coverUrl
+          })),
+          products: tenant.products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            category: p.category,
+            description: p.description,
+            salePrice: Number(p.salePrice),
+            stockQuantity: p.stockQuantity,
+            imageUrl: p.imageUrl
+          }))
+        },
+        schedules: []
+      });
+    }
+
+    // Se cliente ainda não tem anamnesisToken, garante que seja criado
+    if (!client.anamnesisToken) {
+      const crypto = await import('crypto');
+      const generatedToken = crypto.randomUUID();
+      await prisma.client.update({
+        where: { id: client.id },
+        data: { anamnesisToken: generatedToken }
+      });
+      client.anamnesisToken = generatedToken;
+    }
+
+    return reply.send({
+      client: {
+        id: client.id,
+        name: client.name,
+        phone: client.phone,
+        anamnesis: client.anamnesis,
+        anamnesisToken: client.anamnesisToken
+      },
+      tenant: {
+        name: tenant.name,
+        slug: tenant.slug,
+        phone: tenant.phone,
+        addressStreet: tenant.addressStreet,
+        addressNumber: tenant.addressNumber,
+        addressNeighborhood: tenant.addressNeighborhood,
+        addressCity: tenant.addressCity,
+        addressState: tenant.addressState,
+        openingTime: tenant.openingTime,
+        closingTime: tenant.closingTime,
+        pixKey: tenant.pixKey,
+        pixKeyType: tenant.pixKeyType,
+        pixKeyHolder: tenant.pixKeyHolder,
+        googleReviewUrl: tenant.googleReviewUrl,
+        courses: tenant.courses.map((c) => ({
+          id: c.id,
+          title: c.title,
+          description: c.description,
+          price: c.price ? Number(c.price) : null,
+          coverUrl: c.coverUrl
+        })),
+        products: tenant.products.map((p) => ({
+          id: p.id,
+          name: p.name,
+          category: p.category,
+          description: p.description,
+          salePrice: Number(p.salePrice),
+          stockQuantity: p.stockQuantity,
+          imageUrl: p.imageUrl
+        }))
+      },
+      schedules: client.schedules.map((s) => ({
+        id: s.id,
+        date: s.date.toISOString().slice(0, 10),
+        startTime: s.startTime,
+        endTime: s.endTime,
+        status: s.status,
+        source: s.source, // WHATSAPP, ONLINE, MANUAL_RECEPTION
+        serviceName: s.service.name,
+        professionalName: s.professional.name,
+        totalPrice: Number(s.totalPrice),
+        depositAmount: Number(s.depositAmount || 0),
+        depositPaid: s.depositPaid,
+        arrivalPhotoUrl: s.arrivalPhotoUrl,
+        resultPhotoUrl: s.resultPhotoUrl
+      }))
     });
   });
 };

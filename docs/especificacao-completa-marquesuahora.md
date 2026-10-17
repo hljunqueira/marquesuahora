@@ -65,10 +65,10 @@
   Web (clientes agendando pelo navegador do celular e salões no painel administrativo) + Mobile (aplicativo iOS e Android via React Native/Expo exclusivo para o profissional consultar sua agenda na bancada e marcar comparecimento).
 
 - **Frontend e hospedagem:**  
-  Next.js 14 (App Router) com TypeScript, Tailwind CSS e Shadcn/Radix adaptado ao Impeccable Design System, rodando em container Docker diretamente na VPS própria (`46.202.144.181`).
+  Next.js 14 (App Router) com TypeScript, Tailwind CSS e Shadcn/Radix adaptado ao Impeccable Design System, rodando em container Docker diretamente na VPS própria (`23.80.89.116`).
 
 - **Backend e banco de dados:**  
-  Node.js com Fastify v4+, Prisma ORM, banco de dados PostgreSQL 16 nativo em Docker e Redis 7 (para filas BullMQ de WhatsApp) hospedados na VPS Ubuntu 24.04 (`46.202.144.181`).
+  Node.js com Fastify v4+, Prisma ORM, banco de dados PostgreSQL 16 nativo em Docker e Redis 7 (para filas BullMQ de WhatsApp) hospedados na VPS Ubuntu 24.04 (`23.80.89.116`).
 
 - **Autenticação e permissões:**  
   E-mail e senha com criptografia Argon2, Access Token JWT (15 minutos) e Refresh Token seguro em cookies HttpOnly (7 dias). Quatro níveis de acesso: `SUPER_ADMIN` (gestão do SaaS), `ADMIN` (dono do salão), `PROFESSIONAL` (colaborador que só vê a própria agenda/comissões) e `RECEPTIONIST` (atendente geral).

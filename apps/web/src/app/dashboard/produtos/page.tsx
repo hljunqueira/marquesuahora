@@ -244,12 +244,13 @@ export default function DashboardProdutosPage() {
   };
 
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const currentConfig = NICHE_PRODUCT_CONFIGS[currentNiche] || NICHE_PRODUCT_CONFIGS.BEAUTY_SALON;
 
-  const fetchProducts = async () => {
+  const fetchProducts = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const [productsRes, tenantRes] = await Promise.all([
         api.get('/products').catch(() => ({ data: [] })),
         api.get('/tenants/me').catch(() => ({ data: null }))
@@ -266,12 +267,53 @@ export default function DashboardProdutosPage() {
     } catch (err) {
       console.error('Erro ao buscar produtos:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const notifyProductsSync = () => {
+    window.dispatchEvent(new CustomEvent('marquesuahora_products_sync'));
+    window.dispatchEvent(new Event('storage'));
   };
 
   useEffect(() => {
     fetchProducts();
+
+    // 1. Polling silencioso a cada 30 segundos se a aba estiver visível
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchProducts(true);
+      }
+    }, 30000);
+
+    // 2. Foco da janela e alternância de abas
+    const handleFocus = () => fetchProducts(true);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchProducts(true);
+      }
+    };
+
+    // 3. Sincronização entre componentes e abas
+    const handleProductsSync = () => fetchProducts(true);
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || e.key.includes('product') || e.key.includes('niche')) {
+        fetchProducts(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('marquesuahora_products_sync', handleProductsSync);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('marquesuahora_products_sync', handleProductsSync);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   // Upload de Imagem via Arquivo do Dispositivo
@@ -332,6 +374,7 @@ export default function DashboardProdutosPage() {
     const parsedMinStock = parseInt(minStockAlert, 10) || 2;
 
     try {
+      setIsSubmitting(true);
       if (editingProduct) {
         const payload = {
           name,
@@ -403,20 +446,29 @@ export default function DashboardProdutosPage() {
         showToast('Novo produto adicionado ao catálogo!');
       }
       setIsModalOpen(false);
+      notifyProductsSync();
+      await fetchProducts(true);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erro ao salvar produto.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
+      setIsSubmitting(true);
       await api.delete(`/products/${deleteTarget.id}`);
       setProducts((prev) => prev.filter((p) => p.id !== deleteTarget.id));
       setDeleteTarget(null);
       showToast('Produto removido.');
+      notifyProductsSync();
+      await fetchProducts(true);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erro ao remover produto.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -443,6 +495,7 @@ export default function DashboardProdutosPage() {
     const parsedUnitCost = movementUnitCost ? parseFloat(movementUnitCost.replace(',', '.')) : undefined;
 
     try {
+      setIsSubmitting(true);
       await api.put(`/products/${stockMovementTarget.id}`, {
         stockQuantity: nextStock,
         ...(movementType === 'IN' && parsedUnitCost && parsedUnitCost > 0 ? { costPrice: parsedUnitCost } : {})
@@ -456,11 +509,11 @@ export default function DashboardProdutosPage() {
           title: `Compra de Insumo: ${stockMovementTarget.name} (${qty} un)`,
           category: 'Insumos & Produtos de Bancada',
           amount: totalExpense,
-          date: new Date().toISOString().split('T')[0],
           paymentMethod: 'PIX',
-          notes: `Entrada formal de estoque: ${movementReason}`,
-          status: 'PAID'
+          paidAt: new Date().toISOString().split('T')[0]
         }).catch(() => null);
+
+        window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
       }
 
       setProducts((prev) =>
@@ -478,8 +531,12 @@ export default function DashboardProdutosPage() {
 
       showToast(`Estoque de "${stockMovementTarget.name}" atualizado para ${nextStock} un.`);
       setStockMovementTarget(null);
+      notifyProductsSync();
+      await fetchProducts(true);
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erro ao registrar movimentação de estoque.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -493,6 +550,7 @@ export default function DashboardProdutosPage() {
       setProducts((prev) =>
         prev.map((p) => (p.id === productId ? { ...p, stockQuantity: nextStock } : p))
       );
+      notifyProductsSync();
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erro ao ajustar estoque.');
     }
@@ -508,6 +566,7 @@ export default function DashboardProdutosPage() {
       setProducts((prev) =>
         prev.map((p) => (p.id === productId ? { ...p, showInVitrine: nextVal } : p))
       );
+      notifyProductsSync();
       showToast(nextVal ? 'Produto visível na vitrine pública!' : 'Produto oculto da vitrine.');
     } catch (err: any) {
       alert(err.response?.data?.message || 'Erro ao alterar visibilidade na vitrine.');
@@ -1191,9 +1250,11 @@ export default function DashboardProdutosPage() {
                     </button>
                     <button
                       type="submit"
-                      className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer"
+                      disabled={isSubmitting}
+                      className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                     >
-                      {editingProduct ? 'Salvar Alterações' : 'Cadastrar Produto'}
+                      {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      <span>{editingProduct ? 'Salvar Alterações' : 'Cadastrar Produto'}</span>
                     </button>
                   </div>
                 </form>
@@ -1373,9 +1434,11 @@ export default function DashboardProdutosPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer"
+                    disabled={isSubmitting}
+                    className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
-                    Confirmar Movimentação
+                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Confirmar Movimentação</span>
                   </button>
                 </div>
               </form>

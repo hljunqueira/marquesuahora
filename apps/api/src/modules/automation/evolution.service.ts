@@ -2,12 +2,48 @@ import axios from 'axios';
 import { prisma } from '../../lib/prisma';
 
 export class EvolutionService {
-  private static getBaseUrl(): string {
-    return process.env.EVOLUTION_API_URL || 'http://localhost:8080';
+  public static getBaseUrl(): string {
+    return process.env.EVOLUTION_API_URL || 'http://23.80.89.116:3042';
   }
 
-  private static getGlobalApiKey(): string {
-    return process.env.EVOLUTION_GLOBAL_KEY || 'evolution_secret_key_123';
+  public static getGlobalApiKey(): string {
+    return process.env.EVOLUTION_GLOBAL_KEY || process.env.EVOLUTION_API_KEY || 'msh_evolution_master_key_2026';
+  }
+
+  /**
+   * Obtém a mídia em formato Base64 a partir do ID da mensagem recebida via webhook.
+   */
+  public static async getMediaBase64(
+    instanceName: string,
+    messageKeyId: string,
+    apiKey?: string
+  ): Promise<string | null> {
+    try {
+      const response = await axios.post(
+        `${this.getBaseUrl()}/chat/getBase64FromMediaMessage/${instanceName}`,
+        {
+          message: {
+            key: {
+              id: messageKeyId
+            }
+          },
+          convertToMp4: false
+        },
+        {
+          headers: {
+            apikey: apiKey || this.getGlobalApiKey(),
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000
+        }
+      );
+
+      const base64Data = response.data?.base64;
+      return base64Data || null;
+    } catch (err: any) {
+      console.warn('[EvolutionService] Falha ao obter base64 da mídia:', err.response?.data || err.message);
+      return null;
+    }
   }
 
   /**
@@ -188,12 +224,50 @@ export class EvolutionService {
       };
     }
 
+    let isConnected = config.isConnected;
+    let qrCode = config.qrCode;
+    let phoneNumber = config.phoneNumber;
+
+    // Sincronização ativa em tempo real com a Evolution API na VPS
+    if (config.instanceName) {
+      try {
+        const stateRes = await axios.get(
+          `${this.getBaseUrl()}/instance/connectionState/${config.instanceName}`,
+          {
+            headers: { apikey: config.apiKey || this.getGlobalApiKey() },
+            timeout: 3000
+          }
+        );
+
+        const liveState = stateRes.data?.instance?.state || stateRes.data?.state;
+
+        if (liveState === 'open') {
+          isConnected = true;
+          qrCode = null; // Já conectou, limpa QR Code
+          if (!config.isConnected) {
+            await prisma.whatsappConfig.update({
+              where: { tenantId },
+              data: { isConnected: true, qrCode: null }
+            }).catch(() => {});
+          }
+        } else if (liveState === 'close' && config.isConnected) {
+          isConnected = false;
+          await prisma.whatsappConfig.update({
+            where: { tenantId },
+            data: { isConnected: false }
+          }).catch(() => {});
+        }
+      } catch (err: any) {
+        // Se a VPS demorar para responder, mantém o status persistido localmente
+      }
+    }
+
     return {
       configured: true,
-      isConnected: config.isConnected,
+      isConnected,
       instanceName: config.instanceName,
-      phoneNumber: config.phoneNumber,
-      qrCode: config.qrCode
+      phoneNumber,
+      qrCode
     };
   }
 
@@ -232,7 +306,7 @@ export class EvolutionService {
         },
         {
           headers: { apikey: this.getGlobalApiKey() },
-          timeout: 5000
+          timeout: 6000
         }
       );
 
@@ -240,10 +314,10 @@ export class EvolutionService {
       qrCodeBase64 =
         cData?.qrcode?.base64 ||
         cData?.base64 ||
-        (cData?.code ? `data:image/png;base64,${cData.code}` : null) ||
+        (cData?.code ? (cData.code.startsWith('data:image') ? cData.code : `data:image/png;base64,${cData.code}`) : null) ||
         null;
 
-      if (cData?.instance?.status === 'open') {
+      if (cData?.instance?.status === 'open' || cData?.status === 'open') {
         isConnected = true;
       }
     } catch (err: any) {
@@ -271,17 +345,17 @@ export class EvolutionService {
           `${this.getBaseUrl()}/instance/connect/${instanceName}`,
           {
             headers: { apikey: apiKey },
-            timeout: 5000
+            timeout: 6000
           }
         );
         const connData = connectRes.data;
         qrCodeBase64 =
           connData?.base64 ||
           connData?.qrcode?.base64 ||
-          (connData?.code ? `data:image/png;base64,${connData.code}` : null) ||
+          (connData?.code ? (connData.code.startsWith('data:image') ? connData.code : `data:image/png;base64,${connData.code}`) : null) ||
           null;
 
-        if (connData?.instance?.status === 'open') {
+        if (connData?.instance?.status === 'open' || connData?.status === 'open') {
           isConnected = true;
         }
       } catch (connectErr: any) {

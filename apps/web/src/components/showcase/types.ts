@@ -15,6 +15,9 @@ export interface ServiceItem {
   durationMinutes: number;
   serviceType?: string;
   requiresRemovalCheck?: boolean;
+  requiresDeposit?: boolean;
+  depositType?: 'FIXED' | 'PERCENTAGE';
+  depositAmount?: number;
   resourceName?: string | null;
 }
 
@@ -32,6 +35,16 @@ export interface CourseItem {
   description?: string | null;
   price?: number | null;
   coverUrl?: string | null;
+}
+
+export interface ProductItem {
+  id: string;
+  name: string;
+  category: string;
+  description?: string | null;
+  salePrice: number;
+  stockQuantity: number;
+  imageUrl?: string | null;
 }
 
 export interface TenantShowcase {
@@ -61,10 +74,15 @@ export interface TenantShowcase {
   services: ServiceItem[];
   professionals: ProfessionalItem[];
   courses: CourseItem[];
+  products?: ProductItem[];
   galleryPhotos?: string[];
   depositRequired?: boolean;
   depositType?: 'FIXED' | 'PERCENTAGE';
   depositAmount?: number;
+  depositOnFirstBooking?: boolean;
+  depositFirstBookingType?: 'FIXED' | 'PERCENTAGE';
+  depositFirstBookingValue?: number;
+  depositFirstBookingPercent?: number;
   pixKey?: string | null;
   pixKeyType?: string | null;
   pixKeyHolder?: string | null;

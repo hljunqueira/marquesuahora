@@ -72,6 +72,19 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_CREATE',
+          entityType: 'Course',
+          entityId: course.id,
+          details: { title: course.title, price: course.price },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.status(201).send(course);
     });
 
@@ -146,6 +159,19 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_UPDATE',
+          entityType: 'Course',
+          entityId: id,
+          details: { changes: body },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.send(updated);
     });
 
@@ -166,6 +192,20 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       await prisma.course.delete({ where: { id } });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_DELETE',
+          entityType: 'Course',
+          entityId: id,
+          details: { title: existing.title },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.send({ success: true, message: 'Curso removido com sucesso.' });
     });
 
@@ -212,6 +252,19 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_LESSON_CREATE',
+          entityType: 'CourseLesson',
+          entityId: lesson.id,
+          details: { courseId, title: lesson.title },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.status(201).send(lesson);
     });
 
@@ -255,6 +308,19 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_LESSON_UPDATE',
+          entityType: 'CourseLesson',
+          entityId: lessonId,
+          details: { changes: body },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.send(updated);
     });
 
@@ -276,6 +342,20 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       await prisma.courseLesson.delete({ where: { id: lessonId } });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_LESSON_DELETE',
+          entityType: 'CourseLesson',
+          entityId: lessonId,
+          details: { title: lesson.title },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.send({ success: true, message: 'Aula removida com sucesso.' });
     });
 
@@ -429,6 +509,19 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         console.error('Erro ao registrar notificação de aluna no curso:', notifErr);
       }
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_ACCESS_GRANT',
+          entityType: 'CourseAccess',
+          entityId: access.id,
+          details: { courseId, clientName: client.name, phone: cleanPhone },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.status(201).send(access);
     });
 
@@ -459,6 +552,19 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_ACCESS_TOGGLE',
+          entityType: 'CourseAccess',
+          entityId: accessId,
+          details: { isActive: newStatus, courseId: access.courseId, phone: access.phone },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.send(updated);
     });
 
@@ -480,6 +586,20 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       await prisma.courseAccess.delete({ where: { id: accessId } });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'COURSE_ACCESS_REVOKE',
+          entityType: 'CourseAccess',
+          entityId: accessId,
+          details: { courseId: access.courseId, phone: access.phone },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      }).catch(() => null);
+
       return reply.send({ success: true, message: 'Acesso revogado com sucesso.' });
     });
 

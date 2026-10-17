@@ -4,6 +4,7 @@ import { prisma } from '../../lib/prisma';
 import { PlansService } from '../plans/plans.service';
 import { Role, ScheduleStatus } from '@prisma/client';
 import { EmailService } from '../notifications/email.service';
+import argon2 from 'argon2';
 
 export const adminRoutes: FastifyPluginAsync = async (app) => {
   // Todas as rotas deste módulo são restritas para SUPER_ADMIN
@@ -135,6 +136,194 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     );
 
     return reply.send(tenantsWithStats);
+  });
+
+  // POST /admin/tenants - Cadastro Direto de Assinante pelo Super Admin (Sem Asaas)
+  app.post('/tenants', async (request, reply) => {
+    const createTenantSchema = z.object({
+      name: z.string().min(2, 'Nome do estabelecimento é obrigatório.'),
+      slug: z.string().min(2, 'Slug / Link da vitrine é obrigatório.').toLowerCase(),
+      niche: z.enum([
+        'BARBERSHOP',
+        'BEAUTY_SALON',
+        'AESTHETICS_CLINIC',
+        'PERSONAL_TRAINER',
+        'NAIL_LASH_STUDIO',
+        'OTHER'
+      ]).optional().nullable(),
+      phone: z.string().min(10, 'Telefone com DDD é obrigatório.'),
+      ownerName: z.string().min(2, 'Nome do proprietário é obrigatório.'),
+      ownerEmail: z.string().email('E-mail válido do administrador é obrigatório.').toLowerCase(),
+      ownerPassword: z.string().min(6, 'Senha inicial deve ter no mínimo 6 caracteres.'),
+      planId: z.string().default('SOLO'),
+      billingStatus: z.enum(['ACTIVE', 'TRIAL', 'GRATUITY', 'BLOCKED']).default('ACTIVE'),
+      documentNumber: z.string().optional()
+    });
+
+    const data = createTenantSchema.parse(request.body);
+    const cleanPhone = data.phone.replace(/\D/g, '');
+    const cleanDoc = data.documentNumber && data.documentNumber.replace(/\D/g, '').length >= 11
+      ? data.documentNumber.replace(/\D/g, '')
+      : `TEMP_${Date.now()}`;
+
+    // 1. Valida se slug já existe
+    const existingSlug = await prisma.tenant.findUnique({
+      where: { slug: data.slug.trim().toLowerCase() }
+    });
+    if (existingSlug) {
+      return reply.status(409).send({
+        error: 'Conflito',
+        message: 'Já existe um estabelecimento cadastrado com este link / slug.'
+      });
+    }
+
+    // 2. Valida se e-mail de usuário já existe
+    const existingUser = await prisma.user.findUnique({
+      where: { email: data.ownerEmail.trim().toLowerCase() }
+    });
+    if (existingUser) {
+      return reply.status(409).send({
+        error: 'Conflito',
+        message: 'Já existe um usuário cadastrado com este e-mail na plataforma.'
+      });
+    }
+
+    // 3. Valida se telefone já existe em outro estabelecimento
+    const existingPhone = await prisma.tenant.findFirst({
+      where: { phone: cleanPhone }
+    });
+    if (existingPhone) {
+      return reply.status(409).send({
+        error: 'Conflito',
+        message: 'Já existe um estabelecimento cadastrado com este número de WhatsApp/telefone.'
+      });
+    }
+
+    // 4. Resolve plano
+    const resolvedPlan = await PlansService.resolvePlan(data.planId);
+    const planId = resolvedPlan?.id || null;
+
+    // 5. Hash da senha
+    const passwordHash = await argon2.hash(data.ownerPassword);
+
+    const terminologyMap: Record<string, any> = {
+      BARBERSHOP: { professional: 'Barbeiro', space: 'Cadeira', service: 'Corte/Barba' },
+      BEAUTY_SALON: { professional: 'Cabeleireira', space: 'Bancada', service: 'Procedimento' },
+      NAIL_LASH_STUDIO: { professional: 'Designer', space: 'Mesa', service: 'Aplicação/Manutenção' },
+      AESTHETICS_CLINIC: { professional: 'Especialista', space: 'Cabine', service: 'Sessão' },
+      PERSONAL_TRAINER: { professional: 'Treinador', space: 'Espaço', service: 'Treino' },
+      OTHER: { professional: 'Profissional', space: 'Espaço', service: 'Atendimento' }
+    };
+
+    const effectiveNiche: any = data.niche || 'OTHER';
+    const terminology = terminologyMap[effectiveNiche] || terminologyMap.OTHER;
+
+    // 6. Transação Atômica no Banco de Dados (Zero Asaas)
+    const result = await prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: {
+          name: data.name.trim(),
+          legalName: data.name.trim(),
+          documentType: cleanDoc.length > 11 ? 'CNPJ' : 'CPF',
+          documentNumber: cleanDoc,
+          slug: data.slug.trim().toLowerCase(),
+          phone: cleanPhone,
+          addressZip: '00000-000',
+          addressStreet: 'Avenida Principal',
+          addressNumber: '100',
+          addressNeighborhood: 'Centro',
+          addressCity: 'Cidade',
+          addressState: 'SP',
+          niche: effectiveNiche as any,
+          themeTemplate: 'PURPLE_GOLD',
+          primaryColor: '#7C3AED',
+          secondaryColor: '#0B0F19',
+          accentColor: '#D4AF37',
+          terminology,
+          planId,
+          billingStatus: data.billingStatus,
+          openingTime: '09:00',
+          closingTime: '19:00'
+        }
+      });
+
+      const user = await tx.user.create({
+        data: {
+          tenantId: tenant.id,
+          name: data.ownerName.trim(),
+          email: data.ownerEmail.trim().toLowerCase(),
+          passwordHash,
+          role: Role.ADMIN
+        }
+      });
+
+      // Cria serviços padrão de catálogo para o nicho escolhido
+      const defaultServices: Record<string, Array<{ name: string; price: number; durationMinutes: number; category: string }>> = {
+        BARBERSHOP: [
+          { name: 'Corte Masculino & Degradê', price: 45, durationMinutes: 30, category: 'Cabelo' },
+          { name: 'Barboterapia com Toalha Quente', price: 40, durationMinutes: 30, category: 'Barba' }
+        ],
+        BEAUTY_SALON: [
+          { name: 'Corte & Escova Modelada', price: 90, durationMinutes: 50, category: 'Cabelo' },
+          { name: 'Hidratação Profunda & Nutrição', price: 120, durationMinutes: 60, category: 'Tratamentos' }
+        ],
+        NAIL_LASH_STUDIO: [
+          { name: 'Extensão de Cílios Volume Russo', price: 180, durationMinutes: 90, category: 'Cílios' },
+          { name: 'Alongamento de Unhas em Gel', price: 140, durationMinutes: 80, category: 'Unhas' }
+        ],
+        AESTHETICS_CLINIC: [
+          { name: 'Limpeza de Pele Profunda', price: 150, durationMinutes: 75, category: 'Facial' }
+        ],
+        PERSONAL_TRAINER: [
+          { name: 'Sessão de Treino Presencial 1h', price: 100, durationMinutes: 60, category: 'Treinos' }
+        ],
+        OTHER: [
+          { name: 'Atendimento Personalizado', price: 100, durationMinutes: 60, category: 'Geral' }
+        ]
+      };
+
+      const servicesToCreate = defaultServices[effectiveNiche] || defaultServices.OTHER;
+      await tx.service.createMany({
+        data: servicesToCreate.map((svc) => ({
+          tenantId: tenant.id,
+          name: svc.name,
+          category: svc.category,
+          price: svc.price,
+          durationMinutes: svc.durationMinutes,
+          allowOnlineBooking: true
+        }))
+      });
+
+      return { tenant, user };
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId: result.tenant.id,
+        action: 'TENANT_CREATE_MANUAL',
+        entityType: 'Tenant',
+        entityId: result.tenant.id,
+        details: {
+          name: result.tenant.name,
+          ownerEmail: result.user.email,
+          plan: resolvedPlan?.name || data.planId,
+          billingStatus: data.billingStatus
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    });
+
+    return reply.status(201).send({
+      message: 'Estabelecimento cadastrado e ativado com sucesso!',
+      tenant: result.tenant,
+      owner: {
+        id: result.user.id,
+        name: result.user.name,
+        email: result.user.email
+      }
+    });
   });
 
   // PATCH /admin/tenants/:id/status - Bloqueio, ativação ou concessão de gratuidade com auditoria

@@ -213,7 +213,7 @@ export default function DashboardPlanosPage() {
 
     const billingDesc = activePlanCode === 'FREE'
       ? 'Sem mensalidade fixa • Franquia mensal de agendamentos'
-      : 'Assinatura Mensal Ativa via Asaas';
+      : 'Assinatura Ativa na Plataforma';
 
     return {
       code: activePlanCode,

@@ -151,7 +151,8 @@ docker ps --filter name=marquesuahora --format "table {{.Names}}\t{{.Status}}\t{
   }
 
   $cleanScript = $execScript -replace "`r", ""
-  $cleanScript | & ssh $TargetSSH "bash -s"
+  $b64Script = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($cleanScript))
+  & ssh $TargetSSH "echo '$b64Script' | base64 -d | bash"
 
   if ($LASTEXITCODE -ne 0) {
     Write-DeployFail "Erro durante o build ou restart dos containers no servidor."

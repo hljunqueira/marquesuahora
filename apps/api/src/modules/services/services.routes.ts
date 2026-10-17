@@ -15,6 +15,9 @@ const serviceInputSchema = z.object({
   finishingMinutes: z.number().int().min(0).default(0),
   photos: z.array(z.string()).default([]),
   requiresRemovalCheck: z.boolean().default(false),
+  requiresDeposit: z.boolean().default(false),
+  depositType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
+  depositAmount: z.number().min(0).default(50.0),
   intakeWarning: z.string().optional().nullable()
 });
 
@@ -73,6 +76,9 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         finishingMinutes: data.finishingMinutes,
         photos: data.photos,
         requiresRemovalCheck: data.requiresRemovalCheck,
+        requiresDeposit: data.requiresDeposit,
+        depositType: data.depositType,
+        depositAmount: data.depositAmount,
         intakeWarning: data.intakeWarning
       }
     });
@@ -113,6 +119,20 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const updated = await prisma.service.findUnique({ where: { id } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'SERVICE_UPDATE',
+        entityType: 'Service',
+        entityId: id,
+        details: data as any,
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    });
+
     return reply.send(updated);
   });
 
@@ -142,12 +162,40 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
       await prisma.service.delete({
         where: { id }
       });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'SERVICE_DELETE',
+          entityType: 'Service',
+          entityId: id,
+          details: { name: service.name, permanentlyDeleted: true },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      });
+
       return reply.send({ message: 'Serviço excluído com sucesso.' });
     } else {
       await prisma.service.update({
         where: { id },
         data: { allowOnlineBooking: false }
       });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'SERVICE_ARCHIVE',
+          entityType: 'Service',
+          entityId: id,
+          details: { name: service.name, permanentlyDeleted: false, reason: 'has_schedules' },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      });
+
       return reply.send({ message: 'Serviço desativado da vitrine pois possui agendamentos associados.' });
     }
   });

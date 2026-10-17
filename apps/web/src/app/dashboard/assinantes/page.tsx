@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { InputMask } from '@/components/ui/InputMask';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 interface Subscriber {
   id: string;
@@ -58,6 +59,30 @@ export default function AssinantesPage() {
   const [courses, setCourses] = useState<CourseOption[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Toast Feedback Notifier
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  // Modal de Confirmação Seguro
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    isDestructive?: boolean;
+    isLoading?: boolean;
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    onConfirm: () => {}
+  });
+
   // Filtros
   const [search, setSearch] = useState('');
   const [selectedCourseFilter, setSelectedCourseFilter] = useState('ALL');
@@ -70,6 +95,12 @@ export default function AssinantesPage() {
   const [studentPhone, setStudentPhone] = useState('');
   const [savingAccess, setSavingAccess] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  const notifySubscribersSync = () => {
+    window.dispatchEvent(new CustomEvent('marquesuahora_subscribers_sync'));
+    window.dispatchEvent(new CustomEvent('marquesuahora_courses_sync'));
+    window.dispatchEvent(new Event('storage'));
+  };
 
   // 1. Carrega cursos para filtros e seleção
   useEffect(() => {
@@ -85,34 +116,62 @@ export default function AssinantesPage() {
       .catch(() => setCourses([]));
   }, []);
 
-  // 2. Busca lista de alunas/assinantes
-  const fetchSubscribers = () => {
-    setLoading(true);
+  // 2. Busca lista de alunas/assinantes com suporte a revalidação silenciosa
+  const fetchSubscribers = async (silent = false) => {
+    if (!silent) setLoading(true);
     const params = new URLSearchParams();
     if (selectedCourseFilter !== 'ALL') params.set('courseId', selectedCourseFilter);
     if (search.trim()) params.set('search', search.trim());
 
-    api
-      .get(`/courses/subscribers?${params.toString()}`)
-      .then((res) => {
-        setSubscribers(res.data || []);
-      })
-      .catch(() => {
-        setSubscribers([]);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+    try {
+      const res = await api.get(`/courses/subscribers?${params.toString()}`);
+      setSubscribers(res.data || []);
+    } catch {
+      setSubscribers([]);
+    } finally {
+      if (!silent) setLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchSubscribers();
+
+    // 1. Polling silencioso a cada 30s
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchSubscribers(true);
+      }
+    }, 30000);
+
+    // 2. Foco e visibilidade da aba
+    const handleFocus = () => fetchSubscribers(true);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchSubscribers(true);
+      }
+    };
+
+    // 3. Sincronização entre abas e módulos
+    const handleSync = () => fetchSubscribers(true);
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('marquesuahora_subscribers_sync', handleSync);
+    window.addEventListener('marquesuahora_courses_sync', handleSync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('marquesuahora_subscribers_sync', handleSync);
+      window.removeEventListener('marquesuahora_courses_sync', handleSync);
+    };
   }, [selectedCourseFilter]);
 
   // Debounce para busca
   useEffect(() => {
     const handler = setTimeout(() => {
-      fetchSubscribers();
+      fetchSubscribers(true);
     }, 400);
     return () => clearTimeout(handler);
   }, [search]);
@@ -137,7 +196,9 @@ export default function AssinantesPage() {
       setIsModalOpen(false);
       setStudentName('');
       setStudentPhone('');
-      fetchSubscribers();
+      fetchSubscribers(true);
+      notifySubscribersSync();
+      showToast('Acesso de aluna liberado com sucesso!');
     } catch (err: any) {
       setModalError(err?.response?.data?.message || 'Erro ao liberar acesso.');
     } finally {
@@ -149,21 +210,36 @@ export default function AssinantesPage() {
   const handleToggleStatus = async (accessId: string) => {
     try {
       await api.patch(`/courses/access/${accessId}/toggle`, {});
-      fetchSubscribers();
+      fetchSubscribers(true);
+      notifySubscribersSync();
+      showToast('Status de acesso alterado!');
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao alterar status.');
+      showToast(err?.response?.data?.message || 'Erro ao alterar status.');
     }
   };
 
   // 5. Excluir acesso
-  const handleDeleteAccess = async (accessId: string) => {
-    if (!confirm('Deseja realmente revogar e remover o acesso desta aluna?')) return;
-    try {
-      await api.delete(`/courses/access/${accessId}`);
-      fetchSubscribers();
-    } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao excluir acesso.');
-    }
+  const handleDeleteAccess = (accessId: string) => {
+    setConfirmModal({
+      isOpen: true,
+      title: 'Revogar e Excluir Acesso',
+      description: 'Deseja realmente revogar e remover o acesso desta aluna? Ela não poderá mais assistir às aulas.',
+      confirmLabel: 'Sim, Revogar Acesso',
+      cancelLabel: 'Cancelar',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          await api.delete(`/courses/access/${accessId}`);
+          fetchSubscribers(true);
+          notifySubscribersSync();
+          showToast('Acesso revogado com sucesso!');
+        } catch (err: any) {
+          showToast(err?.response?.data?.message || 'Erro ao excluir acesso.');
+        } finally {
+          setConfirmModal((prev) => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
   };
 
   // 6. Abrir WhatsApp com mensagem de boas-vindas / suporte
@@ -579,6 +655,27 @@ export default function AssinantesPage() {
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação Seguro */}
+      <ConfirmModal
+        isOpen={confirmModal.isOpen}
+        onClose={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={confirmModal.onConfirm}
+        title={confirmModal.title}
+        description={confirmModal.description}
+        confirmLabel={confirmModal.confirmLabel}
+        cancelLabel={confirmModal.cancelLabel}
+        isDestructive={confirmModal.isDestructive}
+        isLoading={confirmModal.isLoading}
+      />
+
+      {/* Toast Feedback */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 border border-slate-800 text-xs font-semibold">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>{toastMsg}</span>
         </div>
       )}
     </div>

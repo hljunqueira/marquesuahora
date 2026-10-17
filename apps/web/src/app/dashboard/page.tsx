@@ -18,6 +18,7 @@ import {
   BarChart2
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { AiVoiceCommandBar } from '@/components/dashboard/AiVoiceCommandBar';
 import { AgendaHeader } from '@/components/agenda/AgendaHeader';
 import { AgendaWeeklyGrid } from '@/components/agenda/AgendaWeeklyGrid';
 import { AgendaAppointmentModal } from '@/components/agenda/AgendaAppointmentModal';
@@ -118,12 +119,14 @@ export default function DashboardPage() {
     });
   }, []);
 
-  // Carrega agendamentos e bloqueios reais para a grade
-  const fetchCalendarData = useCallback(() => {
+  // Carrega agendamentos e bloqueios reais para a grade (com suporte a refetch silencioso de fundo)
+  const fetchCalendarData = useCallback((silent = false) => {
     if (visibleDates.length === 0) return;
 
-    setLoadingAgenda(true);
-    setErrorAgenda(null);
+    if (!silent) {
+      setLoadingAgenda(true);
+      setErrorAgenda(null);
+    }
 
     const startDate = visibleDates[0].toISOString().slice(0, 10);
     const endDate = visibleDates[visibleDates.length - 1].toISOString().slice(0, 10);
@@ -142,18 +145,24 @@ export default function DashboardPage() {
         setBlocks(blocksRes.data || []);
       })
       .catch((err) => {
-        setErrorAgenda(
-          err?.response?.data?.message || 'Não foi possível carregar os dados da agenda.'
-        );
+        if (!silent) {
+          setErrorAgenda(
+            err?.response?.data?.message || 'Não foi possível carregar os dados da agenda.'
+          );
+        }
       })
       .finally(() => {
-        setLoadingAgenda(false);
+        if (!silent) {
+          setLoadingAgenda(false);
+        }
       });
   }, [visibleDates, selectedProfessionalId]);
 
-  // Carrega resumo de métricas do negócio
-  const fetchDashboardSummary = useCallback(() => {
-    setLoadingSummary(true);
+  // Carrega resumo de métricas do negócio (com suporte a refetch silencioso)
+  const fetchDashboardSummary = useCallback((silent = false) => {
+    if (!silent) {
+      setLoadingSummary(true);
+    }
     api
       .get('/schedules/dashboard-summary')
       .then((res) => {
@@ -163,7 +172,9 @@ export default function DashboardPage() {
         // silencioso
       })
       .finally(() => {
-        setLoadingSummary(false);
+        if (!silent) {
+          setLoadingSummary(false);
+        }
       });
   }, []);
 
@@ -181,6 +192,31 @@ export default function DashboardPage() {
     fetchCalendarData();
     fetchDashboardSummary();
   };
+
+  // Revalidação Automática Inteligente em Segundo Plano:
+  // 1. Polling silencioso a cada 30 segundos (sem piscar a tela)
+  // 2. Foco na janela / Alternância de aba (quando a recepcionista volta do WhatsApp ou de outra aba)
+  // 3. Sincronização global via evento 'marquesuahora_agenda_sync'
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        fetchCalendarData(true);
+        fetchDashboardSummary(true);
+      }
+    };
+
+    const interval = setInterval(handleRevalidate, 30000);
+    window.addEventListener('focus', handleRevalidate);
+    document.addEventListener('visibilitychange', handleRevalidate);
+    window.addEventListener('marquesuahora_agenda_sync', handleRevalidate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleRevalidate);
+      document.removeEventListener('visibilitychange', handleRevalidate);
+      window.removeEventListener('marquesuahora_agenda_sync', handleRevalidate);
+    };
+  }, [fetchCalendarData, fetchDashboardSummary]);
 
   // Navegação de datas
   const navigatePrev = () => {
@@ -266,6 +302,14 @@ export default function DashboardPage() {
       {/* 1. SEÇÃO PRINCIPAL (HERO): AGENDA INTERATIVA COMPLETA     */}
       {/* ========================================================= */}
       <section className="space-y-4">
+        {/* Copiloto IA de Voz e Comandos Rápidos */}
+        <AiVoiceCommandBar
+          onCommandExecuted={() => {
+            handleCalendarRefresh();
+            fetchDashboardSummary();
+          }}
+        />
+
         {/* Cabeçalho da Agenda */}
         <AgendaHeader
           currentDate={currentDate}
@@ -315,6 +359,10 @@ export default function DashboardPage() {
             onSlotClick={handleSlotClick}
             onAppointmentClick={handleAppointmentClick}
             onBlockClick={(block) => setSelectedBlockForUnblock(block)}
+            onDayClick={(clickedDate) => {
+              setCurrentDate(clickedDate);
+              setViewMode('day');
+            }}
             onReschedule={handleReschedule}
           />
         )}

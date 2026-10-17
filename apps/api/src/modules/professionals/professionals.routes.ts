@@ -138,6 +138,14 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string };
     const data = professionalInputSchema.partial().parse(request.body);
 
+    const existing = await prisma.professional.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!existing) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Profissional não localizado.' });
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       const updateData: any = {
         name: data.name,
@@ -172,6 +180,19 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
       return prof;
     });
 
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'PROFESSIONAL_UPDATE',
+        entityType: 'Professional',
+        entityId: id,
+        details: { name: updated.name, phone: updated.phone },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    });
+
     return reply.send(updated);
   });
 
@@ -204,6 +225,19 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
         data: { isActive: false }
       });
 
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId,
+          action: 'PROFESSIONAL_DEACTIVATE',
+          entityType: 'Professional',
+          entityId: id,
+          details: { name: professional.name, reason: 'has_schedules' },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      });
+
       return reply.send({
         action: 'DEACTIVATED',
         message: 'O profissional possui histórico de agendamentos e foi desativado da agenda para preservar o histórico financeiro.'
@@ -214,6 +248,19 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
     await prisma.$transaction(async (tx) => {
       await tx.serviceProfessional.deleteMany({ where: { professionalId: id } });
       await tx.professional.delete({ where: { id } });
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'PROFESSIONAL_DELETE',
+        entityType: 'Professional',
+        entityId: id,
+        details: { name: professional.name, permanentlyDeleted: true },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
     });
 
     return reply.send({

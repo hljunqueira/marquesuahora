@@ -26,6 +26,9 @@ interface ServiceItem {
   finishingMinutes?: number;
   allowOnlineBooking: boolean;
   isActive: boolean;
+  requiresDeposit?: boolean;
+  depositType?: 'PERCENTAGE' | 'FIXED';
+  depositAmount?: number;
 }
 
 interface NicheThemeStyle {
@@ -317,6 +320,9 @@ export default function DashboardServicosPage() {
   const [finishingMinutes, setFinishingMinutes] = useState('0');
   const [allowOnlineBooking, setAllowOnlineBooking] = useState(true);
   const [isActive, setIsActive] = useState(true);
+  const [requiresDeposit, setRequiresDeposit] = useState(false);
+  const [depositType, setDepositType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
+  const [depositAmount, setDepositAmount] = useState('50');
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -325,8 +331,10 @@ export default function DashboardServicosPage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const fetchServices = async () => {
-    setLoading(true);
+  const fetchServices = async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const res = await api.get('/services');
       const items: ServiceItem[] = (res.data || []).map((s: any) => ({
@@ -340,14 +348,21 @@ export default function DashboardServicosPage() {
         processingMinutes: s.processingMinutes || 0,
         finishingMinutes: s.finishingMinutes || 0,
         allowOnlineBooking: s.allowOnlineBooking ?? true,
-        isActive: s.allowOnlineBooking ?? true
+        isActive: s.allowOnlineBooking ?? true,
+        requiresDeposit: s.requiresDeposit ?? false,
+        depositType: s.depositType || 'PERCENTAGE',
+        depositAmount: Number(s.depositAmount || 50)
       }));
       setServices(items);
     } catch (err) {
       console.error('Erro ao buscar serviços do banco:', err);
-      showToast('Erro ao carregar catálogo.');
+      if (!silent) {
+        showToast('Erro ao carregar catálogo.');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -367,6 +382,27 @@ export default function DashboardServicosPage() {
       });
 
     fetchServices();
+  }, []);
+
+  // Revalidação Automática Inteligente em Segundo Plano (30s e foco na janela)
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        fetchServices(true);
+      }
+    };
+
+    const interval = setInterval(handleRevalidate, 30000);
+    window.addEventListener('focus', handleRevalidate);
+    document.addEventListener('visibilitychange', handleRevalidate);
+    window.addEventListener('marquesuahora_agenda_sync', handleRevalidate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleRevalidate);
+      document.removeEventListener('visibilitychange', handleRevalidate);
+      window.removeEventListener('marquesuahora_agenda_sync', handleRevalidate);
+    };
   }, []);
 
   // Upload de Foto via File Input
@@ -398,6 +434,9 @@ export default function DashboardServicosPage() {
     setFinishingMinutes('0');
     setAllowOnlineBooking(true);
     setIsActive(true);
+    setRequiresDeposit(false);
+    setDepositType('PERCENTAGE');
+    setDepositAmount('50');
     setIsModalOpen(true);
   };
 
@@ -413,6 +452,9 @@ export default function DashboardServicosPage() {
     setFinishingMinutes(String(svc.finishingMinutes || 0));
     setAllowOnlineBooking(svc.allowOnlineBooking);
     setIsActive(svc.isActive);
+    setRequiresDeposit(svc.requiresDeposit ?? false);
+    setDepositType(svc.depositType || 'PERCENTAGE');
+    setDepositAmount(String(svc.depositAmount ?? 50));
     setIsModalOpen(true);
   };
 
@@ -432,6 +474,7 @@ export default function DashboardServicosPage() {
       });
       showToast(`Serviço "${svc.name}" duplicado com sucesso!`);
       fetchServices();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch {
       showToast('Erro ao duplicar serviço no banco.');
     }
@@ -444,6 +487,7 @@ export default function DashboardServicosPage() {
         `Serviço "${svc.name}" ${!svc.allowOnlineBooking ? 'ativado na vitrine' : 'pausado'}.`
       );
       fetchServices();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch {
       showToast('Erro ao atualizar status do serviço.');
     }
@@ -463,6 +507,9 @@ export default function DashboardServicosPage() {
       processingMinutes: Number(processingMinutes) || 0,
       finishingMinutes: Number(finishingMinutes) || 0,
       allowOnlineBooking,
+      requiresDeposit,
+      depositType,
+      depositAmount: Number(depositAmount) || 50,
       serviceType: 'STANDARD'
     };
 
@@ -476,6 +523,7 @@ export default function DashboardServicosPage() {
       }
       setIsModalOpen(false);
       fetchServices();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
       showToast(err?.response?.data?.message || 'Erro ao salvar serviço no banco.');
     }
@@ -484,10 +532,11 @@ export default function DashboardServicosPage() {
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try {
-      await api.delete(`/services/${deleteTarget.id}`);
-      showToast(`Serviço "${deleteTarget.name}" removido com sucesso.`);
+      const res = await api.delete(`/services/${deleteTarget.id}`);
+      showToast(res.data?.message || `Serviço "${deleteTarget.name}" removido com sucesso.`);
       setDeleteTarget(null);
       fetchServices();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch {
       showToast('Erro ao excluir serviço.');
     }
@@ -766,6 +815,12 @@ export default function DashboardServicosPage() {
                         Encaixe livre: {svc.processingMinutes} min
                       </span>
                     )}
+
+                    {Boolean(svc.requiresDeposit) && (
+                      <span className="px-2.5 py-1 rounded-lg bg-purple-100 text-purple-800 text-xs font-bold border border-purple-200">
+                        Sinal: {svc.depositType === 'PERCENTAGE' ? `${svc.depositAmount || 50}%` : `R$ ${Number(svc.depositAmount || 50).toFixed(0)}`}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1041,6 +1096,83 @@ export default function DashboardServicosPage() {
                     </div>
                   </div>
                 )}
+
+                {/* SEÇÃO: EXIGÊNCIA DE SINAL DE RESERVA (PIX) */}
+                <div className="p-4 bg-purple-50/60 rounded-2xl border border-purple-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-purple-950 block">
+                        Exigir Sinal de Reserva Antecipado (PIX)
+                      </span>
+                      <p className="text-[11px] text-purple-800/80 leading-relaxed mt-0.5">
+                        Ideal para procedimentos de longa duração (como Alongamento, Banho de Gel, Spa dos Pés, Mechas). Garante a vaga com metade do valor (50%) pago antes.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                      <input
+                        type="checkbox"
+                        checked={requiresDeposit}
+                        onChange={(e) => setRequiresDeposit(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-slate-200 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-purple-600" />
+                    </label>
+                  </div>
+
+                  {requiresDeposit && (
+                    <div className="pt-2 border-t border-purple-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <label className="text-[11px] font-semibold text-purple-900 block mb-1">
+                          Tipo de Cobrança
+                        </label>
+                        <div className="grid grid-cols-2 gap-1.5 bg-white p-1 rounded-xl border border-purple-200">
+                          <button
+                            type="button"
+                            onClick={() => setDepositType('PERCENTAGE')}
+                            className={`py-1.5 px-2 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                              depositType === 'PERCENTAGE'
+                                ? 'bg-purple-600 text-white shadow-2xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Porcentagem (%)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDepositType('FIXED')}
+                            className={`py-1.5 px-2 rounded-lg font-bold text-[11px] transition-all cursor-pointer ${
+                              depositType === 'FIXED'
+                                ? 'bg-purple-600 text-white shadow-2xs'
+                                : 'text-slate-600 hover:text-slate-900'
+                            }`}
+                          >
+                            Valor Fixo (R$)
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-semibold text-purple-900 block mb-1">
+                          {depositType === 'PERCENTAGE' ? 'Porcentagem do Sinal (%)' : 'Valor do Sinal (R$)'}
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            min={1}
+                            step={depositType === 'PERCENTAGE' ? 5 : 5}
+                            value={depositAmount}
+                            onChange={(e) => setDepositAmount(e.target.value)}
+                            placeholder={depositType === 'PERCENTAGE' ? '50' : '50.00'}
+                            className="w-full px-3 py-2 text-xs bg-white border border-purple-200 rounded-xl outline-hidden font-mono font-bold text-purple-950 focus:border-purple-600"
+                          />
+                          <span className="font-bold text-purple-900 text-xs">
+                            {depositType === 'PERCENTAGE' ? '%' : 'R$'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* SEÇÃO 4: CONFIGURAÇÕES DE VISIBILIDADE */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">

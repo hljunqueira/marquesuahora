@@ -268,11 +268,33 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(404).send({ error: 'Não encontrado', message: 'Cliente não localizado.' });
     }
 
+    // Se informou telefone, normaliza e checa duplicidade com outro cliente do estabelecimento
+    let normalizedPhone: string | undefined = undefined;
+    if (data.phone) {
+      normalizedPhone = data.phone.replace(/\D/g, '');
+      if (normalizedPhone !== client.phone) {
+        const existingWithPhone = await prisma.client.findUnique({
+          where: {
+            tenantId_phone: {
+              tenantId,
+              phone: normalizedPhone
+            }
+          }
+        });
+        if (existingWithPhone) {
+          return reply.status(409).send({
+            error: 'Conflito',
+            message: 'Já existe outro cliente cadastrado com este telefone.'
+          });
+        }
+      }
+    }
+
     const updated = await prisma.client.update({
       where: { id },
       data: {
         ...(data.name ? { name: data.name.trim() } : {}),
-        ...(data.phone ? { phone: data.phone.replace(/\D/g, '') } : {}),
+        ...(normalizedPhone ? { phone: normalizedPhone } : {}),
         ...(data.email !== undefined ? { email: data.email?.trim() || null } : {}),
         ...(data.documentNumber !== undefined ? { documentNumber: data.documentNumber?.replace(/\D/g, '') || null } : {}),
         ...(data.notes !== undefined ? { notes: data.notes?.trim() || null } : {}),
@@ -303,10 +325,95 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(404).send({ error: 'Não encontrado', message: 'Cliente não localizado.' });
     }
 
+    // Proteção: não permitir exclusão acidental de cliente com agendamentos futuros pendentes/confirmados
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const activeFutureSchedules = await prisma.schedule.count({
+      where: {
+        clientId: id,
+        tenantId,
+        status: { in: ['CONFIRMED', 'PENDING', 'IN_SERVICE'] },
+        date: { gte: today }
+      }
+    });
+
+    if (activeFutureSchedules > 0) {
+      return reply.status(400).send({
+        error: 'Ação não permitida',
+        message: `Este cliente possui ${activeFutureSchedules} agendamento(s) futuro(s) ativo(s). Cancele ou conclua os agendamentos antes de remover o cadastro.`
+      });
+    }
+
     await prisma.client.delete({
       where: { id }
     });
 
     return reply.status(204).send();
+  });
+
+  // GET /clients/:id/anamnesis - Buscar anamnese do cliente
+  app.get('/:id/anamnesis', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const { id } = request.params as { id: string };
+    const client = await prisma.client.findFirst({
+      where: { id, tenantId },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        anamnesis: true,
+        anamnesisToken: true
+      }
+    });
+
+    if (!client) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Cliente não localizado.' });
+    }
+
+    return reply.send(client);
+  });
+
+  // PATCH /clients/:id/anamnesis - Atualizar anamnese diretamente pela profissional
+  app.patch('/:id/anamnesis', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const { id } = request.params as { id: string };
+    const client = await prisma.client.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!client) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Cliente não localizado.' });
+    }
+
+    const body = z.object({
+      anamnesis: z.record(z.any())
+    }).parse(request.body);
+
+    const updated = await prisma.client.update({
+      where: { id },
+      data: {
+        anamnesis: {
+          ...(typeof client.anamnesis === 'object' && client.anamnesis !== null ? client.anamnesis : {}),
+          ...body.anamnesis,
+          updatedAt: new Date().toISOString()
+        }
+      },
+      select: {
+        id: true,
+        anamnesis: true,
+        anamnesisToken: true
+      }
+    });
+
+    return reply.send(updated);
   });
 };

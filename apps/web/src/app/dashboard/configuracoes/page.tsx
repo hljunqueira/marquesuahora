@@ -39,23 +39,55 @@ export default function DashboardConfiguracoesPage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  const fetchSettings = useCallback(async () => {
-    setLoading(true);
+  const fetchSettings = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get('/tenants/me');
       setSettings(res.data);
-      setHasChanges(false);
+      if (!silent) setHasChanges(false);
     } catch (err) {
       console.error('Erro ao carregar configurações do estabelecimento:', err);
-      showToast('Erro ao carregar configurações.', 'error');
+      if (!silent) showToast('Erro ao carregar configurações.', 'error');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     fetchSettings();
-  }, [fetchSettings]);
+
+    // Polling silencioso a cada 45 segundos se não houver alterações não salvas
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && !hasChanges) {
+        fetchSettings(true);
+      }
+    }, 45000);
+
+    const handleFocus = () => {
+      if (!hasChanges) fetchSettings(true);
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && !hasChanges) {
+        fetchSettings(true);
+      }
+    };
+    const handleTenantSync = (e: any) => {
+      if (!hasChanges && e.detail) {
+        setSettings((prev) => (prev ? { ...prev, ...e.detail } : e.detail));
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('marquesuahora_tenant_sync', handleTenantSync);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    };
+  }, [fetchSettings, hasChanges]);
 
   const handleChange = (field: keyof TenantSettings, value: any) => {
     setSettings((prev) => {
@@ -86,6 +118,10 @@ export default function DashboardConfiguracoesPage() {
         depositRequired: settings.depositRequired,
         depositType: settings.depositType,
         depositAmount: Number(settings.depositAmount),
+        depositOnFirstBooking: settings.depositOnFirstBooking,
+        depositFirstBookingType: settings.depositFirstBookingType || 'PERCENTAGE',
+        depositFirstBookingValue: Number(settings.depositFirstBookingValue ?? settings.depositFirstBookingPercent ?? 50),
+        depositFirstBookingPercent: Number(settings.depositFirstBookingValue ?? settings.depositFirstBookingPercent ?? 50),
         pixKey: settings.pixKey,
         pixKeyType: settings.pixKeyType,
         pixKeyHolder: settings.pixKeyHolder,
@@ -203,7 +239,7 @@ export default function DashboardConfiguracoesPage() {
           disabled={saving || !hasChanges}
           className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
             hasChanges
-              ? 'bg-purple-600 hover:bg-purple-700 text-white shadow-md shadow-purple-600/20 active:scale-95 cursor-pointer'
+              ? 'btn-primary-tenant text-white shadow-md active:scale-95 cursor-pointer'
               : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
           }`}
         >
@@ -224,11 +260,11 @@ export default function DashboardConfiguracoesPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl font-medium text-sm transition-all whitespace-nowrap cursor-pointer ${
                 isActive
-                  ? 'bg-white text-purple-700 shadow-xs border border-slate-200/90 font-semibold'
+                  ? 'bg-white text-tenant-primary shadow-xs border border-slate-200/90 font-semibold'
                   : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80'
               }`}
             >
-              <Icon className={`w-4 h-4 ${isActive ? 'text-purple-600' : 'text-slate-400'}`} />
+              <Icon className={`w-4 h-4 ${isActive ? 'text-tenant-primary' : 'text-slate-400'}`} />
               <span>{tab.label}</span>
             </button>
           );
@@ -273,7 +309,7 @@ export default function DashboardConfiguracoesPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-4 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
+            className="px-4 py-1.5 rounded-xl btn-primary-tenant text-white text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
           >
             {saving ? 'Salvando...' : 'Salvar Agora'}
           </button>

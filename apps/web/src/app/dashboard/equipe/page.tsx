@@ -277,8 +277,10 @@ export default function DashboardEquipePage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Carrega profissionais e dados do tenant diretamente do PostgreSQL
-  const fetchData = useCallback(async () => {
-    setLoading(true);
+  const fetchData = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       const [tenantRes, profRes] = await Promise.all([
         api.get('/tenants/me').catch(() => null),
@@ -329,12 +331,35 @@ export default function DashboardEquipePage() {
     } catch (err) {
       console.error('Erro ao buscar equipe:', err);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Revalidação Automática Inteligente em Segundo Plano (30s e foco na janela)
+  useEffect(() => {
+    const handleRevalidate = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData(true);
+      }
+    };
+
+    const interval = setInterval(handleRevalidate, 30000);
+    window.addEventListener('focus', handleRevalidate);
+    document.addEventListener('visibilitychange', handleRevalidate);
+    window.addEventListener('marquesuahora_agenda_sync', handleRevalidate);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleRevalidate);
+      document.removeEventListener('visibilitychange', handleRevalidate);
+      window.removeEventListener('marquesuahora_agenda_sync', handleRevalidate);
+    };
   }, [fetchData]);
 
   const currentConfig = NICHE_CONFIGS[currentNiche] || NICHE_CONFIGS.BEAUTY_SALON;
@@ -449,6 +474,7 @@ export default function DashboardEquipePage() {
 
       setIsModalOpen(false);
       fetchData();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Falha ao salvar colaborador.');
     } finally {
@@ -460,6 +486,7 @@ export default function DashboardEquipePage() {
     try {
       await api.put(`/professionals/${member.id}`, { isActive: !member.isActive });
       fetchData();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch {
       alert('Erro ao alterar status do profissional.');
     }
@@ -474,6 +501,7 @@ export default function DashboardEquipePage() {
       }
       setDeleteTarget(null);
       fetchData();
+      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
       alert(err?.response?.data?.message || 'Falha ao remover colaborador.');
     }

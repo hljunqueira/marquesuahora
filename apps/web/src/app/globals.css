@@ -88,3 +88,22 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(100, 116, 139, 0.45);
 }
+
+/* Safe Areas para iPhone e Android Modernos */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.mb-safe {
+  margin-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Prevenção de Zoom automático no iOS Safari */
+@media screen and (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+

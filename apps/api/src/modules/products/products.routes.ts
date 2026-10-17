@@ -84,6 +84,19 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       data: createData
     });
 
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'PRODUCT_CREATE',
+        entityType: 'Product',
+        entityId: product.id,
+        details: { name: product.name, salePrice: Number(product.salePrice), stock: product.stockQuantity },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
+
     return reply.status(201).send({
       ...product,
       costPrice: Number(product.costPrice),
@@ -129,6 +142,19 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const updated = await db.product.findUnique({ where: { id } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'PRODUCT_UPDATE',
+        entityType: 'Product',
+        entityId: id,
+        details: { changes: updateData },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
 
     if (updated) {
       try {
@@ -179,6 +205,19 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     await db.product.delete({ where: { id } });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'PRODUCT_DELETE',
+        entityType: 'Product',
+        entityId: id,
+        details: { name: product.name },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
 
     return reply.send({ message: 'Produto excluído do estoque com sucesso.' });
   });

@@ -36,6 +36,10 @@ export interface TenantSettings {
   depositRequired: boolean;
   depositType: 'FIXED' | 'PERCENTAGE';
   depositAmount: number;
+  depositOnFirstBooking?: boolean;
+  depositFirstBookingType?: 'FIXED' | 'PERCENTAGE';
+  depositFirstBookingValue?: number;
+  depositFirstBookingPercent?: number;
   pixKey?: string | null;
   pixKeyType?: 'CPF' | 'CNPJ' | 'PHONE' | 'EMAIL' | 'RANDOM' | null;
   pixKeyHolder?: string | null;

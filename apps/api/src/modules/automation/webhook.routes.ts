@@ -4,6 +4,9 @@ import { prisma } from '../../lib/prisma';
 import { JevDecisionEngine } from './jev.service';
 import { EvolutionService } from './evolution.service';
 import { OpenRouterService } from './openrouter.service';
+import { AudioTranscriptionService } from './audio-transcription.service';
+import { VisionService } from './vision.service';
+import { AiAssistantService } from './ai-assistant.service';
 import { waitlistQueue } from './queues';
 import { BookingService } from '../schedules/booking.service';
 import {
@@ -86,17 +89,6 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     const rawPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
     const clientPhone = rawPhone.startsWith('55') ? rawPhone.slice(2) : rawPhone;
 
-    // Extrai o texto da mensagem recebida
-    const messageText =
-      messageData.message?.conversation ||
-      messageData.message?.extendedTextMessage?.text ||
-      messageData.message?.buttonsResponseMessage?.selectedDisplayText ||
-      '';
-
-    if (!messageText) {
-      return reply.status(200).send({ status: 'ignored_no_text' });
-    }
-
     // Identifica o salão associado à instância
     const config = await prisma.whatsappConfig.findFirst({
       where: { instanceName },
@@ -108,6 +100,69 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const tenant = config.tenant;
+
+    const messageContent = messageData.message || {};
+    const isAudio = Boolean(messageContent.audioMessage || body.data.messageType === 'audioMessage');
+    const isImage = Boolean(messageContent.imageMessage || body.data.messageType === 'imageMessage');
+
+    let messageText =
+      messageContent.conversation ||
+      messageContent.extendedTextMessage?.text ||
+      messageContent.buttonsResponseMessage?.selectedDisplayText ||
+      '';
+
+    // 1. Processamento de Áudio com Whisper via OpenRouter
+    if (isAudio && key.id) {
+      const audioBase64 = await EvolutionService.getMediaBase64(instanceName, key.id, config.apiKey || undefined);
+      if (audioBase64) {
+        const transcribed = await AudioTranscriptionService.transcribe({
+          base64Data: audioBase64,
+          format: 'ogg'
+        });
+        if (transcribed) {
+          messageText = transcribed;
+          console.log(`[WhatsApp Áudio Transcrito] "${transcribed}" de ${clientPhone}`);
+        }
+      }
+    }
+
+    // 2. Processamento de Imagens com Visão Multimodal (Comprovante PIX ou Referência Estética)
+    if (isImage && key.id) {
+      const imageBase64 = await EvolutionService.getMediaBase64(instanceName, key.id, config.apiKey || undefined);
+      if (imageBase64) {
+        // Tenta identificar se é comprovante PIX
+        const pixAnalysis = await VisionService.analyzePixReceipt(imageBase64);
+        if (pixAnalysis.isPixReceipt && pixAnalysis.status === 'SUCCESS') {
+          const valueStr = pixAnalysis.amount ? `no valor de R$ ${Number(pixAnalysis.amount).toFixed(2)}` : '';
+          const replyText = `Recebemos seu comprovante de PIX ${valueStr}! Nossa equipe já foi notificada para confirmar a baixa do seu sinal e garantir o seu horário. Muito obrigado!`;
+          await EvolutionService.sendTextMessage(tenant.id, clientPhone, replyText);
+          return reply.status(200).send({ handled: true, action: 'pix_receipt_received' });
+        }
+
+        // Tenta identificar se é foto de referência estética (unha, corte, penteado)
+        const activeServices = await prisma.service.findMany({
+          where: { tenantId: tenant.id, allowOnlineBooking: true },
+          select: { name: true }
+        });
+        const beautyAnalysis = await VisionService.analyzeBeautyReference(
+          imageBase64,
+          activeServices.map(s => s.name)
+        );
+
+        if (beautyAnalysis.isBeautyReference) {
+          const serviceRecommendation = beautyAnalysis.recommendedServiceNames?.length
+            ? ` Esse procedimento combina muito com nosso serviço de *${beautyAnalysis.recommendedServiceNames[0]}*.`
+            : '';
+          const replyText = `Que linda essa referência!${serviceRecommendation}\n\nPara conferir os profissionais disponíveis e escolher o melhor dia e horário para fazer esse atendimento, acesse nosso link oficial:\n👉 https://marquesuahora.com.br/${tenant.slug}`;
+          await EvolutionService.sendTextMessage(tenant.id, clientPhone, replyText);
+          return reply.status(200).send({ handled: true, action: 'beauty_reference_analyzed' });
+        }
+      }
+    }
+
+    if (!messageText) {
+      return reply.status(200).send({ status: 'ignored_no_text' });
+    }
 
 
     // Busca o cliente pelo telefone
@@ -281,63 +336,17 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // 5. Atendimento Inteligente para Dúvidas Gerais (System Two via OpenRouter ou Fallback) com Context Engine 360°
-    const [activeServices, activeCourses, activeProducts, aiSettings] = await Promise.all([
-      prisma.service.findMany({
-        where: { tenantId: tenant.id, allowOnlineBooking: true },
-        select: { name: true, price: true, durationMinutes: true }
-      }),
-      prisma.course.findMany({
-        where: { tenantId: tenant.id, isActive: true },
-        select: { title: true, price: true, description: true }
-      }),
-      prisma.product.findMany({
-        where: { tenantId: tenant.id, showInVitrine: true, isActive: true },
-        select: { name: true, salePrice: true, description: true }
-      }),
-      prisma.tenantAiSettings.findUnique({
-        where: { tenantId: tenant.id }
-      })
-    ]);
-
-    const fullAddress = [tenant.addressStreet, tenant.addressNumber, tenant.addressNeighborhood, tenant.addressCity]
-      .filter(Boolean)
-      .join(', ');
-
-    const openingHours = `${tenant.openingTime || '09:00'} às ${tenant.closingTime || '20:00'}`;
-
-    const parsedFaq = Array.isArray(aiSettings?.knowledgeBaseFaq)
-      ? (aiSettings.knowledgeBaseFaq as Array<{ question: string; answer: string }>)
-      : null;
-
-    const aiAnswer = await OpenRouterService.answerGeneralInquiry({
-      tenantName: tenant.name,
-      tenantSlug: tenant.slug,
-      services: activeServices.map((s) => ({
-        name: s.name,
-        price: Number(s.price),
-        durationMinutes: s.durationMinutes
-      })),
-      courses: activeCourses.map((c) => ({
-        title: c.title,
-        price: c.price ? Number(c.price) : null,
-        description: c.description
-      })),
-      products: activeProducts.map((p) => ({
-        name: p.name,
-        salePrice: Number(p.salePrice),
-        description: p.description
-      })),
-      customInstructions: aiSettings?.customInstructions,
-      knowledgeBaseFaq: parsedFaq,
-      address: fullAddress || null,
-      openingHours,
+    // 5. Atendente IA Autônoma (Disponibilidade em Tempo Real, Memória de Turnos no Redis e Padrão Humanizer)
+    const aiAnswer = await AiAssistantService.processMessage({
+      tenantId: tenant.id,
+      clientPhone,
       clientName: client?.name,
       messageText
     });
 
     await EvolutionService.sendTextMessage(tenant.id, clientPhone, aiAnswer);
 
-    return reply.status(200).send({ handled: true, action: 'ai_answered' });
+    return reply.status(200).send({ handled: true, action: 'ai_autonomous_answered' });
   });
 
   // POST /webhooks/resend - Webhook de entrega e eventos de e-mail do Resend

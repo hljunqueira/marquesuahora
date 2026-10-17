@@ -26,6 +26,11 @@ export interface ScheduleAppointment {
   totalDurationMinutes: number;
   status: 'PENDING' | 'CONFIRMED' | 'IN_SERVICE' | 'COMPLETED' | 'NO_SHOW' | 'CANCELLED';
   notes?: string | null;
+  depositAmount?: number | string | null;
+  depositPaid?: boolean;
+  arrivalPhotoUrl?: string | null;
+  resultPhotoUrl?: string | null;
+  source?: string | null;
 }
 
 export interface ProfessionalItem {
@@ -58,4 +63,12 @@ export interface BlockItem {
   reason: string;
   isPaused?: boolean;
 }
+
+export interface FreeGap {
+  startTime: string; // "11:30"
+  endTime: string;   // "13:30"
+  durationMinutes: number; // 120
+  label: string; // "2h livres"
+}
+
 

@@ -241,22 +241,25 @@ export default function DashboardFinanceiroPage() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   // ==========================================
   // CARREGAMENTO E SINCRONIZAÇÃO EM TEMPO REAL
   // ==========================================
 
   const [loading, setLoading] = useState(true);
 
-  const loadAllConnectedData = async () => {
+  const loadAllConnectedData = async (silent = false) => {
     try {
-      setLoading(true);
-      const [finRes, commRes, tenantRes, clientsRes, servicesRes, schedulesRes] = await Promise.all([
+      if (!silent) setLoading(true);
+      const [finRes, commRes, tenantRes, clientsRes, servicesRes, schedulesRes, creditRes] = await Promise.all([
         api.get('/financial').catch(() => ({ data: { transactions: [] } })),
         api.get('/financial/commissions').catch(() => ({ data: [] })),
         api.get('/tenants/me').catch(() => ({ data: null })),
         api.get('/clients').catch(() => ({ data: [] })),
         api.get('/services').catch(() => ({ data: [] })),
-        api.get('/schedules').catch(() => ({ data: [] }))
+        api.get('/schedules').catch(() => ({ data: [] })),
+        api.get('/financial/credit-accounts').catch(() => ({ data: { accounts: [] } }))
       ]);
 
       if (tenantRes.data) {
@@ -321,54 +324,79 @@ export default function DashboardFinanceiroPage() {
         setConnectedAppointments([]);
       }
 
-      // Crediário inicial vazio (sem mocks)
-      const savedCredits = localStorage.getItem('marquesuahora_credit_accounts');
-      if (savedCredits) {
-        try {
-          const parsed = JSON.parse(savedCredits);
-          if (Array.isArray(parsed)) {
-            setCreditAccounts(parsed);
-          } else {
-            setCreditAccounts([]);
-          }
-        } catch {
-          setCreditAccounts([]);
-        }
-      } else {
-        setCreditAccounts([]);
+      // Crediário vindo da API real
+      const accountsList: CreditAccountItem[] = Array.isArray(creditRes.data?.accounts) ? creditRes.data.accounts : [];
+      setCreditAccounts(accountsList);
+
+      const savedPref = typeof window !== 'undefined' ? localStorage.getItem('marquesuahora_credit_enabled') : null;
+      if (savedPref !== null) {
+        setIsCreditEnabled(savedPref === 'true');
+      } else if (accountsList.length > 0) {
+        setIsCreditEnabled(true);
       }
     } catch (err) {
       console.error('Erro ao carregar dados financeiros:', err);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
+  };
+
+  const notifyFinancialSync = () => {
+    window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
+    window.dispatchEvent(new Event('storage'));
   };
 
   useEffect(() => {
     loadAllConnectedData();
+
+    // 1. Polling silencioso a cada 30 segundos se visível
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadAllConnectedData(true);
+      }
+    }, 30000);
+
+    // 2. Foco da janela e alternância de abas
+    const handleFocus = () => loadAllConnectedData(true);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadAllConnectedData(true);
+      }
+    };
+
+    // 3. Sincronização entre abas e componentes
+    const handleFinancialSync = () => loadAllConnectedData(true);
+    const handleStorage = (e: StorageEvent) => {
+      if (
+        !e.key ||
+        e.key.includes('financial') ||
+        e.key.includes('transactions') ||
+        e.key.includes('credit') ||
+        e.key.includes('appointments')
+      ) {
+        loadAllConnectedData(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('marquesuahora_financial_sync', handleFinancialSync);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('marquesuahora_financial_sync', handleFinancialSync);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
-
-  // Helper central de persistência e Invalidação de Queries Instantânea
-  const persistTransactions = (updated: TransactionItem[]) => {
-    setTransactions(updated);
-    localStorage.setItem('marquesuahora_transactions', JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
-    window.dispatchEvent(new Event('storage'));
-  };
-
-  const persistCredits = (updated: CreditAccountItem[]) => {
-    setCreditAccounts(updated);
-    localStorage.setItem('marquesuahora_credit_accounts', JSON.stringify(updated));
-    window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
-    window.dispatchEvent(new Event('storage'));
-  };
 
   const handleToggleCreditEnabled = () => {
     const nextVal = !isCreditEnabled;
     setIsCreditEnabled(nextVal);
     localStorage.setItem('marquesuahora_credit_enabled', String(nextVal));
-    window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
-    window.dispatchEvent(new Event('storage'));
+    notifyFinancialSync();
     showToast(nextVal ? 'Módulo de Crediário Ativado com Sucesso!' : 'Crediário desativado.');
   };
 
@@ -405,7 +433,7 @@ export default function DashboardFinanceiroPage() {
 
   // Total do Crediário Pendente
   const creditSummary = useMemo(() => {
-    const totalDue = creditAccounts.reduce((acc, c) => acc + c.remainingAmount, 0);
+    const totalDue = creditAccounts.reduce((acc, c) => acc + (c.status !== 'PAID' ? c.remainingAmount : 0), 0);
     const activeCount = creditAccounts.filter((c) => c.status !== 'PAID').length;
     return { totalDue, activeCount };
   }, [creditAccounts]);
@@ -413,24 +441,31 @@ export default function DashboardFinanceiroPage() {
   // ==========================================
   // AJUSTE RÁPIDO DE VALORES (+ / - EM TEMPO REAL)
   // ==========================================
-  const handleQuickAdjustAmount = (txId: string, delta: number) => {
+  const handleQuickAdjustAmount = async (txId: string, delta: number) => {
     const target = transactions.find((t) => t.id === txId);
     if (!target) return;
 
     const newAmount = Math.max(0, target.amount + delta);
-    const updated = transactions.map((t) => (t.id === txId ? { ...t, amount: newAmount } : t));
-    persistTransactions(updated);
-    showToast(
-      `Valor atualizado para R$ ${newAmount.toFixed(2).replace('.', ',')} (${delta > 0 ? '+' : ''}R$ ${delta})`
-    );
+    try {
+      await api.put(`/financial/${txId}`, {
+        amount: newAmount
+      });
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+      showToast(
+        `Valor atualizado para R$ ${newAmount.toFixed(2).replace('.', ',')} (${delta > 0 ? '+' : ''}R$ ${delta})`
+      );
+    } catch {
+      showToast('Erro ao ajustar valor do lançamento no caixa.');
+    }
   };
 
   // Conciliar Agendamentos Hoje em 1 Clique
-  const handleReconcileAppointmentsToday = () => {
+  const handleReconcileAppointmentsToday = async () => {
     let importedCount = 0;
     const currentTxs = [...transactions];
 
-    connectedAppointments.forEach((app) => {
+    for (const app of connectedAppointments) {
       const alreadyLogged = currentTxs.some(
         (t) => t.id === `tx-app-${app.id}` || (t.title.includes(app.serviceName) && t.clientName === app.clientName)
       );
@@ -438,28 +473,27 @@ export default function DashboardFinanceiroPage() {
       if (!alreadyLogged && (app.status === 'COMPLETED' || app.depositPaid)) {
         const amountToLog = app.status === 'COMPLETED' ? app.totalPrice : app.depositAmount;
         if (amountToLog > 0) {
-          const newTx: TransactionItem = {
-            id: `tx-app-${app.id}`,
-            type: 'INCOME',
-            title: `Atendimento: ${app.serviceName} - ${app.clientName}`,
-            category: 'Procedimentos & Serviços',
-            amount: amountToLog,
-            date: app.date || new Date().toISOString().slice(0, 10),
-            paymentMethod: app.depositPaid ? 'PIX' : 'CREDIT_CARD',
-            clientName: app.clientName,
-            professionalName: app.professionalName,
-            status: 'PAID',
-            notes: `Origem: Agenda (${app.startTime})`
-          };
-          currentTxs.unshift(newTx);
-          importedCount++;
+          try {
+            await api.post('/financial', {
+              type: 'INCOME',
+              title: `Atendimento: ${app.serviceName} - ${app.clientName}`,
+              category: 'Procedimentos & Serviços',
+              amount: amountToLog,
+              paymentMethod: app.depositPaid ? 'PIX' : 'CREDIT_CARD',
+              paidAt: app.date || new Date().toISOString().slice(0, 10)
+            });
+            importedCount++;
+          } catch {
+            // Ignora duplicados ou erro individual
+          }
         }
       }
-    });
+    }
 
     if (importedCount > 0) {
-      persistTransactions(currentTxs);
-      showToast(`${importedCount} agendamento(s) conciliado(s) e adicionado(s) ao caixa!`);
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+      showToast(`${importedCount} agendamento(s) conciliado(s) e registrado(s) no caixa com sucesso!`);
     } else {
       showToast('Todos os agendamentos confirmados já estão conciliados no caixa.');
     }
@@ -521,7 +555,7 @@ export default function DashboardFinanceiroPage() {
     setTxAmount(String(nextVal));
   };
 
-  const handleSaveTx = (e: React.FormEvent) => {
+  const handleSaveTx = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(txAmount.replace(',', '.'));
     if (isNaN(val) || val <= 0) {
@@ -529,100 +563,98 @@ export default function DashboardFinanceiroPage() {
       return;
     }
 
-    if (editingTx) {
-      const updated = transactions.map((t) =>
-        t.id === editingTx.id
-          ? {
-              ...t,
-              type: txType,
-              title: txTitle,
-              category: txCategory,
-              amount: val,
-              paymentMethod: txPaymentMethod,
-              date: txDate,
-              clientName: txClient.trim() || undefined,
-              professionalName: txProfessional.trim() || undefined,
-              notes: txNotes.trim() || undefined
-            }
-          : t
-      );
-      persistTransactions(updated);
-      showToast('Lançamento atualizado no caixa!');
-    } else {
-      const newTx: TransactionItem = {
-        id: `tx-${Date.now()}`,
-        type: txType,
-        title: txTitle,
-        category: txCategory,
-        amount: val,
-        paymentMethod: txPaymentMethod,
-        date: txDate,
-        clientName: txClient.trim() || undefined,
-        professionalName: txProfessional.trim() || undefined,
-        notes: txNotes.trim() || undefined,
-        status: 'PAID'
-      };
-      persistTransactions([newTx, ...transactions]);
-      showToast('Lançamento adicionado ao caixa!');
+    try {
+      setIsSubmitting(true);
+      if (editingTx) {
+        await api.put(`/financial/${editingTx.id}`, {
+          type: txType,
+          amount: val,
+          description: txTitle,
+          category: txCategory,
+          paymentMethod: txPaymentMethod,
+          paidAt: txDate
+        });
+        showToast('Lançamento atualizado no caixa com sucesso!');
+      } else {
+        await api.post('/financial', {
+          type: txType,
+          amount: val,
+          description: txTitle,
+          category: txCategory,
+          paymentMethod: txPaymentMethod,
+          paidAt: txDate
+        });
+        showToast('Lançamento adicionado ao caixa!');
+      }
+
+      setIsTxModalOpen(false);
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao salvar lançamento no caixa.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsTxModalOpen(false);
   };
 
-  const handleDeleteTx = () => {
+  const handleDeleteTx = async () => {
     if (!txDeleteTarget) return;
-    persistTransactions(transactions.filter((t) => t.id !== txDeleteTarget.id));
-    setTxDeleteTarget(null);
-    showToast('Lançamento removido do caixa.');
+    try {
+      setIsSubmitting(true);
+      await api.delete(`/financial/${txDeleteTarget.id}`);
+      setTxDeleteTarget(null);
+      showToast('Lançamento removido do caixa com sucesso.');
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao remover lançamento.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleConfirmRefund = () => {
+  const handleConfirmRefund = async () => {
     if (!refundTarget) return;
 
     const refundAmount = refundTarget.amount;
-    const newTxId = `tx-refund-${Date.now()}`;
     const today = new Date().toISOString().slice(0, 10);
 
-    const compensatoryTx: TransactionItem = {
-      id: newTxId,
-      type: 'EXPENSE',
-      title: `Estorno: ${refundTarget.title}`,
-      category: 'Outras Despesas',
-      amount: refundAmount,
-      date: today,
-      paymentMethod: refundTarget.paymentMethod,
-      clientName: refundTarget.clientName,
-      professionalName: refundTarget.professionalName,
-      appointmentId: refundTarget.appointmentId,
-      notes: `Estorno formal efetuado do lançamento #${refundTarget.id}. Motivo: ${refundReason}`,
-      status: 'PAID'
-    };
+    try {
+      setIsSubmitting(true);
+      await api.post('/financial', {
+        type: 'EXPENSE',
+        amount: refundAmount,
+        description: `Estorno: ${refundTarget.title} (Motivo: ${refundReason})`,
+        category: 'Outras Despesas',
+        paymentMethod: refundTarget.paymentMethod,
+        paidAt: today
+      });
 
-    const updatedTransactions = [compensatoryTx, ...transactions];
-    persistTransactions(updatedTransactions);
-
-    // Se solicitado reabrir o agendamento na agenda
-    if (isReopenAppointment && refundTarget.appointmentId) {
-      try {
-        const appKey = `marquesuahora_appointments_${currentNiche}`;
-        const saved = localStorage.getItem(appKey);
-        if (saved) {
-          const list = JSON.parse(saved);
-          const updated = list.map((a: any) =>
-            a.id === refundTarget.appointmentId ? { ...a, status: 'CONFIRMED', depositPaid: false } : a
-          );
-          localStorage.setItem(appKey, JSON.stringify(updated));
-          window.dispatchEvent(new CustomEvent('marquesuahora_appointments_sync'));
+      // Se solicitado reabrir o agendamento na agenda
+      if (isReopenAppointment && refundTarget.appointmentId) {
+        try {
+          await api.put(`/schedules/${refundTarget.appointmentId}`, {
+            status: 'CONFIRMED'
+          });
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
-    }
 
-    showToast(`Estorno de R$ ${refundAmount.toFixed(2).replace('.', ',')} lançado com sucesso.`);
-    setRefundTarget(null);
-    setRefundReason('Desistência do cliente ou cancelamento amigável');
-    setIsReopenAppointment(false);
+      showToast(`Estorno de R$ ${refundAmount.toFixed(2).replace('.', ',')} lançado com sucesso.`);
+      setRefundTarget(null);
+      setRefundReason('Desistência do cliente ou cancelamento amigável');
+      setIsReopenAppointment(false);
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao registrar estorno no caixa.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // ==========================================
@@ -633,52 +665,54 @@ export default function DashboardFinanceiroPage() {
     setPayoutMethod('PIX');
   };
 
-  const handleConfirmPayout = () => {
+  const handleConfirmPayout = async () => {
     if (!payoutTarget) return;
 
-    // 1. Marca comissão como paga
-    setCommissions((prev) =>
-      prev.map((c) =>
-        c.id === payoutTarget.id
-          ? {
-              ...c,
-              status: 'PAID',
-              paidAt: `Hoje às ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-              paidMethod: payoutMethod
-            }
-          : c
-      )
-    );
+    try {
+      setIsSubmitting(true);
+      await api.post('/financial', {
+        type: 'EXPENSE',
+        amount: payoutTarget.payoutAmount,
+        description: `Repasse de Comissão - ${payoutTarget.professionalName}`,
+        category: 'Repasse de Comissões',
+        paymentMethod: payoutMethod,
+        professionalId: payoutTarget.professionalId,
+        paidAt: new Date().toISOString().slice(0, 10)
+      });
 
-    // 2. Lança saída de caixa automática referente ao repasse
-    const repasseTx: TransactionItem = {
-      id: `tx-repasse-${payoutTarget.id}`,
-      type: 'EXPENSE',
-      title: `Repasse de Comissão - ${payoutTarget.professionalName}`,
-      category: 'Repasse de Comissões',
-      amount: payoutTarget.payoutAmount,
-      date: new Date().toISOString().slice(0, 10),
-      paymentMethod: payoutMethod,
-      professionalName: payoutTarget.professionalName,
-      status: 'PAID',
-      notes: `Referente a ${payoutTarget.servicesCount} atendimentos (${payoutTarget.percentage}% de R$ ${payoutTarget.salesTotal.toFixed(2)})`
-    };
+      setCommissions((prev) =>
+        prev.map((c) =>
+          c.id === payoutTarget.id
+            ? {
+                ...c,
+                status: 'PAID',
+                paidAt: `Hoje às ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+                paidMethod: payoutMethod
+              }
+            : c
+        )
+      );
 
-    persistTransactions([repasseTx, ...transactions]);
-    showToast(`Repasse de R$ ${payoutTarget.payoutAmount.toFixed(2)} efetuado para ${payoutTarget.professionalName}!`);
-    setPayoutTarget(null);
+      showToast(`Repasse de R$ ${payoutTarget.payoutAmount.toFixed(2)} efetuado para ${payoutTarget.professionalName}!`);
+      setPayoutTarget(null);
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao registrar repasse de comissão.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleUndoPayout = (c: CommissionPayoutItem) => {
+  const handleUndoPayout = async (c: CommissionPayoutItem) => {
     setCommissions((prev) =>
       prev.map((item) =>
         item.id === c.id ? { ...item, status: 'PENDING', paidAt: undefined, paidMethod: undefined } : item
       )
     );
-    // Remove o lançamento de despesa do repasse
-    const filteredTxs = transactions.filter((t) => t.id !== `tx-repasse-${c.id}`);
-    persistTransactions(filteredTxs);
-    showToast(`Repasse de ${c.professionalName} reaberto e estornado do caixa.`);
+    showToast(`Repasse de ${c.professionalName} reaberto.`);
+    notifyFinancialSync();
   };
 
   // ==========================================
@@ -718,7 +752,7 @@ export default function DashboardFinanceiroPage() {
     setIsCreditModalOpen(true);
   };
 
-  const handleSaveCredit = (e: React.FormEvent) => {
+  const handleSaveCredit = async (e: React.FormEvent) => {
     e.preventDefault();
     const totalVal = parseFloat(creditTotalAmount.replace(',', '.'));
     if (isNaN(totalVal) || totalVal <= 0) {
@@ -726,46 +760,39 @@ export default function DashboardFinanceiroPage() {
       return;
     }
 
-    if (editingCredit) {
-      const remaining = Math.max(0, totalVal - editingCredit.paidAmount);
-      const updatedStatus: CreditAccountStatus = remaining === 0 ? 'PAID' : remaining < totalVal ? 'PARTIAL' : 'OPEN';
+    try {
+      setIsSubmitting(true);
+      if (editingCredit) {
+        await api.put(`/financial/credit-accounts/${editingCredit.id}`, {
+          clientName: creditClientName,
+          clientPhone: creditClientPhone,
+          serviceOrDescription: creditDescription,
+          totalAmount: totalVal,
+          dueDate: creditDueDate,
+          notes: creditNotes.trim() || undefined
+        });
+        showToast('Conta de crediário atualizada com sucesso!');
+      } else {
+        await api.post('/financial/credit-accounts', {
+          clientName: creditClientName,
+          clientPhone: creditClientPhone,
+          serviceOrDescription: creditDescription,
+          totalAmount: totalVal,
+          dueDate: creditDueDate,
+          notes: creditNotes.trim() || undefined
+        });
+        showToast(`Conta de crediário aberta para ${creditClientName}!`);
+      }
 
-      const updated = creditAccounts.map((c) =>
-        c.id === editingCredit.id
-          ? {
-              ...c,
-              clientName: creditClientName,
-              clientPhone: creditClientPhone,
-              serviceOrDescription: creditDescription,
-              totalAmount: totalVal,
-              remainingAmount: remaining,
-              dueDate: creditDueDate,
-              status: updatedStatus,
-              notes: creditNotes.trim() || undefined
-            }
-          : c
-      );
-      persistCredits(updated);
-      showToast('Conta de crediário atualizada!');
-    } else {
-      const newAccount: CreditAccountItem = {
-        id: `cred-${Date.now()}`,
-        clientName: creditClientName,
-        clientPhone: creditClientPhone,
-        serviceOrDescription: creditDescription,
-        totalAmount: totalVal,
-        paidAmount: 0,
-        remainingAmount: totalVal,
-        createdAt: new Date().toISOString().slice(0, 10),
-        dueDate: creditDueDate || new Date().toISOString().slice(0, 10),
-        status: 'OPEN',
-        notes: creditNotes.trim() || undefined
-      };
-      persistCredits([newAccount, ...creditAccounts]);
-      showToast(`Conta de crediário aberta para ${creditClientName}!`);
+      setIsCreditModalOpen(false);
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao salvar conta no crediário.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsCreditModalOpen(false);
   };
 
   // Abrir Modal de Pagamento de Crediário (Baixa)
@@ -775,56 +802,50 @@ export default function DashboardFinanceiroPage() {
     setPaymentMethodForCredit('PIX');
   };
 
-  const handleConfirmPayCredit = (e: React.FormEvent) => {
+  const handleConfirmPayCredit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingCreditTarget) return;
 
     const paidVal = parseFloat(paymentAmountInput.replace(',', '.'));
     if (isNaN(paidVal) || paidVal <= 0) {
-      alert('Informe um valor de pagamento válido.');
+      alert('Informe um valor de pagamento válido maior que zero.');
       return;
     }
 
-    const newPaidAmount = payingCreditTarget.paidAmount + paidVal;
-    const newRemaining = Math.max(0, payingCreditTarget.totalAmount - newPaidAmount);
-    const newStatus: CreditAccountStatus = newRemaining === 0 ? 'PAID' : 'PARTIAL';
+    try {
+      setIsSubmitting(true);
+      await api.post(`/financial/credit-accounts/${payingCreditTarget.id}/pay`, {
+        amount: paidVal,
+        paymentMethod: paymentMethodForCredit
+      });
 
-    const updatedCredits = creditAccounts.map((c) =>
-      c.id === payingCreditTarget.id
-        ? {
-            ...c,
-            paidAmount: newPaidAmount,
-            remainingAmount: newRemaining,
-            status: newStatus
-          }
-        : c
-    );
-    persistCredits(updatedCredits);
-
-    // Lança entrada de caixa automática aumentando o faturamento
-    const incomeTx: TransactionItem = {
-      id: `tx-cred-${Date.now()}`,
-      type: 'INCOME',
-      title: `Recebimento Crediário - ${payingCreditTarget.clientName}`,
-      category: 'Quitação de Crediário',
-      amount: paidVal,
-      date: new Date().toISOString().slice(0, 10),
-      paymentMethod: paymentMethodForCredit,
-      clientName: payingCreditTarget.clientName,
-      status: 'PAID',
-      notes: `Baixa no crediário (${payingCreditTarget.serviceOrDescription})`
-    };
-    persistTransactions([incomeTx, ...transactions]);
-
-    showToast(`Pagamento de R$ ${paidVal.toFixed(2)} registrado e lançado no caixa!`);
-    setPayingCreditTarget(null);
+      showToast(`Pagamento de R$ ${paidVal.toFixed(2)} registrado e lançado no caixa com sucesso!`);
+      setPayingCreditTarget(null);
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao registrar pagamento do crediário.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDeleteCredit = () => {
+  const handleDeleteCredit = async () => {
     if (!creditDeleteTarget) return;
-    persistCredits(creditAccounts.filter((c) => c.id !== creditDeleteTarget.id));
-    setCreditDeleteTarget(null);
-    showToast('Conta removida do crediário.');
+    try {
+      setIsSubmitting(true);
+      await api.delete(`/financial/credit-accounts/${creditDeleteTarget.id}`);
+      setCreditDeleteTarget(null);
+      showToast('Conta removida do crediário.');
+      notifyFinancialSync();
+      await loadAllConnectedData(true);
+    } catch (err: any) {
+      const msg = err.response?.data?.message || 'Erro ao excluir conta do crediário.';
+      showToast(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Filtragem de Transações
@@ -1976,9 +1997,11 @@ export default function DashboardFinanceiroPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer"
+                    disabled={isSubmitting}
+                    className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
-                    {editingTx ? 'Salvar Alterações' : 'Salvar Lançamento'}
+                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{editingTx ? 'Salvar Alterações' : 'Salvar Lançamento'}</span>
                   </button>
                 </div>
               </form>
@@ -2053,10 +2076,12 @@ export default function DashboardFinanceiroPage() {
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={handleConfirmPayout}
-                  className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer"
+                  className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                 >
-                  Confirmar e Baixar no Caixa
+                  {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Confirmar e Baixar no Caixa</span>
                 </button>
               </div>
             </motion.div>
@@ -2250,9 +2275,11 @@ export default function DashboardFinanceiroPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer"
+                    disabled={isSubmitting}
+                    className="px-5 py-2.5 btn-primary-tenant rounded-xl text-xs font-semibold cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
-                    {editingCredit ? 'Salvar Alterações' : 'Criar Conta no Crediário'}
+                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>{editingCredit ? 'Salvar Alterações' : 'Criar Conta no Crediário'}</span>
                   </button>
                 </div>
               </form>
@@ -2382,10 +2409,12 @@ export default function DashboardFinanceiroPage() {
                   </button>
                   <button
                     type="button"
+                    disabled={isSubmitting}
                     onClick={handleConfirmRefund}
-                    className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-rose-600/20 cursor-pointer"
+                    className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-rose-600/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
-                    Confirmar Estorno
+                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Confirmar Estorno</span>
                   </button>
                 </div>
               </div>
@@ -2496,9 +2525,11 @@ export default function DashboardFinanceiroPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-600/20 cursor-pointer"
+                    disabled={isSubmitting}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-md shadow-emerald-600/20 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
                   >
-                    Confirmar Recebimento
+                    {isSubmitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Confirmar Recebimento</span>
                   </button>
                 </div>
               </form>

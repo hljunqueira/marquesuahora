@@ -100,6 +100,13 @@ enum TicketCategory {
   OTHER
 }
 
+enum CreditAccountStatus {
+  OPEN
+  PARTIAL
+  PAID
+  OVERDUE
+}
+
 enum TicketSenderType {
   TENANT
   SUPER_ADMIN
@@ -176,6 +183,10 @@ model Tenant {
   depositRequired         Boolean       @default(false) // Exigência de sinal PIX antecipado
   depositType             String        @default("FIXED") // "FIXED" (R$) ou "PERCENTAGE" (%)
   depositAmount           Decimal       @default(0.0) @db.Decimal(10, 2)
+  depositOnFirstBooking   Boolean       @default(false) // Exigência de sinal no 1º agendamento de clientes novas
+  depositFirstBookingType String        @default("PERCENTAGE") // "PERCENTAGE" (%) ou "FIXED" (R$)
+  depositFirstBookingValue Decimal      @default(50.0) @db.Decimal(10, 2) // Valor flexível do adiantamento (R$ ou %)
+  depositFirstBookingPercent Decimal    @default(50.0) @db.Decimal(10, 2) // Percentual do sinal de 1ª vez (default 50%)
   pixKey                  String?       // Chave PIX direta do salão para recebimento de sinais
   pixKeyType              String?       @default("CPF") // "CPF", "CNPJ", "PHONE", "EMAIL", "RANDOM"
   pixKeyHolder            String?       // Nome do titular / favorecido da conta bancária
@@ -204,6 +215,7 @@ model Tenant {
   scheduleBlocks          ScheduleBlock[]
   waitlistEntries         WaitlistEntry[]
   financialEntries        FinancialEntry[]
+  creditAccounts          CreditAccount[]
   products                Product[]
   whatsappConfig          WhatsappConfig?
   aiSettings              TenantAiSettings?
@@ -294,6 +306,9 @@ model Service {
   finishingMinutes  Int            @default(0) // Tempo de finalização e escova pós-pausa química
   photos            String[]       @default([]) // Galeria de fotos de resultados reais do procedimento
   requiresRemovalCheck Boolean     @default(false) // Alerta de remoção prévia de terceiros (Lash/Nail)
+  requiresDeposit      Boolean     @default(false) // Exigência de sinal de reserva antecipado para este serviço
+  depositType          String      @default("PERCENTAGE") // "PERCENTAGE" ou "FIXED"
+  depositAmount        Decimal     @default(50.0) @db.Decimal(10, 2) // Valor do sinal (default 50%)
   createdAt       DateTime       @default(now())
 
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -338,6 +353,8 @@ model Client {
   lastVisitAt             DateTime?
   lastChurnAlertSentAt    DateTime?
   isBlockedOnline         Boolean       @default(false)
+  anamnesis               Json?         // Ficha de Anamnese técnica / saúde (alergias, unhas, hábitos)
+  anamnesisToken          String?       @unique @default(uuid()) // Link seguro para preenchimento online pela cliente
   createdAt               DateTime      @default(now())
 
   tenant                  Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -345,6 +362,7 @@ model Client {
   photos                  ClientPhoto[]
   waitlistEntries         WaitlistEntry[]
   courseAccesses          CourseAccess[]
+  creditAccounts          CreditAccount[]
 
   @@index([tenantId])
   @@unique([tenantId, phone])
@@ -385,6 +403,8 @@ model Schedule {
   travelBufferMinutes Int          @default(0) // Janela de trânsito bloqueada (Personal Trainer domiciliar)
   packageRemainingSessions Int?    // Saldo de sessões restantes exibido ao cliente
   isMaintenance     Boolean        @default(false) // Flag indicativa de manutenção periódica (Unhas / Lash)
+  arrivalPhotoUrl   String?        // Foto de entrada (como a cliente chegou - prova visual do estado inicial/unhas faltantes)
+  resultPhotoUrl    String?        // Foto de saída (resultado final entregue na sessão)
   
   // Sinal Anti-No-Show via PIX Dinâmico
   depositAmount      Decimal        @default(0.0) @db.Decimal(10, 2)
@@ -575,6 +595,29 @@ model FinancialEntry {
   schedule       Schedule?       @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+}
+
+model CreditAccount {
+  id                   String              @id @default(uuid())
+  tenantId             String
+  clientId             String?
+  clientName           String
+  clientPhone          String
+  serviceOrDescription String
+  totalAmount          Decimal             @db.Decimal(10, 2)
+  paidAmount           Decimal             @default(0.0) @db.Decimal(10, 2)
+  remainingAmount      Decimal             @db.Decimal(10, 2)
+  dueDate              DateTime            @db.Date
+  status               CreditAccountStatus @default(OPEN)
+  notes                String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client               Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([tenantId, dueDate])
 }
 
 model WhatsappConfig {

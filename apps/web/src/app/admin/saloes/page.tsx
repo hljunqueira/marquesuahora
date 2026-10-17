@@ -12,9 +12,16 @@ import {
   AlertCircle,
   CreditCard,
   X,
-  Loader2
+  Loader2,
+  Plus,
+  Building2,
+  User,
+  Mail,
+  Phone,
+  ShieldCheck
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { InputMask } from '@/components/ui/InputMask';
 import { api } from '@/lib/api';
 
 interface TenantItem {
@@ -67,6 +74,58 @@ export default function AdminSaloesPage() {
 
   // Impersonação
   const [impersonatingId, setImpersonatingId] = useState<string | null>(null);
+
+  // Modal de Cadastro Direto de Assinante (Zero Ferramentas Externas)
+  const [isNewModalOpen, setIsNewModalOpen] = useState(false);
+  const [savingNewSubscriber, setSavingNewSubscriber] = useState(false);
+  const [newForm, setNewForm] = useState({
+    name: '',
+    slug: '',
+    niche: 'OTHER',
+    phone: '',
+    ownerName: '',
+    ownerEmail: '',
+    ownerPassword: '',
+    planId: 'SOLO',
+    billingStatus: 'ACTIVE' as 'ACTIVE' | 'TRIAL' | 'GRATUITY'
+  });
+
+  const handleNewNameChange = (val: string) => {
+    const slug = val
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+    setNewForm((prev) => ({ ...prev, name: val, slug }));
+  };
+
+  const handleCreateSubscriber = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingNewSubscriber(true);
+    try {
+      await api.post('/admin/tenants', newForm);
+      showToast(`Assinante "${newForm.name}" cadastrado com sucesso!`);
+      setIsNewModalOpen(false);
+      setNewForm({
+        name: '',
+        slug: '',
+        niche: 'BARBERSHOP',
+        phone: '',
+        ownerName: '',
+        ownerEmail: '',
+        ownerPassword: '',
+        planId: 'SOLO',
+        billingStatus: 'ACTIVE'
+      });
+      fetchTenants();
+    } catch (err: any) {
+      showToast(err?.response?.data?.message || 'Erro ao cadastrar assinante.', 'error');
+    } finally {
+      setSavingNewSubscriber(false);
+    }
+  };
 
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
@@ -225,14 +284,25 @@ export default function AdminSaloesPage() {
           </p>
         </div>
 
-        <button
-          onClick={fetchTenants}
-          disabled={loading}
-          className="self-start sm:self-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5"
-        >
-          {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-          <span>Atualizar Dados</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsNewModalOpen(true)}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Novo Assinante</span>
+          </button>
+          <button
+            type="button"
+            onClick={fetchTenants}
+            disabled={loading}
+            className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+          >
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            <span>Atualizar Dados</span>
+          </button>
+        </div>
       </div>
 
       {/* Barra de Filtros */}
@@ -585,6 +655,217 @@ export default function AdminSaloesPage() {
                   <span>Salvar Alterações</span>
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Cadastro Direto de Novo Assinante (Super Admin) */}
+      <AnimatePresence>
+        {isNewModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="w-full max-w-2xl bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-6 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Cadastrar Novo Assinante
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Crie o estabelecimento e o acesso do proprietário diretamente na plataforma.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsNewModalOpen(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateSubscriber} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Nome do Estabelecimento *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newForm.name}
+                      onChange={(e) => handleNewNameChange(e.target.value)}
+                      placeholder="Ex: Barbearia Dom Henrique"
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Link da Vitrine (Slug) *
+                    </label>
+                    <div className="flex items-center rounded-xl bg-slate-50 border border-slate-200 overflow-hidden focus-within:border-purple-600">
+                      <span className="pl-3 text-[11px] font-mono text-slate-400 select-none">
+                        /
+                      </span>
+                      <input
+                        type="text"
+                        required
+                        value={newForm.slug}
+                        onChange={(e) =>
+                          setNewForm((prev) => ({
+                            ...prev,
+                            slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
+                          }))
+                        }
+                        placeholder="barbearia-dom-henrique"
+                        className="w-full py-2.5 pr-3 bg-transparent text-xs text-slate-900 outline-none font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Nicho de Atuação *
+                    </label>
+                    <select
+                      value={newForm.niche}
+                      onChange={(e) => setNewForm((prev) => ({ ...prev, niche: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900 font-medium"
+                    >
+                      <option value="OTHER">Sem nicho definido (Geral / Multisserviços)</option>
+                      <option value="BARBERSHOP">Barbearia</option>
+                      <option value="BEAUTY_SALON">Salão de Beleza</option>
+                      <option value="NAIL_LASH_STUDIO">Unhas & Cílios</option>
+                      <option value="AESTHETICS_CLINIC">Clínica de Estética</option>
+                      <option value="PERSONAL_TRAINER">Personal Trainer</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      WhatsApp do Estabelecimento *
+                    </label>
+                    <InputMask
+                      mask="phone"
+                      value={newForm.phone}
+                      onChangeValue={(_formatted, raw) => setNewForm((prev) => ({ ...prev, phone: raw }))}
+                      placeholder="(11) 99999-9999"
+                      required
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Nome do Proprietário *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newForm.ownerName}
+                      onChange={(e) => setNewForm((prev) => ({ ...prev, ownerName: e.target.value }))}
+                      placeholder="Ex: Henrique Silva"
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      E-mail do Administrador *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={newForm.ownerEmail}
+                      onChange={(e) => setNewForm((prev) => ({ ...prev, ownerEmail: e.target.value }))}
+                      placeholder="henrique@estabelecimento.com"
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Senha Inicial *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={newForm.ownerPassword}
+                      onChange={(e) => setNewForm((prev) => ({ ...prev, ownerPassword: e.target.value }))}
+                      placeholder="Mínimo 6 caracteres"
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Plano Contratado *
+                    </label>
+                    <select
+                      value={newForm.planId}
+                      onChange={(e) => setNewForm((prev) => ({ ...prev, planId: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900 font-medium"
+                    >
+                      <option value="FREE">Gratuito (Franquia de 50 agendamentos)</option>
+                      <option value="SOLO">Profissional Solo (R$ 29,90/mês)</option>
+                      <option value="EQUIPE_PRO">Equipe Pro (R$ 59,90/mês)</option>
+                      <option value="VIP_AI">Império VIP & IA (R$ 89,90/mês)</option>
+                    </select>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Status Inicial da Assinatura *
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { id: 'ACTIVE', label: 'Ativo (Pago Direto)', desc: 'Acesso liberado' },
+                        { id: 'TRIAL', label: 'Demonstração (Trial)', desc: '14 dias de teste' },
+                        { id: 'GRATUITY', label: 'Cortesia VIP', desc: 'Isento de cobrança' }
+                      ].map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => setNewForm((prev) => ({ ...prev, billingStatus: item.id as any }))}
+                          className={`p-3 rounded-xl border text-left transition-all ${
+                            newForm.billingStatus === item.id
+                              ? 'border-purple-600 bg-purple-50/60 ring-2 ring-purple-600/20'
+                              : 'border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <span className="text-xs font-bold text-slate-900 block">{item.label}</span>
+                          <span className="text-[10px] text-slate-500">{item.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsNewModalOpen(false)}
+                    disabled={savingNewSubscriber}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingNewSubscriber}
+                    className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {savingNewSubscriber ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                    <span>Cadastrar Assinante</span>
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

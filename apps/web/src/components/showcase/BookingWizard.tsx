@@ -221,13 +221,35 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
   const [copiedPix, setCopiedPix] = useState(false);
 
   const requiredDepositAmount = useMemo(() => {
-    if (!tenant.depositRequired || !tenant.pixKey) return 0;
-    if (tenant.depositType === 'PERCENTAGE') {
-      const pct = tenant.depositAmount || 30;
-      return (finalBookingTotal * pct) / 100;
+    if (!tenant.pixKey) return 0;
+
+    let deposit = 0;
+
+    // Regra 1: Serviços selecionados que exigem sinal específico (ex: Alongamento, Banho de Gel, Spa)
+    const servicesRequiring = selectedServices.filter((s) => s.requiresDeposit);
+    if (servicesRequiring.length > 0) {
+      for (const s of servicesRequiring) {
+        if (s.depositType === 'PERCENTAGE') {
+          const pct = s.depositAmount || 50;
+          deposit += (s.price * pct) / 100;
+        } else {
+          deposit += Math.min(s.depositAmount || 50, s.price);
+        }
+      }
     }
-    return Math.min(tenant.depositAmount || 30, finalBookingTotal);
-  }, [tenant.depositRequired, tenant.pixKey, tenant.depositType, tenant.depositAmount, finalBookingTotal]);
+
+    // Regra 2: Fallback para regra global do tenant
+    if (deposit === 0 && tenant.depositRequired) {
+      if (tenant.depositType === 'PERCENTAGE') {
+        const pct = tenant.depositAmount || 30;
+        deposit = (finalBookingTotal * pct) / 100;
+      } else {
+        deposit = Math.min(tenant.depositAmount || 30, finalBookingTotal);
+      }
+    }
+
+    return Math.min(deposit, finalBookingTotal);
+  }, [tenant.pixKey, tenant.depositRequired, tenant.depositType, tenant.depositAmount, selectedServices, finalBookingTotal]);
 
   const handleCopyPix = () => {
     if (!tenant.pixKey) return;
@@ -486,6 +508,14 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                                     <span className="font-bold text-slate-900">
                                       R$ {service.price.toFixed(2).replace('.', ',')}
                                     </span>
+                                    {service.requiresDeposit && (
+                                      <>
+                                        <span className="text-slate-300">·</span>
+                                        <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 font-extrabold text-[10px]">
+                                          Sinal: {service.depositType === 'PERCENTAGE' ? `${service.depositAmount || 50}%` : `R$ ${Number(service.depositAmount || 50).toFixed(0)}`}
+                                        </span>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
 
@@ -1085,56 +1115,74 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
               </div>
             </div>
 
-            {/* Lembrete de Envio do Sinal PIX */}
-            {requiredDepositAmount > 0 && (
-              <div className="bg-purple-50/80 rounded-2xl p-4 border border-purple-200/90 text-left text-xs space-y-2.5">
-                <div className="flex justify-between items-center pb-2 border-b border-purple-200/60">
-                  <span className="font-bold text-purple-900 uppercase tracking-wide">
-                    Sinal de Reserva via PIX
-                  </span>
-                  <span className="font-extrabold text-purple-700 text-sm">
-                    R$ {requiredDepositAmount.toFixed(2).replace('.', ',')}
-                  </span>
-                </div>
-                <p className="text-slate-600">
-                  Para confirmar seu horário, envie o sinal diretamente para a chave PIX do estabelecimento:
-                </p>
-                <div className="bg-white p-2.5 rounded-xl border border-purple-200/60 flex items-center justify-between gap-2">
-                  <div className="truncate">
-                    <span className="block text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                      {tenant.pixKeyHolder || tenant.name} ({tenant.pixKeyType || 'PIX'})
+            {/* Lembrete de Envio do Sinal PIX (calculado de forma precisa pelo backend / regras) */}
+            {(() => {
+              const finalDepositToPay =
+                createdBooking?.depositAmount !== undefined
+                  ? Number(createdBooking.depositAmount)
+                  : requiredDepositAmount;
+
+              if (finalDepositToPay <= 0) return null;
+
+              return (
+                <div className="bg-purple-50/80 rounded-2xl p-4 border border-purple-200/90 text-left text-xs space-y-2.5">
+                  <div className="flex justify-between items-center pb-2 border-b border-purple-200/60">
+                    <span className="font-bold text-purple-900 uppercase tracking-wide">
+                      Sinal de Reserva via PIX
                     </span>
-                    <span className="font-mono text-xs font-bold text-slate-800 truncate select-all block">
-                      {tenant.pixKey}
+                    <span className="font-extrabold text-purple-700 text-sm">
+                      R$ {finalDepositToPay.toFixed(2).replace('.', ',')}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleCopyPix}
-                    className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer"
-                  >
-                    {copiedPix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedPix ? 'Copiado!' : 'Copiar'}</span>
-                  </button>
+                  <p className="text-slate-600">
+                    Para confirmar seu horário, envie o sinal diretamente para a chave PIX do estabelecimento:
+                  </p>
+                  <div className="bg-white p-2.5 rounded-xl border border-purple-200/60 flex items-center justify-between gap-2">
+                    <div className="truncate">
+                      <span className="block text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                        {tenant.pixKeyHolder || tenant.name} ({tenant.pixKeyType || 'PIX'})
+                      </span>
+                      <span className="font-mono text-xs font-bold text-slate-800 truncate select-all block">
+                        {tenant.pixKey}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyPix}
+                      className="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      {copiedPix ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedPix ? 'Copiado!' : 'Copiar'}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Ações de Conveniência */}
             <div className="space-y-2 pt-2">
-              <a
-                href={`https://wa.me/55${tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                  requiredDepositAmount > 0
-                    ? `Olá! Acabei de agendar meu horário para ${selectedDate.split('-').reverse().join('/')} às ${selectedTime} pelo link e envio aqui o comprovante do sinal de R$ ${requiredDepositAmount.toFixed(2).replace('.', ',')}.`
-                    : `Olá! Acabei de agendar meu horário para ${selectedDate.split('-').reverse().join('/')} às ${selectedTime} pelo link.`
-                )}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-3.5 px-4 rounded-xl font-bold text-xs text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all flex items-center justify-center gap-2 shadow-2xs hover:shadow-xs active:scale-98"
-              >
-                <WhatsAppIcon size={16} color="#059669" />
-                <span>Conversar no WhatsApp da Profissional</span>
-              </a>
+              {(() => {
+                const finalDepositToPay =
+                  createdBooking?.depositAmount !== undefined
+                    ? Number(createdBooking.depositAmount)
+                    : requiredDepositAmount;
+
+                return (
+                  <a
+                    href={`https://wa.me/55${tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                      finalDepositToPay > 0
+                        ? `Olá! Acabei de agendar meu horário para ${selectedDate.split('-').reverse().join('/')} às ${selectedTime} (${selectedServices.map(s => s.name).join(', ')}) pelo link. Segue o comprovante do sinal de R$ ${finalDepositToPay.toFixed(2).replace('.', ',')} para confirmar minha reserva!`
+                        : `Olá! Acabei de agendar meu horário para ${selectedDate.split('-').reverse().join('/')} às ${selectedTime} (${selectedServices.map(s => s.name).join(', ')}) pelo link.`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3.5 px-4 rounded-xl font-bold text-xs text-white bg-emerald-600 hover:bg-emerald-700 transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg active:scale-98"
+                  >
+                    <WhatsAppIcon size={18} color="#FFFFFF" />
+                    <span>{finalDepositToPay > 0 ? 'Enviar Comprovante pelo WhatsApp' : 'Conversar no WhatsApp da Profissional'}</span>
+                  </a>
+                );
+              })()}
 
               <button
                 type="button"

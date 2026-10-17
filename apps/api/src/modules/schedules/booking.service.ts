@@ -19,6 +19,7 @@ export interface CreateBookingInput {
   source?: BookingSource;
   couponCode?: string;
   discountAmount?: number;
+  customTotalPrice?: number;
 }
 
 export class BookingService {
@@ -38,7 +39,8 @@ export class BookingService {
       notes,
       source = BookingSource.ONLINE,
       couponCode,
-      discountAmount = 0
+      discountAmount = 0,
+      customTotalPrice
     } = input;
 
     // Normalização de telefone (apenas números)
@@ -102,7 +104,8 @@ export class BookingService {
       (sum, s) => sum + s.durationMinutes + (tenant.bufferMinutes || 0),
       0
     );
-    const totalPrice = services.reduce((sum, s) => sum + Number(s.price), 0);
+    const calculatedTotalPrice = services.reduce((sum, s) => sum + Number(s.price), 0);
+    const totalPrice = customTotalPrice !== undefined ? Number(customTotalPrice) : calculatedTotalPrice;
 
     const startMinutes = parseTimeToMinutes(startTime);
     const endMinutes = startMinutes + totalDurationMinutes;
@@ -221,23 +224,73 @@ export class BookingService {
         });
       }
 
-      // 6. Criação do Agendamento e ScheduleItems congelados
-      const initialStatus = tenant.depositRequired ? ScheduleStatus.PENDING : ScheduleStatus.CONFIRMED;
+      // 6. Criação do Agendamento e Cálculo do Sinal de Reserva (Serviço Específico, 1ª Vez ou Global)
       const finalPrice = Math.max(0, totalPrice - (discountAmount || 0));
 
       let depositAmount = 0;
-      if (tenant.depositRequired) {
-        if (tenant.depositType === 'PERCENTAGE') {
-          depositAmount = (finalPrice * Number(tenant.depositAmount || 30)) / 100;
-        } else {
-          depositAmount = Math.min(Number(tenant.depositAmount || 30), finalPrice);
+      let depositReason = '';
+
+      // Regra 1: Sinal por Serviço Específico (ex: Alongamento, Banho de Gel, Spa dos Pés)
+      const servicesRequiringDeposit = services.filter((s) => s.requiresDeposit);
+      if (servicesRequiringDeposit.length > 0) {
+        for (const s of servicesRequiringDeposit) {
+          const sPrice = Number(s.price || 0);
+          if (s.depositType === 'PERCENTAGE') {
+            const pct = Number(s.depositAmount || 50);
+            depositAmount += (sPrice * pct) / 100;
+          } else {
+            depositAmount += Math.min(Number(s.depositAmount || 50), sPrice);
+          }
+        }
+        depositReason = `Sinal por serviço (${servicesRequiringDeposit.map((s) => s.name).join(', ')})`;
+      }
+
+      // Regra 2: Sinal no 1º agendamento de cliente nova (sem histórico prévio no salão)
+      if (depositAmount === 0 && tenant.depositOnFirstBooking) {
+        const previousBookingsCount = await tx.schedule.count({
+          where: {
+            tenantId,
+            clientId: client.id,
+            status: { not: ScheduleStatus.CANCELLED }
+          }
+        });
+
+        if (previousBookingsCount === 0) {
+          const isFixed = tenant.depositFirstBookingType === 'FIXED';
+          const configuredVal = Number(tenant.depositFirstBookingValue ?? tenant.depositFirstBookingPercent ?? 50);
+
+          if (isFixed) {
+            depositAmount = Math.min(configuredVal, finalPrice);
+            depositReason = `Sinal de 1ª vez (R$ ${depositAmount.toFixed(2)})`;
+          } else {
+            depositAmount = (finalPrice * configuredVal) / 100;
+            depositReason = `Sinal de 1ª vez (${configuredVal}%)`;
+          }
         }
       }
+
+      // Regra 3: Fallback para regra global do estabelecimento se ativa
+      if (depositAmount === 0 && tenant.depositRequired) {
+        const configuredAmount = Number(tenant.depositAmount ?? 0);
+        if (tenant.depositType === 'PERCENTAGE') {
+          depositAmount = (finalPrice * configuredAmount) / 100;
+          depositReason = `Sinal de reserva geral (${configuredAmount}%)`;
+        } else {
+          depositAmount = Math.min(configuredAmount, finalPrice);
+          depositReason = `Sinal de reserva geral (R$ ${configuredAmount.toFixed(2)})`;
+        }
+      }
+
+      // Limita ao valor total
+      depositAmount = Math.min(depositAmount, finalPrice);
+
+      const requiresDeposit = depositAmount > 0;
+      const initialStatus = requiresDeposit ? ScheduleStatus.PENDING : ScheduleStatus.CONFIRMED;
 
       const formattedNotes = [
         notes?.trim(),
         couponCode ? `[Cupom: ${couponCode} - Desconto: R$ ${(discountAmount || 0).toFixed(2)}]` : null,
-        depositAmount > 0 ? `[Sinal PIX Direto: R$ ${depositAmount.toFixed(2)}]` : null
+        requiresDeposit ? `[Sinal PIX: R$ ${depositAmount.toFixed(2)} - ${depositReason}]` : null
       ].filter(Boolean).join(' | ') || null;
 
       const schedule = await tx.schedule.create({
