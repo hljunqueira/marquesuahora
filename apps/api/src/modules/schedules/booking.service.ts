@@ -3,6 +3,7 @@ import { ScheduleStatus, BookingSource, NotificationCategory, NotificationPriori
 import { parseTimeToMinutes, formatMinutesToTime } from '@marquesuahora/shared';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcherService } from '../notifications/dispatcher.service';
+import { checkBrazilianHoliday } from '../../utils/brazilian-holidays';
 
 // Serviço de reserva transacional com PostgreSQL Advisory Lock (Blocker C1) e frozen items (Blocker C2)
 
@@ -75,6 +76,20 @@ export class BookingService {
       const err = new Error('Estabelecimento não encontrado.');
       (err as any).statusCode = 404;
       throw err;
+    }
+
+    // Checagem de Feriado Nacional bloqueado para agendamentos online
+    if (source === BookingSource.ONLINE) {
+      const blockNational = tenant.blockNationalHolidays ?? true;
+      const exceptions: string[] = Array.isArray(tenant.holidayExceptions)
+        ? (tenant.holidayExceptions as string[])
+        : [];
+      const holiday = checkBrazilianHoliday(dateStr);
+      if (holiday && blockNational && !exceptions.includes(dateStr)) {
+        const err = new Error(`O estabelecimento está fechado nesta data devido ao feriado nacional: ${holiday.name}.`);
+        (err as any).statusCode = 400;
+        throw err;
+      }
     }
 
     // Validação estrita da cota de agendamentos do plano contratado
@@ -230,32 +245,47 @@ export class BookingService {
       let depositAmount = 0;
       let depositReason = '';
 
-      // Regra 1: Sinal por Serviço Específico (ex: Alongamento, Banho de Gel, Spa dos Pés)
-      const servicesRequiringDeposit = services.filter((s) => s.requiresDeposit);
-      if (servicesRequiringDeposit.length > 0) {
-        for (const s of servicesRequiringDeposit) {
-          const sPrice = Number(s.price || 0);
-          if (s.depositType === 'PERCENTAGE') {
-            const pct = Number(s.depositAmount || 50);
-            depositAmount += (sPrice * pct) / 100;
-          } else {
-            depositAmount += Math.min(Number(s.depositAmount || 50), sPrice);
-          }
+      // Verifica histórico prévio para identificar se é 1º agendamento (Cliente Nova)
+      const previousBookingsCount = await tx.schedule.count({
+        where: {
+          tenantId,
+          clientId: client.id,
+          status: { not: ScheduleStatus.CANCELLED }
         }
-        depositReason = `Sinal por serviço (${servicesRequiringDeposit.map((s) => s.name).join(', ')})`;
+      });
+      const isNewClient = previousBookingsCount === 0;
+
+      // Regra 1: Serviços agendados que exigem sinal de reserva específico
+      const servicesRequiringDeposit = services.filter((s) => s.requiresDeposit);
+
+      if (servicesRequiringDeposit.length > 0) {
+        // Se o estabelecimento só cobra sinal de clientes novas (depositOnFirstBooking=true e depositRequired=false):
+        // Só aplica sinal se for cliente nova. Se for cliente recorrente, libera sem sinal.
+        const shouldApply = tenant.depositRequired || (tenant.depositOnFirstBooking ? isNewClient : true);
+
+        if (shouldApply) {
+          for (const s of servicesRequiringDeposit) {
+            const sPrice = Number(s.price || 0);
+            if (s.depositType === 'PERCENTAGE') {
+              const pct = Number(s.depositAmount || 50);
+              depositAmount += (sPrice * pct) / 100;
+            } else {
+              depositAmount += Math.min(Number(s.depositAmount || 50), sPrice);
+            }
+          }
+          const clientTypeLabel = isNewClient ? '1ª vez' : 'reserva';
+          depositReason = `Sinal ${clientTypeLabel} por serviço (${servicesRequiringDeposit.map((s) => s.name).join(', ')})`;
+        }
       }
 
-      // Regra 2: Sinal no 1º agendamento de cliente nova (sem histórico prévio no salão)
-      if (depositAmount === 0 && tenant.depositOnFirstBooking) {
-        const previousBookingsCount = await tx.schedule.count({
-          where: {
-            tenantId,
-            clientId: client.id,
-            status: { not: ScheduleStatus.CANCELLED }
-          }
+      // Regra 2: Sinal no 1º agendamento de cliente nova (Regra geral caso não haja restrição por serviço)
+      if (depositAmount === 0 && tenant.depositOnFirstBooking && isNewClient) {
+        const totalServicesWithDepositInTenant = await tx.service.count({
+          where: { tenantId, requiresDeposit: true }
         });
 
-        if (previousBookingsCount === 0) {
+        // Se o estabelecimento não restringiu a serviços específicos, aplica a regra geral de 1ª vez
+        if (totalServicesWithDepositInTenant === 0) {
           const isFixed = tenant.depositFirstBookingType === 'FIXED';
           const configuredVal = Number(tenant.depositFirstBookingValue ?? tenant.depositFirstBookingPercent ?? 50);
 
@@ -271,13 +301,19 @@ export class BookingService {
 
       // Regra 3: Fallback para regra global do estabelecimento se ativa
       if (depositAmount === 0 && tenant.depositRequired) {
-        const configuredAmount = Number(tenant.depositAmount ?? 0);
-        if (tenant.depositType === 'PERCENTAGE') {
-          depositAmount = (finalPrice * configuredAmount) / 100;
-          depositReason = `Sinal de reserva geral (${configuredAmount}%)`;
-        } else {
-          depositAmount = Math.min(configuredAmount, finalPrice);
-          depositReason = `Sinal de reserva geral (R$ ${configuredAmount.toFixed(2)})`;
+        const totalServicesWithDepositInTenant = await tx.service.count({
+          where: { tenantId, requiresDeposit: true }
+        });
+
+        if (totalServicesWithDepositInTenant === 0) {
+          const configuredAmount = Number(tenant.depositAmount ?? 0);
+          if (tenant.depositType === 'PERCENTAGE') {
+            depositAmount = (finalPrice * configuredAmount) / 100;
+            depositReason = `Sinal de reserva geral (${configuredAmount}%)`;
+          } else {
+            depositAmount = Math.min(configuredAmount, finalPrice);
+            depositReason = `Sinal de reserva geral (R$ ${configuredAmount.toFixed(2)})`;
+          }
         }
       }
 

@@ -1,8 +1,20 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, DollarSign, UserCheck } from 'lucide-react';
 import { TenantSettings } from './types';
+import { api } from '@/lib/api';
+
+interface ServiceSummaryItem {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+  durationMinutes: number;
+  requiresDeposit: boolean;
+  depositType?: 'PERCENTAGE' | 'FIXED';
+  depositAmount?: number;
+}
 
 interface SettingsShieldTabProps {
   settings: TenantSettings;
@@ -19,6 +31,96 @@ export const SettingsShieldTab: React.FC<SettingsShieldTabProps> = ({
   const firstBookingValue = settings.depositFirstBookingValue ?? settings.depositFirstBookingPercent ?? 50;
 
   const anyDepositActive = isFirstBookingActive || isGeneralDepositActive;
+
+  // Estados dos Serviços para Sinal Específico
+  const [servicesList, setServicesList] = useState<ServiceSummaryItem[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
+  const [serviceSearch, setServiceSearch] = useState('');
+  const [savingServices, setSavingServices] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    setLoadingServices(true);
+    api.get('/services')
+      .then((res) => {
+        if (!isMounted) return;
+        const list: ServiceSummaryItem[] = (res.data || []).map((s: any) => ({
+          id: s.id,
+          name: s.name,
+          category: s.category || 'Geral',
+          price: Number(s.price || 0),
+          durationMinutes: s.durationMinutes || 30,
+          requiresDeposit: Boolean(s.requiresDeposit),
+          depositType: s.depositType || 'PERCENTAGE',
+          depositAmount: Number(s.depositAmount || 50)
+        }));
+        setServicesList(list);
+        setSelectedServiceIds(list.filter((s) => s.requiresDeposit).map((s) => s.id));
+      })
+      .catch((err) => {
+        console.error('Erro ao carregar serviços em SettingsShieldTab:', err);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingServices(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleToggleService = (id: string) => {
+    setSelectedServiceIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleSelectAllServices = () => {
+    setSelectedServiceIds(servicesList.map((s) => s.id));
+  };
+
+  const handleDeselectAllServices = () => {
+    setSelectedServiceIds([]);
+  };
+
+  const handleSaveServicesDeposit = async () => {
+    setSavingServices(true);
+    setSaveMessage(null);
+    try {
+      await api.post('/services/bulk-deposit-settings', {
+        serviceIds: selectedServiceIds,
+        applyToAll: false,
+        depositType: firstBookingType,
+        depositAmount: Number(firstBookingValue) || 50
+      });
+
+      // Atualiza o estado local
+      setServicesList((prev) =>
+        prev.map((s) => ({
+          ...s,
+          requiresDeposit: selectedServiceIds.includes(s.id),
+          depositType: firstBookingType,
+          depositAmount: Number(firstBookingValue) || 50
+        }))
+      );
+
+      setSaveMessage('Procedimentos atualizados com sucesso!');
+      setTimeout(() => setSaveMessage(null), 4000);
+    } catch (err: any) {
+      console.error('Erro ao salvar procedimentos com sinal:', err);
+      setSaveMessage(err?.response?.data?.message || 'Erro ao salvar procedimentos.');
+      setTimeout(() => setSaveMessage(null), 4000);
+    } finally {
+      setSavingServices(false);
+    }
+  };
+
+  const filteredServicesList = servicesList.filter((s) =>
+    s.name.toLowerCase().includes(serviceSearch.toLowerCase()) ||
+    s.category.toLowerCase().includes(serviceSearch.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -73,66 +175,196 @@ export const SettingsShieldTab: React.FC<SettingsShieldTabProps> = ({
         </div>
 
         {isFirstBookingActive && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200/90 animate-in fade-in">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                Modalidade do Adiantamento
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => onChange('depositFirstBookingType', 'PERCENTAGE')}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
-                    firstBookingType === 'PERCENTAGE'
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  Porcentagem (%)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChange('depositFirstBookingType', 'FIXED')}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
-                    firstBookingType === 'FIXED'
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
-                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  Valor Fixo (R$)
-                </button>
+          <div className="space-y-4 animate-in fade-in">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200/90">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                  Modalidade do Adiantamento
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onChange('depositFirstBookingType', 'PERCENTAGE')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
+                      firstBookingType === 'PERCENTAGE'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Porcentagem (%)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onChange('depositFirstBookingType', 'FIXED')}
+                    className={`py-2 px-3 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center ${
+                      firstBookingType === 'FIXED'
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    Valor Fixo (R$)
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                  {firstBookingType === 'PERCENTAGE'
+                    ? 'Percentual do Serviço para 1ª Vez'
+                    : 'Valor Fixo do Sinal para 1ª Vez'}
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min={firstBookingType === 'PERCENTAGE' ? 5 : 1}
+                    max={firstBookingType === 'PERCENTAGE' ? 100 : 1000}
+                    step={firstBookingType === 'PERCENTAGE' ? 5 : 5}
+                    value={firstBookingValue}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      onChange('depositFirstBookingValue', val);
+                      onChange('depositFirstBookingPercent', val);
+                    }}
+                    className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 font-bold outline-hidden focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+                  />
+                  <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                    {firstBookingType === 'PERCENTAGE' ? '%' : 'BRL'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5">
+                  {firstBookingType === 'PERCENTAGE'
+                    ? `Se o serviço custar R$ 100, a cliente nova pagará R$ ${((100 * firstBookingValue) / 100).toFixed(2)} de sinal.`
+                    : `A cliente nova pagará R$ ${firstBookingValue.toFixed(2)} de sinal independentemente do valor do serviço.`}
+                </p>
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
-                {firstBookingType === 'PERCENTAGE'
-                  ? 'Percentual do Serviço para 1ª Vez'
-                  : 'Valor Fixo do Sinal para 1ª Vez'}
-              </label>
+            {/* SELETOR DE PROCEDIMENTOS COM SINAL */}
+            <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/90 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                    Serviços com Exigência de Sinal ({firstBookingType === 'PERCENTAGE' ? `${firstBookingValue}%` : `R$ ${firstBookingValue}`})
+                  </h4>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Defina em quais procedimentos do catálogo esse sinal antecipado será cobrado.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllServices}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Marcar Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeselectAllServices}
+                    className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:text-slate-900 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Desmarcar Todos
+                  </button>
+                </div>
+              </div>
+
+              {/* Busca Rápida de Serviços */}
               <div className="relative">
                 <input
-                  type="number"
-                  min={firstBookingType === 'PERCENTAGE' ? 5 : 1}
-                  max={firstBookingType === 'PERCENTAGE' ? 100 : 1000}
-                  step={firstBookingType === 'PERCENTAGE' ? 5 : 5}
-                  value={firstBookingValue}
-                  onChange={(e) => {
-                    const val = parseFloat(e.target.value) || 0;
-                    onChange('depositFirstBookingValue', val);
-                    onChange('depositFirstBookingPercent', val);
-                  }}
-                  className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 font-bold outline-hidden focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
+                  type="text"
+                  placeholder="Buscar procedimento no catálogo..."
+                  value={serviceSearch}
+                  onChange={(e) => setServiceSearch(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg text-slate-900 placeholder-slate-400 focus:border-slate-900 outline-none"
                 />
-                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
-                  {firstBookingType === 'PERCENTAGE' ? '%' : 'BRL'}
-                </span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-1.5">
-                {firstBookingType === 'PERCENTAGE'
-                  ? `Se o serviço custar R$ 100, a cliente nova pagará R$ ${((100 * firstBookingValue) / 100).toFixed(2)} de sinal.`
-                  : `A cliente nova pagará R$ ${firstBookingValue.toFixed(2)} de sinal independentemente do valor do serviço.`}
-              </p>
+
+              {/* Lista de Procedimentos */}
+              {loadingServices ? (
+                <div className="p-4 text-center text-xs text-slate-500 bg-white rounded-lg border border-slate-200">
+                  Carregando procedimentos cadastrados...
+                </div>
+              ) : servicesList.length === 0 ? (
+                <div className="p-4 text-center text-xs text-slate-500 bg-white rounded-lg border border-slate-200">
+                  Nenhum procedimento cadastrado no seu catálogo ainda.
+                </div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
+                  {filteredServicesList.map((svc) => {
+                    const isSelected = selectedServiceIds.includes(svc.id);
+                    const calculatedDeposit =
+                      firstBookingType === 'PERCENTAGE'
+                        ? (svc.price * firstBookingValue) / 100
+                        : Math.min(firstBookingValue, svc.price);
+
+                    return (
+                      <label
+                        key={svc.id}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                          isSelected
+                            ? 'bg-purple-50/70 border-purple-300 text-purple-950 font-semibold'
+                            : 'bg-white border-slate-200 hover:border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleToggleService(svc.id)}
+                            className="rounded border-slate-300 text-purple-600 focus:ring-purple-500 shrink-0 cursor-pointer"
+                          />
+                          <div className="truncate">
+                            <span className="font-bold text-slate-900 truncate block">
+                              {svc.name}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              {svc.category} • {svc.durationMinutes} min
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0 ml-3">
+                          <span className="block font-bold text-slate-900">
+                            R$ {svc.price.toFixed(2).replace('.', ',')}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold ${
+                              isSelected ? 'text-purple-700' : 'text-slate-400'
+                            }`}
+                          >
+                            {isSelected
+                              ? `Sinal: R$ ${calculatedDeposit.toFixed(2).replace('.', ',')}`
+                              : 'Sem sinal'}
+                          </span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Botão de Salvar Serviços Selecionados */}
+              <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                <span className="text-[11px] font-semibold text-slate-600">
+                  {selectedServiceIds.length} de {servicesList.length} procedimento(s) com sinal ativo
+                </span>
+
+                <button
+                  type="button"
+                  disabled={savingServices || loadingServices}
+                  onClick={handleSaveServicesDeposit}
+                  className="px-4 py-2 text-xs font-bold text-white bg-slate-900 hover:bg-slate-800 disabled:opacity-50 rounded-xl transition-all cursor-pointer shadow-xs"
+                >
+                  {savingServices ? 'Salvando...' : 'Salvar Procedimentos com Sinal'}
+                </button>
+              </div>
+
+              {saveMessage && (
+                <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium text-center">
+                  {saveMessage}
+                </div>
+              )}
             </div>
           </div>
         )}

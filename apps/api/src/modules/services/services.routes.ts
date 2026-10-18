@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma';
 const serviceInputSchema = z.object({
   name: z.string().min(2, 'O nome do serviço é obrigatório.'),
   category: z.string().default('Geral'),
+  categoryId: z.string().uuid().optional().nullable(),
   description: z.string().max(1000).optional().nullable(),
   price: z.number().min(0, 'O preço não pode ser negativo.'),
   durationMinutes: z.number().int().min(5, 'A duração mínima é de 5 minutos.'),
@@ -14,6 +15,7 @@ const serviceInputSchema = z.object({
   processingMinutes: z.number().int().min(0).default(0),
   finishingMinutes: z.number().int().min(0).default(0),
   photos: z.array(z.string()).default([]),
+  imageUrl: z.string().optional().nullable(),
   requiresRemovalCheck: z.boolean().default(false),
   requiresDeposit: z.boolean().default(false),
   depositType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
@@ -35,6 +37,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
       where: { tenantId },
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
       include: {
+        categoryRel: true,
         resource: true,
         professionals: {
           include: {
@@ -49,7 +52,13 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
       }
     });
 
-    return reply.send(services);
+    const mapped = services.map((s) => ({
+      ...s,
+      imageUrl: s.photos && s.photos.length > 0 ? s.photos[0] : null,
+      category: s.categoryRel?.name || s.category || 'Geral'
+    }));
+
+    return reply.send(mapped);
   });
 
   // POST /services - Cadastrar novo serviço
@@ -61,11 +70,14 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
 
     const data = serviceInputSchema.parse(request.body);
 
+    const photosToSave = data.imageUrl ? [data.imageUrl] : data.photos;
+
     const service = await prisma.service.create({
       data: {
         tenantId,
         name: data.name,
         category: data.category,
+        categoryId: data.categoryId || null,
         description: data.description,
         price: data.price,
         durationMinutes: data.durationMinutes,
@@ -74,7 +86,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         resourceId: data.resourceId || null,
         processingMinutes: data.processingMinutes,
         finishingMinutes: data.finishingMinutes,
-        photos: data.photos,
+        photos: photosToSave,
         requiresRemovalCheck: data.requiresRemovalCheck,
         requiresDeposit: data.requiresDeposit,
         depositType: data.depositType,
@@ -109,9 +121,15 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string };
     const data = serviceInputSchema.partial().parse(request.body);
 
+    const updateData: any = { ...data };
+    if (data.imageUrl !== undefined) {
+      updateData.photos = data.imageUrl ? [data.imageUrl] : [];
+      delete updateData.imageUrl;
+    }
+
     const service = await prisma.service.updateMany({
       where: { id, tenantId },
-      data
+      data: updateData
     });
 
     if (service.count === 0) {
@@ -198,5 +216,52 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
 
       return reply.send({ message: 'Serviço desativado da vitrine pois possui agendamentos associados.' });
     }
+  });
+
+  // POST /services/bulk-deposit-settings - Atualiza quais serviços exigem sinal em lote
+  app.post('/bulk-deposit-settings', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const bulkDepositSchema = z.object({
+      serviceIds: z.array(z.string().uuid()),
+      applyToAll: z.boolean().default(false),
+      depositType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
+      depositAmount: z.number().min(0).default(50.0)
+    });
+
+    const data = bulkDepositSchema.parse(request.body);
+
+    if (data.applyToAll) {
+      await prisma.service.updateMany({
+        where: { tenantId },
+        data: {
+          requiresDeposit: true,
+          depositType: data.depositType,
+          depositAmount: data.depositAmount
+        }
+      });
+    } else {
+      await prisma.$transaction([
+        prisma.service.updateMany({
+          where: { tenantId, id: { in: data.serviceIds } },
+          data: {
+            requiresDeposit: true,
+            depositType: data.depositType,
+            depositAmount: data.depositAmount
+          }
+        }),
+        prisma.service.updateMany({
+          where: { tenantId, id: { notIn: data.serviceIds } },
+          data: {
+            requiresDeposit: false
+          }
+        })
+      ]);
+    }
+
+    return reply.send({ success: true, message: 'Regras de sinal dos serviços atualizadas com sucesso.' });
   });
 };
