@@ -31,7 +31,22 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
   const currentProfessionals = usage?.currentProfessionals ?? 1;
   const maxProfessionals = usage?.maxProfessionals ?? 1;
 
-  const availablePlans = [
+  interface AvailablePlanItem {
+    code: string;
+    name: string;
+    price: string;
+    period: string;
+    badge?: string;
+    description: string;
+    maxProf: number;
+    isUnlimited: boolean;
+    monthlyLimit: number;
+    features: string[];
+  }
+
+  const isCurrentFree = !plan || plan.code === 'FREE' || Number(plan.monthlyPrice || 0) === 0;
+
+  const availablePlans: AvailablePlanItem[] = [
     {
       code: 'FREE',
       name: 'Gratuito',
@@ -53,14 +68,12 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
       name: 'Profissional Solo',
       price: 'R$ 39',
       period: '/mês',
-      badge: '1ª Fatura no Próximo Mês',
-      description: 'Para profissionais autônomas que vivem de hora marcada. 30 dias de carência para pagar.',
+      description: 'Para profissionais autônomas que vivem de hora marcada e precisam de agendamentos ilimitados.',
       maxProf: 1,
       isUnlimited: true,
       monthlyLimit: 0,
       features: [
         'Agendamentos ilimitados (sem travas)',
-        'Primeira fatura só no próximo mês (30 dias para começar)',
         '1 profissional cadastrado',
         'Lembretes automáticos no WhatsApp',
         'Módulo de Cursos Online para alunas',
@@ -149,15 +162,19 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
               <span className="text-xs uppercase tracking-wider font-semibold text-purple-700">
                 Seu Plano Contratado
               </span>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
-                {settings.billingStatus === 'TRIAL' ? 'Período de Teste (7 dias)' : 'Assinatura Ativa'}
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
+                isCurrentFree
+                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}>
+                {isCurrentFree ? 'Plano Gratuito' : 'Assinatura Ativa'}
               </span>
             </div>
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
               {plan?.name || 'Plano Gratuito'}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              {plan?.description || 'Plano inicial para testar e organizar a agenda sem custos fixos.'}
+              {plan?.description || 'Plano gratuito inicial (até 30 agendamentos por mês).'}
             </p>
           </div>
 
@@ -256,7 +273,7 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
             Comparativo de Planos & Upgrades
           </h3>
           <p className="text-xs text-slate-500">
-            Mude de plano a qualquer momento. Ao assinar o plano Solo, sua primeira mensalidade é faturada no próximo mês (30 dias de carência para pagar), permitindo que você atenda e fature primeiro.
+            Você começa no Plano Gratuito (até 30 agendamentos por mês). Se precisar de agendamentos ilimitados, lembretes automáticos no WhatsApp ou múltiplos profissionais, escolha um dos planos abaixo.
           </p>
         </div>
 

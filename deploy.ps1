@@ -50,9 +50,15 @@ try {
   Write-Host "Servicos Alvo: $Services" -ForegroundColor Gray
   Write-Host ""
 
+  $SSHArgs = @("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
+  $EdKey = "$env:USERPROFILE\.ssh\id_ed25519"
+  if (Test-Path $EdKey) {
+    $SSHArgs += @("-i", $EdKey)
+  }
+
   # 1. Teste de conectividade SSH
   Write-DeployStep "1/5 Testando conexao SSH..."
-  $sshTest = & ssh -o BatchMode=yes -o ConnectTimeout=8 $TargetSSH "echo connected" 2>$null
+  $sshTest = & ssh @SSHArgs $TargetSSH "echo connected" 2>$null
   if ($sshTest -ne "connected") {
     Write-DeployFail "Nao foi possivel conectar via SSH a $TargetSSH."
     Write-DeployInfo "Verifique se a sua chave SSH esta autorizada."
@@ -152,7 +158,7 @@ docker ps --filter name=marquesuahora --format "table {{.Names}}\t{{.Status}}\t{
 
   $cleanScript = $execScript -replace "`r", ""
   $b64Script = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($cleanScript))
-  & ssh $TargetSSH "echo '$b64Script' | base64 -d | bash"
+  & ssh @SSHArgs $TargetSSH "echo '$b64Script' | base64 -d | bash"
 
   if ($LASTEXITCODE -ne 0) {
     Write-DeployFail "Erro durante o build ou restart dos containers no servidor."
@@ -163,16 +169,16 @@ docker ps --filter name=marquesuahora --format "table {{.Names}}\t{{.Status}}\t{
   Write-DeployStep "Verificando integridade das aplicacoes..."
   Start-Sleep -Seconds 3
 
-  $healthApi = & ssh $TargetSSH "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3041/health" 2>$null
-  $healthWeb = & ssh $TargetSSH "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3040/" 2>$null
+  $healthApi = & ssh @SSHArgs $TargetSSH "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3041/health" 2>$null
+  $healthWeb = & ssh @SSHArgs $TargetSSH "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3040/" 2>$null
 
   Write-DeployInfo "Status HTTP API Local (Porta 3041): $healthApi"
   Write-DeployInfo "Status HTTP Web Local (Porta 3040): $healthWeb"
 
   if ($Logs) {
     Write-DeployStep "Logs Recentes:"
-    & ssh $TargetSSH "docker logs --tail 25 marquesuahora-api"
-    & ssh $TargetSSH "docker logs --tail 25 marquesuahora-web"
+    & ssh @SSHArgs $TargetSSH "docker logs --tail 25 marquesuahora-api"
+    & ssh @SSHArgs $TargetSSH "docker logs --tail 25 marquesuahora-web"
   }
 
   $Duration = [math]::Round(((Get-Date) - $StartTime).TotalSeconds, 1)

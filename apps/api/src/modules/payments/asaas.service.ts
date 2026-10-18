@@ -133,10 +133,8 @@ export class AsaasService {
         throw new Error('Não foi possível obter ou criar o cliente no Asaas.');
       }
 
-      // Data do primeiro vencimento (30 dias para planos com carência ou amanhã)
-      const nextDueDate = new Date();
-      nextDueDate.setDate(nextDueDate.getDate() + 30);
-      const dueDateStr = nextDueDate.toISOString().slice(0, 10);
+      // Assinatura pré-paga: paga primeiro e depois usa (vencimento imediato)
+      const dueDateStr = new Date().toISOString().slice(0, 10);
 
       const subRes = await axios.post(
         `${this.baseUrl}/subscriptions`,

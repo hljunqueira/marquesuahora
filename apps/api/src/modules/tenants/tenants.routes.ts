@@ -124,8 +124,9 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       finalDocNumber = 'DOC' + Date.now() + Math.floor(Math.random() * 1000);
     }
 
-    // Seleciona o plano informado ou localiza o primeiro plano ativo via PlansService
-    const resolvedPlan = await PlansService.resolvePlan(data.planId);
+    // Todo novo cadastro começa no Plano Gratuito (sem período de teste)
+    const targetPlanCode = data.planId || 'FREE';
+    const resolvedPlan = await PlansService.resolvePlan(targetPlanCode);
     const planId = resolvedPlan?.id || null;
 
     const effectivePassword = data.ownerPassword?.trim() || `MSH_${Math.random().toString(36).slice(-8)}!Aa1`;
@@ -160,7 +161,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           terminology,
           logoUrl: data.logoUrl || null,
           planId,
-          billingStatus: 'TRIAL',
+          billingStatus: 'ACTIVE',
           openingTime: '09:00',
           closingTime: '19:00'
         }

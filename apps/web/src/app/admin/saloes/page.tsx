@@ -818,7 +818,7 @@ export default function AdminSaloesPage() {
                     <div className="grid grid-cols-3 gap-2">
                       {[
                         { id: 'ACTIVE', label: 'Ativo (Pago Direto)', desc: 'Acesso liberado' },
-                        { id: 'TRIAL', label: 'Demonstração (Trial)', desc: '14 dias de teste' },
+                        { id: 'TRIAL', label: 'Plano Gratuito', desc: 'Até 30 agendamentos/mês' },
                         { id: 'GRATUITY', label: 'Cortesia VIP', desc: 'Isento de cobrança' }
                       ].map((item) => (
                         <button

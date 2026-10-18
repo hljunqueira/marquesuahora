@@ -55,7 +55,7 @@ const STEPS = [
 function CadastroForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const planParam = searchParams.get('plan') || 'SOLO';
+  const planParam = searchParams.get('plan') || 'FREE';
 
   const [currentStep, setCurrentStep] = useState(1);
 
