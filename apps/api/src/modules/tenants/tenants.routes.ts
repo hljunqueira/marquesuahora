@@ -220,20 +220,39 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       to: result.user.email,
       subject: 'Confirme seu e-mail e defina sua senha — Marque Sua Hora',
       html: `
-        <p>Olá, <strong>${result.user.name}</strong>!</p>
-        <p>Seu espaço <strong>${result.tenant.name}</strong> foi cadastrado com sucesso na plataforma <strong>Marque Sua Hora</strong>.</p>
-        <p>Para confirmar seu e-mail e definir sua senha definitiva de acesso, clique no botão abaixo:</p>
-        <p style="margin: 24px 0;">
-          <a href="${resetLink}" style="background-color: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-block;">
+        <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;">
+          Boas-vindas ao Marque Sua Hora!
+        </h2>
+        <p style="margin: 0 0 16px 0; font-size: 15px; color: #334155; line-height: 1.6;">
+          Olá, <strong>${result.user.name}</strong>!
+        </p>
+        <p style="margin: 0 0 20px 0; font-size: 15px; color: #334155; line-height: 1.6;">
+          Seu espaço <strong>${result.tenant.name}</strong> foi cadastrado com sucesso. Para começar a usar a plataforma e definir sua senha definitiva de acesso, clique no botão seguro abaixo:
+        </p>
+
+        <div style="margin: 28px 0; text-align: center;">
+          <a href="${resetLink}" style="background-color: #7c3aed; color: #ffffff; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 15px; display: inline-block; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);">
             Confirmar e Definir Minha Senha
           </a>
-        </p>
-        <p style="font-size: 13px; color: #475569;">
-          <strong>Link da sua vitrine pública:</strong> <a href="https://marquesuahora.com.br/${result.tenant.slug}">marquesuahora.com.br/${result.tenant.slug}</a><br/>
-          <strong>E-mail de acesso:</strong> ${result.user.email}
-        </p>
-        <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin-top: 24px;">
-          Este link expira em 24 horas. Se você não solicitou este cadastro, desconsidere esta mensagem.
+        </div>
+
+        <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; margin: 24px 0;">
+          <div style="font-size: 12px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">
+            Dados do Seu Acesso
+          </div>
+          <p style="margin: 0 0 6px 0; font-size: 13px; color: #334155;">
+            <strong>Link da Vitrine Pública:</strong>
+            <a href="https://marquesuahora.com.br/${result.tenant.slug}" target="_blank" style="color: #7c3aed; text-decoration: none; font-weight: 600;">
+              marquesuahora.com.br/${result.tenant.slug}
+            </a>
+          </p>
+          <p style="margin: 0; font-size: 13px; color: #334155;">
+            <strong>E-mail de Acesso:</strong> ${result.user.email}
+          </p>
+        </div>
+
+        <p style="font-size: 12px; color: #64748b; line-height: 1.5; margin: 24px 0 0 0;">
+          Por segurança, este link é válido por <strong>24 horas</strong>. Se você não realizou este cadastro, desconsidere esta mensagem.
         </p>
       `,
       tenantName: result.tenant.name

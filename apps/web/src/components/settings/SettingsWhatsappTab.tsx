@@ -356,14 +356,14 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
                   Inteligência Artificial Integrada
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                  Whisper + Gemini Flash Ativos
+                  Ativa no WhatsApp
                 </span>
               </div>
               <h3 className="text-lg font-bold text-slate-900 tracking-tight">
                 Atendente IA Autônoma no WhatsApp
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xl leading-relaxed">
-                Responde dúvidas sobre procedimentos, escuta áudios pelo Whisper, analisa referências e consulta horários vagos reais em tempo real.
+                Responde dúvidas sobre procedimentos, escuta mensagens de áudio, analisa referências e consulta horários disponíveis em tempo real.
               </p>
             </div>
           </div>
@@ -371,9 +371,9 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
           {/* Grid de Superpoderes Ativos */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="font-bold text-slate-900 block">Áudio (Whisper)</span>
+              <span className="font-bold text-slate-900 block">Compreensão de Áudio</span>
               <span className="text-[11px] text-slate-500 leading-relaxed block">
-                Transcreve mensagens de voz do cliente em linguagem natural instantânea.
+                Transcreve e interpreta mensagens de voz dos clientes de forma instantânea.
               </span>
             </div>
 
@@ -392,7 +392,7 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
             </div>
 
             <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="font-bold text-slate-900 block">Proteção Anti-No-Show</span>
+              <span className="font-bold text-slate-900 block">Proteção Anti-Falta</span>
               <span className="text-[11px] text-slate-500 leading-relaxed block">
                 Informa o valor de sinal e a chave PIX (incluindo regra da 1ª cliente).
               </span>

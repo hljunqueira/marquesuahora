@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Mic,
   MicOff,
-  Sparkles,
   Send,
   Loader2,
   CheckCircle2,
@@ -315,11 +314,8 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
     <div className="w-full bg-gradient-to-r from-purple-50/60 via-white to-violet-50/60 rounded-3xl p-3 sm:p-4 border border-purple-100/90 shadow-xs transition-all">
       {/* Barra de Entrada de Comando */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-        {/* Identificador com Ícone IA */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-200/80 rounded-2xl shadow-xs shrink-0 self-start sm:self-auto">
-          <div className="w-6 h-6 rounded-lg bg-purple-600 flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="w-3.5 h-3.5" />
-          </div>
+        {/* Identificador Copiloto IA */}
+        <div className="flex items-center px-3.5 py-2 bg-purple-50 border border-purple-200/80 rounded-2xl shadow-xs shrink-0 self-start sm:self-auto">
           <span className="text-xs font-bold tracking-tight text-purple-800">
             Copiloto IA
           </span>

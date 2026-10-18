@@ -25,28 +25,97 @@ export class EmailService {
 
     const fullHtml = `
       <!DOCTYPE html>
-      <html>
+      <html lang="pt-BR">
       <head>
         <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${options.subject}</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
-          .container { max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden; }
-          .header { padding: 24px 32px; border-bottom: 1px solid #f1f5f9; background: #fafafa; }
-          .header h1 { font-size: 16px; font-weight: 700; color: #0f172a; margin: 0; }
-          .content { padding: 32px; font-size: 14px; line-height: 1.6; color: #334155; }
-          .footer { padding: 20px 32px; background: #f8fafc; border-top: 1px solid #f1f5f9; font-size: 11px; color: #94a3b8; text-align: center; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f1f5f9;
+            margin: 0;
+            padding: 32px 16px;
+            color: #1e293b;
+            -webkit-font-smoothing: antialiased;
+          }
+          .email-wrapper {
+            max-width: 580px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 20px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+          }
+          .email-header {
+            padding: 28px 32px;
+            background: #ffffff;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+          }
+          .email-header table {
+            width: 100%;
+          }
+          .email-content {
+            padding: 36px 32px;
+            font-size: 15px;
+            line-height: 1.65;
+            color: #334155;
+          }
+          .email-footer {
+            padding: 24px 32px;
+            background: #f8fafc;
+            border-top: 1px solid #f1f5f9;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #64748b;
+            text-align: center;
+          }
+          .email-footer a {
+            color: #7c3aed;
+            text-decoration: none;
+            font-weight: 600;
+          }
         </style>
       </head>
       <body>
-        <div class="container">
-          <div class="header">
-            <h1>${options.tenantName || 'Marque Sua Hora'}</h1>
+        <div class="email-wrapper">
+          <div class="email-header">
+            <table cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+              <tr>
+                <td align="left" style="vertical-align: middle;">
+                  <a href="https://marquesuahora.com.br" target="_blank" style="text-decoration: none; display: inline-block;">
+                    <img src="https://marquesuahora.com.br/brand/logooficial-semfundo.png" alt="Marque Sua Hora" height="38" style="height: 38px; width: auto; max-width: 180px; display: block; border: 0;" />
+                  </a>
+                </td>
+                <td align="right" style="vertical-align: middle;">
+                  ${options.tenantName ? `
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; background: #f8fafc; padding: 4px 10px; border-radius: 9999px; border: 1px solid #e2e8f0; display: inline-block; letter-spacing: 0.3px;">
+                      ${options.tenantName}
+                    </span>
+                  ` : ''}
+                </td>
+              </tr>
+            </table>
           </div>
-          <div class="content">
+
+          <div class="email-content">
             ${options.html}
           </div>
-          <div class="footer">
-            Mensagem automática enviada pelo sistema Marque Sua Hora em nome de ${options.tenantName || 'seu estabelecimento'}.
+
+          <div class="email-footer">
+            <p style="margin: 0 0 6px 0; font-weight: 600; color: #475569;">
+              Marque Sua Hora • Gestão e Agendamento Online
+            </p>
+            <p style="margin: 0 0 10px 0;">
+              Mensagem automática enviada pelo sistema Marque Sua Hora${options.tenantName ? ` para ${options.tenantName}` : ''}.
+            </p>
+            <p style="margin: 0; font-size: 11px; color: #94a3b8;">
+              <a href="https://marquesuahora.com.br" target="_blank">marquesuahora.com.br</a> • Todos os direitos reservados.
+            </p>
           </div>
         </div>
       </body>
