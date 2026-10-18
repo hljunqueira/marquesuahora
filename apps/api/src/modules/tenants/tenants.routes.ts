@@ -124,36 +124,6 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       finalDocNumber = 'DOC' + Date.now() + Math.floor(Math.random() * 1000);
     }
 
-    const defaultServicesByNiche: Record<string, Array<{ name: string; price: number; durationMinutes: number; category: string }>> = {
-      BARBERSHOP: [
-        { name: 'Corte Cabelo Degradê', price: 45, durationMinutes: 30, category: 'Cabelo' },
-        { name: 'Barboterapia & Toalha Quente', price: 40, durationMinutes: 30, category: 'Barba' },
-        { name: 'Combo Cabelo + Barba', price: 75, durationMinutes: 50, category: 'Combos' }
-      ],
-      BEAUTY_SALON: [
-        { name: 'Escova Modelada', price: 70, durationMinutes: 45, category: 'Cabelo' },
-        { name: 'Corte Feminino com Finalização', price: 90, durationMinutes: 50, category: 'Cabelo' },
-        { name: 'Hidratação Profunda', price: 120, durationMinutes: 40, category: 'Tratamentos' }
-      ],
-      AESTHETICS_CLINIC: [
-        { name: 'Limpeza de Pele Profunda', price: 150, durationMinutes: 60, category: 'Facial' },
-        { name: 'Drenagem Linfática Corporal', price: 130, durationMinutes: 50, category: 'Corporal' },
-        { name: 'Avaliação Estética Facial', price: 50, durationMinutes: 30, category: 'Avaliação' }
-      ],
-      PERSONAL_TRAINER: [
-        { name: 'Sessão de Treino Presencial 1h', price: 100, durationMinutes: 60, category: 'Treinos' },
-        { name: 'Avaliação Física & Bioimpedância', price: 120, durationMinutes: 45, category: 'Avaliação' }
-      ],
-      NAIL_LASH_STUDIO: [
-        { name: 'Extensão de Cílios Volume Russo', price: 180, durationMinutes: 90, category: 'Cílios' },
-        { name: 'Manutenção de Cílios (até 20 dias)', price: 110, durationMinutes: 60, category: 'Cílios' },
-        { name: 'Alongamento de Unhas em Gel', price: 140, durationMinutes: 80, category: 'Unhas' }
-      ],
-      OTHER: [
-        { name: 'Atendimento Personalizado', price: 100, durationMinutes: 60, category: 'Geral' }
-      ]
-    };
-
     // Seleciona o plano informado ou localiza o primeiro plano ativo via PlansService
     const resolvedPlan = await PlansService.resolvePlan(data.planId);
     const planId = resolvedPlan?.id || null;
@@ -207,21 +177,19 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
-      // 3. Cadastra os Serviços Selecionados ou Serviços Padrão do Nicho
-      const servicesToCreate = (data.selectedServices && data.selectedServices.length > 0)
-        ? data.selectedServices
-        : (defaultServicesByNiche[effectiveNiche] || defaultServicesByNiche.OTHER);
-
-      await tx.service.createMany({
-        data: servicesToCreate.map((svc) => ({
-          tenantId: tenant.id,
-          name: svc.name,
-          category: svc.category || 'Geral',
-          price: svc.price,
-          durationMinutes: svc.durationMinutes,
-          allowOnlineBooking: true
-        }))
-      });
+      // 3. Cadastra os Serviços Selecionados (apenas se informados explicitamente no cadastro)
+      if (data.selectedServices && data.selectedServices.length > 0) {
+        await tx.service.createMany({
+          data: data.selectedServices.map((svc) => ({
+            tenantId: tenant.id,
+            name: svc.name,
+            category: svc.category || 'Geral',
+            price: svc.price,
+            durationMinutes: svc.durationMinutes,
+            allowOnlineBooking: true
+          }))
+        });
+      }
 
       // 4. Registra Auditoria
       await tx.auditLog.create({

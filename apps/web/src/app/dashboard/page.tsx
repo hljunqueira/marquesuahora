@@ -15,7 +15,8 @@ import {
   AlertTriangle,
   CalendarCheck,
   TrendingUp,
-  BarChart2
+  BarChart2,
+  X
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AiVoiceCommandBar } from '@/components/dashboard/AiVoiceCommandBar';
@@ -87,6 +88,31 @@ export default function DashboardPage() {
   // ==========================================
   const [summaryData, setSummaryData] = useState<DashboardSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(true);
+
+  // Faixa discreta informativa do Plano Gratuito (Não-Invasiva)
+  const [isFreePlan, setIsFreePlan] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  useEffect(() => {
+    const dismissed = localStorage.getItem('marquesuahora_free_banner_dismissed') === 'true';
+    setBannerDismissed(dismissed);
+
+    const cachedCode = localStorage.getItem('marquesuahora_tenant_plan_code');
+    if (cachedCode) {
+      setIsFreePlan(cachedCode === 'FREE');
+    }
+
+    api
+      .get('/tenants/me')
+      .then((res) => {
+        if (res.data) {
+          const code = res.data.plan?.code || res.data.planCode || 'FREE';
+          setIsFreePlan(code === 'FREE');
+          localStorage.setItem('marquesuahora_tenant_plan_code', code);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Calcula lista de dias visíveis (7 dias para semana ou 1 dia para dia)
   const visibleDates = useMemo(() => {
@@ -298,6 +324,34 @@ export default function DashboardPage() {
 
   return (
     <div className="w-full space-y-8 pb-12">
+      {/* Faixa Sóbria Informativa do Plano Gratuito (Não-Invasiva) */}
+      {isFreePlan && !bannerDismissed && (
+        <div className="px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3 text-xs text-slate-700">
+          <div className="leading-relaxed">
+            <span>Você está usando o plano <strong>Gratuito</strong> (até 30 agendamentos por mês). Se precisar de agendamentos ilimitados ou lembretes automáticos no WhatsApp, </span>
+            <Link
+              href="/dashboard/planos"
+              className="font-bold text-purple-700 hover:text-purple-800 underline underline-offset-2 transition-colors cursor-pointer"
+            >
+              conheça nossos outros planos
+            </Link>
+            <span>.</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setBannerDismissed(true);
+              localStorage.setItem('marquesuahora_free_banner_dismissed', 'true');
+            }}
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors shrink-0 cursor-pointer"
+            title="Fechar aviso"
+            aria-label="Fechar aviso de plano gratuito"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ========================================================= */}
       {/* 1. SEÇÃO PRINCIPAL (HERO): AGENDA INTERATIVA COMPLETA     */}
       {/* ========================================================= */}

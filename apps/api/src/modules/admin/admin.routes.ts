@@ -257,43 +257,6 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
-      // Cria serviços padrão de catálogo para o nicho escolhido
-      const defaultServices: Record<string, Array<{ name: string; price: number; durationMinutes: number; category: string }>> = {
-        BARBERSHOP: [
-          { name: 'Corte Masculino & Degradê', price: 45, durationMinutes: 30, category: 'Cabelo' },
-          { name: 'Barboterapia com Toalha Quente', price: 40, durationMinutes: 30, category: 'Barba' }
-        ],
-        BEAUTY_SALON: [
-          { name: 'Corte & Escova Modelada', price: 90, durationMinutes: 50, category: 'Cabelo' },
-          { name: 'Hidratação Profunda & Nutrição', price: 120, durationMinutes: 60, category: 'Tratamentos' }
-        ],
-        NAIL_LASH_STUDIO: [
-          { name: 'Extensão de Cílios Volume Russo', price: 180, durationMinutes: 90, category: 'Cílios' },
-          { name: 'Alongamento de Unhas em Gel', price: 140, durationMinutes: 80, category: 'Unhas' }
-        ],
-        AESTHETICS_CLINIC: [
-          { name: 'Limpeza de Pele Profunda', price: 150, durationMinutes: 75, category: 'Facial' }
-        ],
-        PERSONAL_TRAINER: [
-          { name: 'Sessão de Treino Presencial 1h', price: 100, durationMinutes: 60, category: 'Treinos' }
-        ],
-        OTHER: [
-          { name: 'Atendimento Personalizado', price: 100, durationMinutes: 60, category: 'Geral' }
-        ]
-      };
-
-      const servicesToCreate = defaultServices[effectiveNiche] || defaultServices.OTHER;
-      await tx.service.createMany({
-        data: servicesToCreate.map((svc) => ({
-          tenantId: tenant.id,
-          name: svc.name,
-          category: svc.category,
-          price: svc.price,
-          durationMinutes: svc.durationMinutes,
-          allowOnlineBooking: true
-        }))
-      });
-
       return { tenant, user };
     });
 

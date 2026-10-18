@@ -180,6 +180,98 @@ function generateFrontendSmartReply(params: {
   );
 }
 
+function renderInlineText(text: string, isMe: boolean) {
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  const parts = text.split(regex);
+
+  return parts.map((part, pIdx) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={pIdx} className={`font-bold ${isMe ? 'text-white' : 'text-slate-900'}`}>
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code
+          key={pIdx}
+          className={`px-1.5 py-0.5 rounded font-mono text-[11px] ${
+            isMe ? 'bg-slate-800 text-purple-300' : 'bg-slate-100 text-purple-700'
+          }`}
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    const linkMatch = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+    if (linkMatch) {
+      const [, label, href] = linkMatch;
+      return (
+        <a
+          key={pIdx}
+          href={href}
+          target={href.startsWith('http') ? '_blank' : undefined}
+          rel={href.startsWith('http') ? 'noopener noreferrer' : undefined}
+          className={`underline font-semibold underline-offset-2 ${
+            isMe ? 'text-purple-300 hover:text-white' : 'text-purple-700 hover:text-purple-900'
+          }`}
+        >
+          {label}
+        </a>
+      );
+    }
+    return part;
+  });
+}
+
+function renderFormattedMessage(text: string, isMe: boolean) {
+  const lines = text.split('\n');
+
+  return lines.map((line, lineIdx) => {
+    const trimmed = line.trim();
+    const isBullet = trimmed.startsWith('•') || trimmed.startsWith('- ') || trimmed.startsWith('* ');
+    const isNumbered = /^\d+\.\s/.test(trimmed);
+
+    if (isBullet) {
+      const cleanLine = trimmed.replace(/^[•\-\*]\s*/, '');
+      return (
+        <div key={lineIdx} className="flex items-start gap-2 my-1 pl-0.5">
+          <span className={`font-bold shrink-0 leading-relaxed ${isMe ? 'text-purple-300' : 'text-purple-600'}`}>
+            •
+          </span>
+          <span className="flex-1 leading-relaxed">{renderInlineText(cleanLine, isMe)}</span>
+        </div>
+      );
+    }
+
+    if (isNumbered) {
+      const numMatch = trimmed.match(/^(\d+\.)\s*(.*)$/);
+      if (numMatch) {
+        const [, num, rest] = numMatch;
+        return (
+          <div key={lineIdx} className="flex items-start gap-2 my-1 pl-0.5">
+            <span className={`font-bold font-mono text-xs shrink-0 leading-relaxed ${isMe ? 'text-purple-300' : 'text-purple-700'}`}>
+              {num}
+            </span>
+            <span className="flex-1 leading-relaxed">{renderInlineText(rest, isMe)}</span>
+          </div>
+        );
+      }
+    }
+
+    if (trimmed === '') {
+      return <div key={lineIdx} className="h-1.5" />;
+    }
+
+    return (
+      <p key={lineIdx} className="leading-relaxed my-0.5">
+        {renderInlineText(line, isMe)}
+      </p>
+    );
+  });
+}
+
 export default function DashboardSuportePage() {
   // Estado de identificação e modal
   const [isNameConfirmed, setIsNameConfirmed] = useState(false);
@@ -714,7 +806,7 @@ export default function DashboardSuportePage() {
                       : 'bg-white text-slate-800 border border-slate-200 rounded-bl-xs'
                   }`}
                 >
-                  {msg.content && <p className="whitespace-pre-wrap">{msg.content}</p>}
+                  {msg.content && <div className="space-y-1">{renderFormattedMessage(msg.content, isMe)}</div>}
 
                   {msg.attachmentUrl && (
                     <div className="mt-2.5 p-2 bg-slate-100 rounded-xl flex items-center gap-3">

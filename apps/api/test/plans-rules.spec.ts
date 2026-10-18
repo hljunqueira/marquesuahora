@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { PlansService, DEFAULT_PLANS } from '../src/modules/plans/plans.service';
+import { PlansService } from '../src/modules/plans/plans.service';
 import { BookingService } from '../src/modules/schedules/booking.service';
 import { prisma } from '../src/lib/prisma';
 import { BookingSource } from '@prisma/client';
@@ -34,24 +34,17 @@ describe('Planos e Regras Contratadas', () => {
     vi.clearAllMocks();
   });
 
-  it('deve ter a definição dos 3 planos canônicos com as regras corretas', () => {
-    expect(DEFAULT_PLANS).toHaveLength(3);
+  it('deve ter suporte a resolução dinâmica de planos pelo banco de dados', async () => {
+    (prisma.plan.findFirst as any).mockResolvedValue({
+      id: 'uuid-free',
+      code: 'FREE',
+      name: 'Gratuito',
+      monthlyPrice: 0,
+      active: true
+    });
 
-    const free = DEFAULT_PLANS.find((p) => p.code === 'FREE');
-    expect(free?.monthlyPrice).toBe(0);
-    expect(free?.maxProfessionals).toBe(1);
-    expect(free?.isUnlimitedBookings).toBe(false);
-    expect(free?.monthlyFreeBookings).toBe(30);
-
-    const solo = DEFAULT_PLANS.find((p) => p.code === 'SOLO');
-    expect(solo?.monthlyPrice).toBe(39);
-    expect(solo?.maxProfessionals).toBe(1);
-    expect(solo?.isUnlimitedBookings).toBe(true);
-
-    const equipe = DEFAULT_PLANS.find((p) => p.code === 'EQUIPE_PRO');
-    expect(equipe?.monthlyPrice).toBe(79);
-    expect(equipe?.maxProfessionals).toBe(5);
-    expect(equipe?.isUnlimitedBookings).toBe(true);
+    const defaultPlan = await PlansService.resolvePlan(null);
+    expect(defaultPlan?.code).toBe('FREE');
   });
 
   it('deve resolver o plano correto por código normalizado', async () => {

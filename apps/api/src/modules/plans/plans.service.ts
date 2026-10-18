@@ -1,127 +1,20 @@
 import { prisma } from '../../lib/prisma';
 import { Plan } from '@prisma/client';
 
-export const DEFAULT_PLANS = [
-  {
-    code: 'FREE',
-    name: 'Gratuito',
-    description: 'Ideal para testar e para quem está começando o próprio negócio.',
-    monthlyPrice: 0.0,
-    maxProfessionals: 1,
-    isUnlimitedBookings: false,
-    monthlyFreeBookings: 30,
-    extraBookingFee: 1.5,
-    hasAiAssistant: false,
-    hasAnamnesis: false,
-    hasCommissions: false,
-    hasGoogleCalendar: false,
-    features: [
-      'Até 30 agendamentos por mês',
-      '1 profissional cadastrado',
-      'Link na bio personalizável',
-      'Catálogo de serviços e preços'
-    ],
-    active: true
-  },
-  {
-    code: 'SOLO',
-    name: 'Profissional Solo',
-    description: 'Para profissionais autônomas que vivem de hora marcada e não podem perder tempo.',
-    monthlyPrice: 39.0,
-    maxProfessionals: 1,
-    isUnlimitedBookings: true,
-    monthlyFreeBookings: 0,
-    extraBookingFee: 0.0,
-    hasAiAssistant: true,
-    hasAnamnesis: true,
-    hasCommissions: false,
-    hasGoogleCalendar: true,
-    features: [
-      'Agendamentos ilimitados',
-      '1 profissional cadastrado',
-      'Lembretes automáticos no WhatsApp',
-      'Módulo de Cursos Online para alunas',
-      'Proteção No-Show Shield (anti-faltas)',
-      'Galeria de fotos de trabalhos'
-    ],
-    active: true
-  },
-  {
-    code: 'EQUIPE_PRO',
-    name: 'Equipe Pro',
-    description: 'Para salões, barbearias e estúdios com múltiplos atendentes e cadeiras.',
-    monthlyPrice: 79.0,
-    maxProfessionals: 5,
-    isUnlimitedBookings: true,
-    monthlyFreeBookings: 0,
-    extraBookingFee: 0.0,
-    hasAiAssistant: true,
-    hasAnamnesis: true,
-    hasCommissions: true,
-    hasGoogleCalendar: true,
-    features: [
-      'Agendamentos ilimitados',
-      'Até 5 profissionais na equipe',
-      'Grades individuais de horários',
-      'Lembretes no WhatsApp para todos',
-      'Cursos e vídeos para alunas',
-      'Relatórios de atendimentos por profissional'
-    ],
-    active: true
-  }
-];
-
 export class PlansService {
   /**
-   * Garante a existência dos 3 planos canônicos no banco de dados.
-   * Executa upsert baseado no código único do plano (code).
+   * Sem planos padrão estáticos no código: planos são 100% gerenciados
+   * pelo administrador diretamente no banco de dados.
    */
   static async ensureDefaultPlans(): Promise<void> {
-    for (const planData of DEFAULT_PLANS) {
-      await prisma.plan.upsert({
-        where: { code: planData.code },
-        update: {
-          name: planData.name,
-          description: planData.description,
-          monthlyPrice: planData.monthlyPrice,
-          maxProfessionals: planData.maxProfessionals,
-          isUnlimitedBookings: planData.isUnlimitedBookings,
-          monthlyFreeBookings: planData.monthlyFreeBookings,
-          extraBookingFee: planData.extraBookingFee,
-          hasAiAssistant: planData.hasAiAssistant,
-          hasAnamnesis: planData.hasAnamnesis,
-          hasCommissions: planData.hasCommissions,
-          hasGoogleCalendar: planData.hasGoogleCalendar,
-          features: planData.features,
-          active: planData.active
-        },
-        create: {
-          code: planData.code,
-          name: planData.name,
-          description: planData.description,
-          monthlyPrice: planData.monthlyPrice,
-          maxProfessionals: planData.maxProfessionals,
-          isUnlimitedBookings: planData.isUnlimitedBookings,
-          monthlyFreeBookings: planData.monthlyFreeBookings,
-          extraBookingFee: planData.extraBookingFee,
-          hasAiAssistant: planData.hasAiAssistant,
-          hasAnamnesis: planData.hasAnamnesis,
-          hasCommissions: planData.hasCommissions,
-          hasGoogleCalendar: planData.hasGoogleCalendar,
-          features: planData.features,
-          active: planData.active
-        }
-      });
-    }
+    // Zero defaults injetados via código. Gerenciamento 100% via banco / admin.
   }
 
   /**
-   * Localiza um plano por UUID ou código (ex: "FREE", "SOLO", "EQUIPE", "EQUIPE_PRO").
-   * Se não encontrado ou não informado, retorna o plano gratuito padrão.
+   * Localiza um plano por UUID ou código (ex: "FREE", "SOLO", "EQUIPE_PRO").
+   * Se não encontrado ou não informado, busca o plano gratuito ativo ou o primeiro ativo no banco.
    */
   static async resolvePlan(planIdentifier?: string | null): Promise<Plan | null> {
-    await this.ensureDefaultPlans();
-
     if (planIdentifier) {
       const trimmed = planIdentifier.trim();
 
@@ -144,14 +37,17 @@ export class PlansService {
       if (planByCode) return planByCode;
     }
 
-    // 3. Fallback: plano gratuito ativo
-    const freePlan = await prisma.plan.findUnique({ where: { code: 'FREE' } });
+    // 3. Fallback: plano gratuito ativo cadastrado no banco
+    const freePlan = await prisma.plan.findFirst({
+      where: { code: 'FREE', active: true }
+    });
     if (freePlan) return freePlan;
 
-    // 4. Último fallback: primeiro plano ativo
+    // 4. Último fallback: primeiro plano ativo cadastrado no banco
     return prisma.plan.findFirst({
       where: { active: true },
       orderBy: { monthlyPrice: 'asc' }
     });
   }
 }
+

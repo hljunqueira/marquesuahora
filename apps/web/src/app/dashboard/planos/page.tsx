@@ -26,77 +26,12 @@ export interface PlanItem {
   current?: boolean;
 }
 
-const DEFAULT_PLANS: PlanItem[] = [
-  {
-    code: 'FREE',
-    name: 'Plano Gratuito',
-    price: 0,
-    pros: '1 profissional',
-    bookings: 'Até 50 agendamentos/mês',
-    features: [
-      '1 profissional cadastrado',
-      'Franquia de 50 agendamentos/mês',
-      '+ R$ 1,50 por agendamento extra',
-      'Vitrine básica (sem produtos)',
-      'Mensagem manual no WhatsApp'
-    ],
-    ai: false,
-    badge: 'Seu Plano Atual',
-    current: true
-  },
-  {
-    code: 'SOLO',
-    name: 'Profissional Solo',
-    price: 29.9,
-    pros: 'Até 3 profissionais',
-    bookings: 'Agendamentos Ilimitados',
-    features: [
-      'Tudo do Plano Gratuito e +',
-      'Até 3 profissionais',
-      'Agendamentos Ilimitados',
-      'Vitrine completa (com produtos)',
-      'Relatório financeiro básico'
-    ],
-    ai: false
-  },
-  {
-    code: 'EQUIPE_PRO',
-    name: 'Equipe Pro',
-    price: 59.9,
-    pros: 'Até 5 profissionais',
-    bookings: 'Agendamentos Ilimitados',
-    features: [
-      'Tudo do Profissional Solo e +',
-      'Até 5 profissionais',
-      'Comissões & Rateio Automático',
-      'Gestão de Estoque Completa'
-    ],
-    ai: false
-  },
-  {
-    code: 'VIP_AI',
-    name: 'Império VIP & IA',
-    price: 89.9,
-    pros: 'Até 10 profissionais',
-    bookings: 'Agendamentos Ilimitados',
-    features: [
-      'Tudo da Equipe Pro e +',
-      'Até 10 profissionais',
-      'Exclusivo: Lembretes automáticos no WhatsApp',
-      'Exclusivo: Atendente IA 24/7 no WhatsApp',
-      'Fidelidade & Multi-unidades'
-    ],
-    ai: true,
-    badge: 'IA & Automação VIP'
-  }
-];
-
 export default function DashboardPlanosPage() {
   const [loading, setLoading] = useState(true);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [activePlanCode, setActivePlanCode] = useState<string>('FREE');
   const [tenantData, setTenantData] = useState<any>(null);
-  const [availablePlans, setAvailablePlans] = useState<PlanItem[]>(DEFAULT_PLANS);
+  const [availablePlans, setAvailablePlans] = useState<PlanItem[]>([]);
 
   // Carrega plano e métricas reais do tenant direto da API
   const loadTenantPlan = useCallback(async () => {
@@ -114,46 +49,18 @@ export default function DashboardPlanosPage() {
         localStorage.setItem('marquesuahora_tenant_plan_code', code);
       }
 
-      if (plansRes?.data && Array.isArray(plansRes.data) && plansRes.data.length > 0) {
+      if (plansRes?.data && Array.isArray(plansRes.data)) {
         const currentCode = tenantRes?.data?.plan?.code || activePlanCode;
         const mapped = plansRes.data.map((p: any) => {
           const isCurrent = p.code === currentCode;
-          let features: string[] = [];
-
-          if (p.code === 'FREE') {
-            features = [
-              '1 profissional cadastrado',
-              `Franquia de ${p.monthlyFreeBookings || 50} agendamentos/mês`,
-              '+ R$ 1,50 por agendamento extra',
-              'Vitrine básica (sem produtos)',
-              'Mensagem manual no WhatsApp'
-            ];
-          } else if (p.code === 'SOLO') {
-            features = [
-              'Tudo do Plano Gratuito e +',
-              `Até ${p.maxProfessionals || 3} profissionais`,
-              'Agendamentos Ilimitados',
-              'Vitrine completa (com produtos)',
-              'Relatório financeiro básico'
-            ];
-          } else if (p.code === 'EQUIPE_PRO') {
-            features = [
-              'Tudo do Profissional Solo e +',
-              `Até ${p.maxProfessionals || 5} profissionais`,
-              'Agendamentos Ilimitados',
-              'Comissões & Rateio Automático',
-              'Gestão de Estoque Completa'
-            ];
-          } else {
-            features = [
-              'Tudo da Equipe Pro e +',
-              `Até ${p.maxProfessionals || 10} profissionais`,
-              'Agendamentos Ilimitados',
-              'Exclusivo: Lembretes automáticos no WhatsApp',
-              'Exclusivo: Atendente IA 24/7 no WhatsApp',
-              'Fidelidade & Multi-unidades'
-            ];
-          }
+          const features = Array.isArray(p.features) && p.features.length > 0
+            ? p.features
+            : [
+                `Até ${p.maxProfessionals} profissional${p.maxProfessionals > 1 ? 'is' : ''}`,
+                p.isUnlimitedBookings ? 'Agendamentos Ilimitados' : `Até ${p.monthlyFreeBookings || 30} agendamentos/mês`,
+                p.hasAutoWhatsapp ? 'Lembretes automáticos no WhatsApp' : 'WhatsApp manual',
+                p.hasAiAssistant ? 'Atendente e Assistente IA 24/7' : 'Painel de agendamentos'
+              ];
 
           return {
             code: p.code,
@@ -162,24 +69,20 @@ export default function DashboardPlanosPage() {
             pros: `Até ${p.maxProfessionals} profissional${(p.maxProfessionals || 1) > 1 ? 'is' : ''}`,
             bookings: p.isUnlimitedBookings
               ? 'Agendamentos Ilimitados'
-              : `Franquia de ${p.monthlyFreeBookings || 50} agendamentos/mês`,
+              : `Até ${p.monthlyFreeBookings || 30} agendamentos/mês`,
             features,
-            ai: Boolean(p.hasAiAssistant || p.hasAutoWhatsapp || p.code === 'VIP_AI'),
-            badge: isCurrent ? 'Seu Plano Atual' : (p.code === 'VIP_AI' ? 'IA & Automação VIP' : undefined),
+            ai: Boolean(p.hasAiAssistant),
+            badge: isCurrent ? 'Seu Plano Atual' : (p.code === 'SOLO' ? 'Mais Popular' : (p.code === 'EQUIPE_PRO' ? 'Para Salões & Equipes' : undefined)),
             current: isCurrent
           };
         });
         setAvailablePlans(mapped);
       } else {
-        const currentCode = tenantRes?.data?.plan?.code || activePlanCode;
-        setAvailablePlans(DEFAULT_PLANS.map((p) => ({
-          ...p,
-          current: p.code === currentCode,
-          badge: p.code === currentCode ? 'Seu Plano Atual' : (p.code === 'VIP_AI' ? 'IA & Automação VIP' : undefined)
-        })));
+        setAvailablePlans([]);
       }
     } catch (err) {
       console.warn('Erro ao carregar dados do plano:', err);
+      setAvailablePlans([]);
     } finally {
       setLoading(false);
     }

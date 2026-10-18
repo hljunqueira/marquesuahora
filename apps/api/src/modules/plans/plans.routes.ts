@@ -7,18 +7,10 @@ import { Role } from '@prisma/client';
 export const plansRoutes: FastifyPluginAsync = async (app) => {
   // Listagem pública de planos ativos (para Landing Page, Onboarding e Upgrade)
   app.get('/', async (_request, reply) => {
-    let plans = await prisma.plan.findMany({
+    const plans = await prisma.plan.findMany({
       where: { active: true },
       orderBy: { monthlyPrice: 'asc' }
     });
-
-    if (plans.length === 0) {
-      await PlansService.ensureDefaultPlans();
-      plans = await prisma.plan.findMany({
-        where: { active: true },
-        orderBy: { monthlyPrice: 'asc' }
-      });
-    }
 
     return reply.send(plans);
   });
@@ -149,6 +141,41 @@ export const plansRoutes: FastifyPluginAsync = async (app) => {
       });
 
       return reply.send(plan);
+    });
+
+    // Exclusão de plano (se não houver tenants vinculados)
+    adminScope.delete('/admin/:id', async (request, reply) => {
+      const { id } = request.params as { id: string };
+
+      const tenantsCount = await prisma.tenant.count({
+        where: { planId: id }
+      });
+
+      if (tenantsCount > 0) {
+        return reply.status(400).send({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `Não é possível excluir este plano pois existem ${tenantsCount} estabelecimentos vinculados a ele. Inative-o para impedir novas contratações.`
+        });
+      }
+
+      await prisma.plan.delete({
+        where: { id }
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          action: 'PLAN_DELETE',
+          entityType: 'Plan',
+          entityId: id,
+          details: { id },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      });
+
+      return reply.send({ success: true, message: 'Plano excluído com sucesso.' });
     });
   });
 };
