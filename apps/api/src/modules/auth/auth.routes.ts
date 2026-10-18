@@ -245,17 +245,27 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         to: user.email,
         subject: 'Recuperação de Senha — Marque Sua Hora',
         html: `
-          <p>Olá, <strong>${user.name}</strong>!</p>
-          <p>Recebemos uma solicitação para redefinir a senha da sua conta na plataforma <strong>Marque Sua Hora</strong>.</p>
-          <p>Para criar uma nova senha com segurança, clique no link abaixo (válido por 1 hora):</p>
-          <p style="margin: 24px 0;">
-            <a href="${resetLink}" style="background-color: #7c3aed; color: #ffffff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 14px; display: inline-block;">
+          <h2 style="margin: 0 0 16px 0; font-size: 20px; font-weight: 700; color: #0f172a;">
+            Olá, <strong>${user.name}</strong>!
+          </h2>
+          <p style="margin: 0 0 16px 0; font-size: 15px; color: #334155;">
+            Recebemos uma solicitação para redefinir a senha de acesso da sua conta na plataforma <strong>Marque Sua Hora</strong>.
+          </p>
+          <p style="margin: 0 0 24px 0; font-size: 15px; color: #334155;">
+            Para criar sua nova senha com total segurança, clique no botão abaixo:
+          </p>
+
+          <div style="margin: 28px 0; text-align: center;">
+            <a href="${resetLink}" style="background-color: #7c3aed; color: #ffffff; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 700; font-size: 15px; display: inline-block; box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);">
               Redefinir Minha Senha
             </a>
-          </p>
-          <p style="font-size: 12px; color: #64748b; line-height: 1.5;">
-            Se você não solicitou a redefinição de senha, nenhuma ação é necessária. Sua conta continua totalmente protegida.
-          </p>
+          </div>
+
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 16px 20px; margin: 24px 0;">
+            <p style="margin: 0; font-size: 12px; color: #64748b; line-height: 1.5;">
+              Por segurança, este link é válido por <strong>1 hora</strong>. Se você não solicitou a redefinição de senha, nenhuma ação é necessária. Sua conta continua totalmente protegida.
+            </p>
+          </div>
         `,
         tenantName: user.tenant?.name || 'Marque Sua Hora'
       }).catch((err) => {
