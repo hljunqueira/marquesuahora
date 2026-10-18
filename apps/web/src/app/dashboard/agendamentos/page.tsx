@@ -329,7 +329,6 @@ export default function AgendamentosPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por cliente ou WhatsApp..."
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium outline-hidden focus:bg-white focus:border-purple-600 transition-colors"
             />
           </div>

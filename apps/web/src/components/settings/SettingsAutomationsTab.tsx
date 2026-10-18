@@ -52,7 +52,6 @@ export const SettingsAutomationsTab: React.FC<SettingsAutomationsTabProps> = ({
               rows={3}
               value={settings.birthdayMessageCustom || ''}
               onChange={(e) => onChange('birthdayMessageCustom', e.target.value)}
-              placeholder="Ex: Parabéns pelo seu dia especial! Como presente, preparamos um desconto exclusivo para você agendar seu cuidado conosco esta semana."
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -131,7 +130,6 @@ export const SettingsAutomationsTab: React.FC<SettingsAutomationsTabProps> = ({
               type="url"
               value={settings.googleReviewUrl || ''}
               onChange={(e) => onChange('googleReviewUrl', e.target.value)}
-              placeholder="https://g.page/r/suapagina/review"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
             <span className="text-[11px] text-slate-400 mt-1 block">

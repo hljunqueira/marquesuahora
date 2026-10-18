@@ -646,7 +646,6 @@ export default function DashboardServicosPage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar procedimento por nome ou categoria..."
               className="w-full px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all text-slate-800"
             />
             {searchTerm && (
@@ -987,7 +986,6 @@ export default function DashboardServicosPage() {
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Ex: Nome do corte, procedimento ou sessão..."
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all text-slate-800"
                     />
                   </div>
@@ -1002,7 +1000,6 @@ export default function DashboardServicosPage() {
                         required
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
-                        placeholder="Ex: Categoria do procedimento"
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all text-slate-800"
                       />
                     </div>
@@ -1046,7 +1043,6 @@ export default function DashboardServicosPage() {
                       rows={2}
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Descreva detalhes como recomendações prévias, produtos inclusos..."
                       className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all resize-none text-slate-800"
                     />
                   </div>
@@ -1075,7 +1071,6 @@ export default function DashboardServicosPage() {
                           step={5}
                           value={processingMinutes}
                           onChange={(e) => setProcessingMinutes(e.target.value)}
-                          placeholder="Ex: 45"
                           className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none font-mono focus:border-slate-800"
                         />
                       </div>
@@ -1089,7 +1084,6 @@ export default function DashboardServicosPage() {
                           step={5}
                           value={finishingMinutes}
                           onChange={(e) => setFinishingMinutes(e.target.value)}
-                          placeholder="Ex: 30"
                           className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none font-mono focus:border-slate-800"
                         />
                       </div>
@@ -1162,7 +1156,6 @@ export default function DashboardServicosPage() {
                             step={depositType === 'PERCENTAGE' ? 5 : 5}
                             value={depositAmount}
                             onChange={(e) => setDepositAmount(e.target.value)}
-                            placeholder={depositType === 'PERCENTAGE' ? '50' : '50.00'}
                             className="w-full px-3 py-2 text-xs bg-white border border-purple-200 rounded-xl outline-hidden font-mono font-bold text-purple-950 focus:border-purple-600"
                           />
                           <span className="font-bold text-purple-900 text-xs">

@@ -85,7 +85,6 @@ export const WaitlistModal: React.FC<WaitlistModalProps> = ({
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: João da Silva"
                 className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 outline-none"
               />
             </div>
@@ -97,7 +96,6 @@ export const WaitlistModal: React.FC<WaitlistModalProps> = ({
                 required
                 value={phone}
                 onChangeValue={(formatted) => setPhone(formatted)}
-                placeholder="(00) 00000-0000"
                 className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-indigo-500 outline-none"
               />
             </div>

@@ -203,7 +203,6 @@ export default function AnamnesisPage() {
                 type="text"
                 value={formData.allergies}
                 onChange={(e) => setFormData({ ...formData, allergies: e.target.value })}
-                placeholder="Qual substância ou produto causa reação?"
                 required
                 className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600 mt-2"
               />
@@ -400,7 +399,6 @@ export default function AnamnesisPage() {
               rows={3}
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              placeholder="Ex: sensibilidade na cabine LED, unha que quebrou na base, etc."
               className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600 resize-none"
             />
           </div>

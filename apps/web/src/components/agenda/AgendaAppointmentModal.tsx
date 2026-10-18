@@ -298,7 +298,6 @@ export function AgendaAppointmentModal({
                   disabled={isEditing}
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Digite o nome do cliente..."
                   required
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-purple-600 focus:ring-2 focus:ring-purple-600/20 disabled:bg-slate-50"
                 />
@@ -339,7 +338,6 @@ export function AgendaAppointmentModal({
                 disabled={isEditing}
                 value={clientPhone}
                 onChangeValue={(formatted) => setClientPhone(formatted)}
-                placeholder="(00) 00000-0000"
                 required
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-purple-600 focus:ring-2 focus:ring-purple-600/20 disabled:bg-slate-50"
               />
@@ -498,7 +496,6 @@ export function AgendaAppointmentModal({
                   setCustomPrice(e.target.value);
                   setIsCustomPriceEdited(true);
                 }}
-                placeholder="0,00"
                 className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-bold font-mono outline-hidden focus:border-purple-600 bg-white"
               />
             </div>
@@ -545,7 +542,6 @@ export function AgendaAppointmentModal({
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Preferências do cliente ou detalhes adicionais..."
               className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600 resize-none"
             />
           </div>

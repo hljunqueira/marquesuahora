@@ -1056,7 +1056,6 @@ export default function DashboardFinanceiroPage() {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar lançamentos por descrição, cliente ou colaborador..."
                   className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-medium"
                 />
               </div>
@@ -1849,7 +1848,6 @@ export default function DashboardFinanceiroPage() {
                       required
                       value={txTitle}
                       onChange={(e) => setTxTitle(e.target.value)}
-                      placeholder="Ex: Corte Degradê - Rodrigo ou Insumos de Bancada"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-semibold"
                     />
                   </div>
@@ -1907,7 +1905,6 @@ export default function DashboardFinanceiroPage() {
                       required
                       value={txAmount}
                       onChange={(e) => setTxAmount(e.target.value)}
-                      placeholder="0,00"
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-mono font-bold text-sm"
                     />
                   </div>
@@ -1936,7 +1933,6 @@ export default function DashboardFinanceiroPage() {
                         type="text"
                         value={txClient}
                         onChange={(e) => setTxClient(e.target.value)}
-                        placeholder="Ou digite o cliente"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
                       />
                     </div>
@@ -1966,7 +1962,6 @@ export default function DashboardFinanceiroPage() {
                         type="text"
                         value={txProfessional}
                         onChange={(e) => setTxProfessional(e.target.value)}
-                        placeholder="Ou digite o profissional"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
                       />
                     </div>
@@ -1981,7 +1976,6 @@ export default function DashboardFinanceiroPage() {
                       type="text"
                       value={txNotes}
                       onChange={(e) => setTxNotes(e.target.value)}
-                      placeholder="Ex: número de nota fiscal, condições acordadas..."
                       className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
                     />
                   </div>
@@ -2191,7 +2185,6 @@ export default function DashboardFinanceiroPage() {
                       required
                       value={creditClientName}
                       onChange={(e) => setCreditClientName(e.target.value)}
-                      placeholder="Ex: Fernanda Lima"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-semibold"
                     />
                   </div>
@@ -2205,7 +2198,6 @@ export default function DashboardFinanceiroPage() {
                       required
                       value={creditClientPhone}
                       onChangeValue={(formatted: string) => setCreditClientPhone(formatted)}
-                      placeholder="(11) 99999-9999"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-mono font-semibold"
                     />
                   </div>
@@ -2219,7 +2211,6 @@ export default function DashboardFinanceiroPage() {
                       required
                       value={creditDescription}
                       onChange={(e) => setCreditDescription(e.target.value)}
-                      placeholder="Ex: Mechas + Escova (Pacote quinzenal)"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-semibold"
                     />
                   </div>
@@ -2233,7 +2224,6 @@ export default function DashboardFinanceiroPage() {
                       required
                       value={creditTotalAmount}
                       onChange={(e) => setCreditTotalAmount(e.target.value)}
-                      placeholder="0,00"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-mono font-bold"
                     />
                   </div>
@@ -2259,7 +2249,6 @@ export default function DashboardFinanceiroPage() {
                       type="text"
                       value={creditNotes}
                       onChange={(e) => setCreditNotes(e.target.value)}
-                      placeholder="Ex: Acordo para pagamento no quinto dia útil via PIX."
                       className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none"
                     />
                   </div>
@@ -2369,7 +2358,6 @@ export default function DashboardFinanceiroPage() {
                     type="text"
                     value={refundReason}
                     onChange={(e) => setRefundReason(e.target.value)}
-                    placeholder="Ou detalhe a justificativa do estorno..."
                     className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium"
                     required
                   />
@@ -2494,7 +2482,6 @@ export default function DashboardFinanceiroPage() {
                     required
                     value={paymentAmountInput}
                     onChange={(e) => setPaymentAmountInput(e.target.value)}
-                    placeholder="0,00"
                     className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-mono font-bold text-base"
                   />
                 </div>

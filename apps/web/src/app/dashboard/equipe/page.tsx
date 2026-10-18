@@ -635,7 +635,6 @@ export default function DashboardEquipePage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar profissionais por nome ou especialidade..."
               className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
             />
           </div>
@@ -996,7 +995,6 @@ export default function DashboardEquipePage() {
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Ex: Juliana Silva ou Carlos Oliveira"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-semibold"
                     />
                   </div>
@@ -1010,7 +1008,6 @@ export default function DashboardEquipePage() {
                       required
                       value={role}
                       onChange={(e) => setRole(e.target.value)}
-                      placeholder="Ex: Master Colorista, Barbeiro Visagista..."
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
                     />
 
@@ -1040,7 +1037,6 @@ export default function DashboardEquipePage() {
                       mask="phone"
                       value={phone}
                       onChangeValue={(val) => setPhone(val)}
-                      placeholder="(11) 99999-9999"
                       required
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-semibold font-mono"
                     />
@@ -1058,7 +1054,6 @@ export default function DashboardEquipePage() {
                         max={100}
                         value={commission}
                         onChange={(e) => setCommission(e.target.value)}
-                        placeholder="50"
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-semibold font-mono"
                       />
                       <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
@@ -1137,7 +1132,6 @@ export default function DashboardEquipePage() {
                       type="text"
                       value={customSpecialtyInput}
                       onChange={(e) => setCustomSpecialtyInput(e.target.value)}
-                      placeholder="Adicionar outra especialidade..."
                       className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-medium"
                     />
                     <button

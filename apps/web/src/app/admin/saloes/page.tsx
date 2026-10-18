@@ -311,7 +311,6 @@ export default function AdminSaloesPage() {
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
           <input
             type="text"
-            placeholder="Buscar por salão, slug, responsável ou WhatsApp..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900 placeholder-slate-400 transition-all"
@@ -628,7 +627,6 @@ export default function AdminSaloesPage() {
                       type="text"
                       value={gratuityReason}
                       onChange={(e) => setGratuityReason(e.target.value)}
-                      placeholder="Ex: Parceria de Lançamento, Amiga da Direção, Cliente Piloto..."
                       className="w-full px-3 py-2 text-xs bg-white border border-amber-300 rounded-xl outline-none focus:border-amber-600 text-slate-900"
                     />
                   </div>
@@ -699,7 +697,6 @@ export default function AdminSaloesPage() {
                       required
                       value={newForm.name}
                       onChange={(e) => handleNewNameChange(e.target.value)}
-                      placeholder="Ex: Barbearia Dom Henrique"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
                     />
                   </div>
@@ -722,7 +719,6 @@ export default function AdminSaloesPage() {
                             slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '')
                           }))
                         }
-                        placeholder="barbearia-dom-henrique"
                         className="w-full py-2.5 pr-3 bg-transparent text-xs text-slate-900 outline-none font-mono font-bold"
                       />
                     </div>
@@ -754,7 +750,6 @@ export default function AdminSaloesPage() {
                       mask="phone"
                       value={newForm.phone}
                       onChangeValue={(_formatted, raw) => setNewForm((prev) => ({ ...prev, phone: raw }))}
-                      placeholder="(11) 99999-9999"
                       required
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
                     />
@@ -769,7 +764,6 @@ export default function AdminSaloesPage() {
                       required
                       value={newForm.ownerName}
                       onChange={(e) => setNewForm((prev) => ({ ...prev, ownerName: e.target.value }))}
-                      placeholder="Ex: Henrique Silva"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
                     />
                   </div>
@@ -783,7 +777,6 @@ export default function AdminSaloesPage() {
                       required
                       value={newForm.ownerEmail}
                       onChange={(e) => setNewForm((prev) => ({ ...prev, ownerEmail: e.target.value }))}
-                      placeholder="henrique@estabelecimento.com"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
                     />
                   </div>
@@ -798,7 +791,6 @@ export default function AdminSaloesPage() {
                       minLength={6}
                       value={newForm.ownerPassword}
                       onChange={(e) => setNewForm((prev) => ({ ...prev, ownerPassword: e.target.value }))}
-                      placeholder="Mínimo 6 caracteres"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-purple-600 text-slate-900"
                     />
                   </div>

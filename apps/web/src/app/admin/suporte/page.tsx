@@ -311,7 +311,6 @@ export default function AdminSuportePage() {
                   type="text"
                   value={replyMessage}
                   onChange={(e) => setReplyMessage(e.target.value)}
-                  placeholder="Responder ao estabelecimento..."
                   disabled={isSendingReply}
                   className="flex-1 px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-slate-500 text-slate-900 placeholder-slate-400"
                 />
@@ -385,7 +384,6 @@ export default function AdminSuportePage() {
               <form onSubmit={handleAddTask} className="mt-4 flex items-center gap-2">
                 <input
                   type="text"
-                  placeholder="+ Nova tarefa no checklist..."
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
                   className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg outline-none text-slate-900 placeholder-slate-400 focus:border-slate-500"

@@ -334,7 +334,6 @@ export default function IntegracoesAdminPage() {
                       type="email"
                       value={testEmailTo}
                       onChange={(e) => setTestEmailTo(e.target.value)}
-                      placeholder="Digite seu e-mail para receber o teste..."
                       required
                       className="flex-1 text-xs px-3 py-2 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-purple-600/20 focus:border-purple-600"
                     />

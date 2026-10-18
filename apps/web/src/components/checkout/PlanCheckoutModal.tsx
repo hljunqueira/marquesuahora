@@ -420,7 +420,6 @@ export function PlanCheckoutModal({
                       const formatted = val.replace(/(\d{4})/g, '$1 ').trim();
                       setCardNumber(formatted);
                     }}
-                    placeholder="0000 0000 0000 0000"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs font-semibold outline-hidden focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
                   />
                 </div>
@@ -434,7 +433,6 @@ export function PlanCheckoutModal({
                     required
                     value={cardHolder}
                     onChange={(e) => setCardHolder(e.target.value.toUpperCase())}
-                    placeholder="Ex: MARIA S SILVA"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-semibold uppercase outline-hidden focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
                   />
                 </div>
@@ -457,7 +455,6 @@ export function PlanCheckoutModal({
                           setCardExpiry(val);
                         }
                       }}
-                      placeholder="12/28"
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs font-semibold outline-hidden focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
                     />
                   </div>
@@ -472,7 +469,6 @@ export function PlanCheckoutModal({
                       maxLength={4}
                       value={cardCvv}
                       onChange={(e) => setCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                      placeholder="123"
                       className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs font-semibold outline-hidden focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
                     />
                   </div>
@@ -495,7 +491,6 @@ export function PlanCheckoutModal({
                         .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
                       setCardCpf(formatted);
                     }}
-                    placeholder="000.000.000-00"
                     className="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-xs font-semibold outline-hidden focus:border-purple-600 focus:ring-1 focus:ring-purple-600"
                   />
                 </div>

@@ -122,7 +122,6 @@ export const SettingsShieldTab: React.FC<SettingsShieldTabProps> = ({
                     onChange('depositFirstBookingValue', val);
                     onChange('depositFirstBookingPercent', val);
                   }}
-                  placeholder={firstBookingType === 'PERCENTAGE' ? 'Ex: 50%' : 'Ex: R$ 30,00'}
                   className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 font-bold outline-hidden focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
                 />
                 <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
@@ -212,7 +211,6 @@ export const SettingsShieldTab: React.FC<SettingsShieldTabProps> = ({
                   step={settings.depositType === 'PERCENTAGE' ? 5 : 5}
                   value={settings.depositAmount ?? 30}
                   onChange={(e) => onChange('depositAmount', parseFloat(e.target.value) || 0)}
-                  placeholder={settings.depositType === 'PERCENTAGE' ? '30%' : 'R$ 30,00'}
                   className="w-full px-3.5 py-2 rounded-xl bg-white border border-slate-300 text-sm text-slate-900 font-bold outline-hidden focus:border-slate-900 focus:ring-1 focus:ring-slate-900"
                 />
                 <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
@@ -272,7 +270,6 @@ export const SettingsShieldTab: React.FC<SettingsShieldTabProps> = ({
               type="text"
               value={settings.pixKey || ''}
               onChange={(e) => onChange('pixKey', e.target.value)}
-              placeholder="Digite a chave PIX"
               className="w-full px-3 py-2.5 rounded-xl bg-white border border-slate-300 text-xs font-mono font-bold text-slate-900 outline-hidden focus:border-slate-900"
             />
           </div>
@@ -285,7 +282,6 @@ export const SettingsShieldTab: React.FC<SettingsShieldTabProps> = ({
               type="text"
               value={settings.pixKeyHolder || ''}
               onChange={(e) => onChange('pixKeyHolder', e.target.value)}
-              placeholder="Ex: Maria Silva ME"
               className="w-full px-3 py-2.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900 outline-hidden focus:border-slate-900"
             />
           </div>

@@ -241,7 +241,6 @@ export const CouponBroadcastModal: React.FC<CouponBroadcastModalProps> = ({
                     </label>
                     <input
                       type="text"
-                      placeholder="Ex: BELEZA20"
                       value={newCode}
                       onChange={(e) => setNewCode(e.target.value.toUpperCase().replace(/\s+/g, ''))}
                       className="w-full text-xs font-mono font-bold uppercase p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
@@ -263,7 +262,6 @@ export const CouponBroadcastModal: React.FC<CouponBroadcastModalProps> = ({
                       </select>
                       <input
                         type="number"
-                        placeholder="Ex: 20"
                         value={newDiscountValue}
                         onChange={(e) => setNewDiscountValue(e.target.value)}
                         className="w-full text-xs p-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-purple-500 outline-none"
@@ -381,7 +379,6 @@ export const CouponBroadcastModal: React.FC<CouponBroadcastModalProps> = ({
                     <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
-                      placeholder="Filtrar por nome ou telefone..."
                       value={clientSearch}
                       onChange={(e) => setClientSearch(e.target.value)}
                       className="w-full text-xs pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500"

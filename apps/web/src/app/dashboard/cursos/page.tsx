@@ -850,7 +850,6 @@ export default function CursosPage() {
                   required
                   value={courseTitle}
                   onChange={(e) => setCourseTitle(e.target.value)}
-                  placeholder="Ex: Formação Nail Designer em Fibra de Vidro"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold outline-hidden focus:border-purple-600"
                 />
               </div>
@@ -863,7 +862,6 @@ export default function CursosPage() {
                   rows={2}
                   value={courseDesc}
                   onChange={(e) => setCourseDesc(e.target.value)}
-                  placeholder="O que suas alunas vão aprender neste treinamento..."
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600 resize-none"
                 />
               </div>
@@ -877,7 +875,6 @@ export default function CursosPage() {
                     type="text"
                     value={coursePrice}
                     onChange={(e) => setCoursePrice(e.target.value)}
-                    placeholder="Ex: 297,00"
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-bold font-mono outline-hidden focus:border-purple-600"
                   />
                 </div>
@@ -994,7 +991,6 @@ export default function CursosPage() {
                       type="url"
                       value={courseVideoUrl}
                       onChange={(e) => setCourseVideoUrl(e.target.value)}
-                      placeholder="https://youtube.com/watch?v=... ou https://vimeo.com/... ou link .mp4"
                       className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600"
                     />
                   </div>
@@ -1112,7 +1108,6 @@ export default function CursosPage() {
                   required
                   value={lessonTitle}
                   onChange={(e) => setLessonTitle(e.target.value)}
-                  placeholder="Ex: Aula 01 - Anatomia da Lâmina e Preparação"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold outline-hidden focus:border-purple-600"
                 />
               </div>
@@ -1125,7 +1120,6 @@ export default function CursosPage() {
                   rows={2}
                   value={lessonDesc}
                   onChange={(e) => setLessonDesc(e.target.value)}
-                  placeholder="Resumo do conteúdo ensinado nesta aula..."
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600 resize-none"
                 />
               </div>
@@ -1169,7 +1163,6 @@ export default function CursosPage() {
                       required
                       value={lessonVideoUrl}
                       onChange={(e) => setLessonVideoUrl(e.target.value)}
-                      placeholder="https://youtube.com/watch?v=... ou https://vimeo.com/... ou link .mp4"
                       className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-mono font-medium outline-hidden focus:border-purple-600"
                     />
                   </div>
@@ -1238,7 +1231,6 @@ export default function CursosPage() {
                   type="text"
                   value={lessonDuration}
                   onChange={(e) => setLessonDuration(e.target.value)}
-                  placeholder="Ex: 18:30"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-mono font-semibold outline-hidden focus:border-purple-600"
                 />
               </div>

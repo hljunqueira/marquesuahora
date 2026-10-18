@@ -907,7 +907,6 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                     type="text"
                     value={couponInput}
                     onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                    placeholder="Ex: PROMO10"
                     className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono font-bold uppercase tracking-wider outline-hidden focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 bg-white"
                   />
                   <button
@@ -940,7 +939,6 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                   mask="phone"
                   value={clientPhone}
                   onChangeValue={(formatted) => setClientPhone(formatted)}
-                  placeholder="(00) 00000-0000"
                   required
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
                 />
@@ -954,7 +952,6 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                   type="text"
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Como gostaria de ser chamada?"
                   required
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
                 />
@@ -968,7 +965,6 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                   type="email"
                   value={clientEmail}
                   onChange={(e) => setClientEmail(e.target.value)}
-                  placeholder="Para receber o comprovante por e-mail"
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20"
                 />
               </div>
@@ -981,7 +977,6 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Alguma preferência ou detalhe especial para o seu atendimento?"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-brand-purple focus:ring-2 focus:ring-brand-purple/20 resize-none"
                 />
               </div>

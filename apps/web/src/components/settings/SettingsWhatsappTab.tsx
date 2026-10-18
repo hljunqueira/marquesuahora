@@ -415,7 +415,6 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
               rows={3}
               value={customInstructions}
               onChange={(e) => setCustomInstructions(e.target.value)}
-              placeholder="Ex: Temos estacionamento gratuito conveniado ao lado do salão. A tolerância de atraso é de 15 minutos. Não fazemos procedimentos químicos aos sábados."
               className="w-full p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all"
             />
 

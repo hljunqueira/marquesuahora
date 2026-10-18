@@ -123,7 +123,6 @@ export const TrainingLocationModal: React.FC<TrainingLocationModalProps> = ({
                   <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                   <input
                     type="text"
-                    placeholder="Rua, número, condomínio e bloco"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     className="w-full pl-9 pr-3 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:border-blue-500 outline-none transition-all"

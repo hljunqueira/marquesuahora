@@ -62,9 +62,10 @@ export class QuickCommandService {
     const now = params.referenceDate || new Date();
     const currentDateStr = now.toISOString().slice(0, 10);
 
-    // Carrega contexto do catálogo do salão (com tratamento resiliente)
+    // Carrega contexto do catálogo e clientes do salão (com tratamento resiliente)
     let rawServices: any[] = [];
     let professionals: any[] = [];
+    let clients: any[] = [];
 
     try {
       const results = await Promise.all([
@@ -75,13 +76,20 @@ export class QuickCommandService {
         prisma.professional.findMany({
           where: { tenantId, isActive: true },
           select: { id: true, name: true }
+        }),
+        prisma.client.findMany({
+          where: { tenantId },
+          select: { id: true, name: true, phone: true },
+          take: 300
         })
       ]);
       rawServices = results[0];
       professionals = results[1];
+      clients = results[2];
     } catch {
       rawServices = [];
       professionals = [];
+      clients = [];
     }
 
     const services = rawServices.map((s) => ({
@@ -98,6 +106,7 @@ export class QuickCommandService {
           transcript,
           services,
           professionals,
+          clients,
           currentDateStr,
           apiKey
         });
@@ -114,6 +123,7 @@ export class QuickCommandService {
       transcript,
       services,
       professionals,
+      clients,
       currentDateStr,
       now
     });
@@ -126,17 +136,20 @@ export class QuickCommandService {
     transcript: string;
     services: Array<{ id: string; name: string; price: number }>;
     professionals: Array<{ id: string; name: string }>;
+    clients: Array<{ id: string; name: string; phone: string }>;
     currentDateStr: string;
     apiKey: string;
   }): Promise<QuickCommandPreview | null> {
     const servicesList = params.services.map((s) => `ID: "${s.id}", Nome: "${s.name}", Preço: R$ ${s.price}`).join('; ');
     const professionalsList = params.professionals.map((p) => `ID: "${p.id}", Nome: "${p.name}"`).join('; ');
+    const clientsList = params.clients.slice(0, 50).map((c) => `"${c.name}" (${c.phone})`).join(', ');
 
     const systemPrompt = `Você é o interpretador de comandos por voz do aplicativo de gestão de salão de beleza e barbearia "MarqueSuaHora".
 A data de hoje é: ${params.currentDateStr}.
 
 Serviços cadastrados no salão: [${servicesList || 'Nenhum'}]
 Profissionais cadastrados no salão: [${professionalsList || 'Nenhum'}]
+Clientes recentes cadastrados: [${clientsList || 'Nenhum'}]
 
 Sua tarefa é analisar a frase falada pela dona do salão e classificá-la estritamente em uma das ações:
 1. CREATE_EXPENSE: Registra uma saída/despesa financeira (ex: "gastei 150 no mercado", "anotar 150 reais em produtos loja Fraceto", "paguei 40 de conta de luz").
@@ -209,6 +222,7 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
     transcript: string;
     services: Array<{ id: string; name: string; price: number }>;
     professionals: Array<{ id: string; name: string }>;
+    clients: Array<{ id: string; name: string; phone: string }>;
     currentDateStr: string;
     now: Date;
   }): QuickCommandPreview {
@@ -361,16 +375,42 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
     // =========================================================================
     // REGRA E: AGENDAMENTO DE CLIENTE
     // =========================================================================
-    const isSchedule = lower.includes('agendar') || lower.includes('marcar') || lower.includes('agendamento');
+    const isSchedule =
+      lower.includes('agendar') ||
+      lower.includes('marcar') ||
+      lower.includes('agendamento') ||
+      lower.includes('agenda');
+
     if (isSchedule) {
       // Tenta achar nome da cliente
-      const clientMatch = text.match(/(?:cliente|para|com)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)/i);
-      const clientName = clientMatch ? clientMatch[1].trim() : 'Cliente';
+      const clientMatch = text.match(/(?:cliente|para|com|pra)\s+([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i);
+      let clientName = clientMatch ? clientMatch[1].trim() : '';
+
+      if (lower.includes('pra mim') || lower.includes('para mim')) {
+        clientName = 'Cliente';
+      }
+
+      // Busca na lista de clientes cadastrados do salão por similaridade de nome
+      let matchedClient = (params.clients || []).find((c) => {
+        const cLower = c.name.toLowerCase();
+        return (
+          (clientName && clientName.length >= 3 && (cLower.includes(clientName.toLowerCase()) || clientName.toLowerCase().includes(cLower))) ||
+          (c.name.length >= 3 && lower.includes(cLower))
+        );
+      });
+
+      if (matchedClient) {
+        clientName = matchedClient.name;
+      } else if (!clientName || clientName.toLowerCase() === 'mim') {
+        clientName = 'Cliente';
+      }
 
       // Horário
-      let startTime = '17:00';
+      let startTime = '10:00';
       if (singleTimeMatch) {
-        startTime = `${String(singleTimeMatch[1]).padStart(2, '0')}:${singleTimeMatch[2] || '00'}`;
+        const h = singleTimeMatch[1];
+        const m = singleTimeMatch[2] || singleTimeMatch[3] || '00';
+        startTime = `${String(h).padStart(2, '0')}:${m}`;
       }
 
       // Serviço mais próximo ou primeiro ativo
@@ -387,15 +427,15 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
       return {
         action: 'CREATE_SCHEDULE',
         confidence: 0.88,
-        summary: `Agendar ${clientName} para dia ${targetDateStr.slice(8, 10)}/${targetDateStr.slice(5, 7)} às ${startTime} (${matchedService?.name || 'Serviço'})`,
+        summary: `Agendar ${clientName} para dia ${targetDateStr.slice(8, 10)}/${targetDateStr.slice(5, 7)} às ${startTime} (${matchedService?.name || 'Serviço do Espaço'})`,
         spokenFeedback: `Agendamento de ${clientName} para ${targetDateStr.slice(8, 10)} do ${targetDateStr.slice(5, 7)} às ${startTime} pronto para confirmar.`,
         payload: {
           clientName,
-          clientPhone: '00000000000',
+          clientPhone: matchedClient?.phone || '',
           serviceId: matchedService?.id,
-          serviceName: matchedService?.name,
+          serviceName: matchedService?.name || 'Serviço do Espaço',
           professionalId: defaultProf?.id,
-          professionalName: defaultProf?.name,
+          professionalName: defaultProf?.name || 'Equipe',
           dateStr: targetDateStr,
           startTime
         }
@@ -596,20 +636,50 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
       }
 
       case 'CREATE_SCHEDULE': {
-        if (!payload.serviceId || !payload.professionalId || !payload.dateStr || !payload.startTime) {
-          throw new Error('Dados de agendamento incompletos.');
+        // Resolução segura de serviço e profissional com fallback ativo
+        let sId = payload.serviceId;
+        if (!sId) {
+          const firstServ = await prisma.service.findFirst({ where: { tenantId } });
+          sId = firstServ?.id;
+        }
+
+        let pId = payload.professionalId;
+        if (!pId) {
+          const firstProf = await prisma.professional.findFirst({ where: { tenantId, isActive: true } });
+          pId = firstProf?.id;
+        }
+
+        if (!sId || !pId || !payload.dateStr || !payload.startTime) {
+          throw new Error('Dados de agendamento incompletos. Verifique os serviços e profissionais cadastrados.');
+        }
+
+        let phone = payload.clientPhone ? payload.clientPhone.replace(/\D/g, '') : '';
+        if (phone.length < 10) {
+          // Se não foi informado telefone, verifica se cliente já existe pelo nome no salão
+          const existingClient = await prisma.client.findFirst({
+            where: {
+              tenantId,
+              name: { equals: (payload.clientName || '').trim(), mode: 'insensitive' }
+            }
+          });
+          if (existingClient && existingClient.phone && existingClient.phone.length >= 10 && !existingClient.phone.startsWith('00')) {
+            phone = existingClient.phone;
+          } else {
+            // Gera identificador único numérico para não colidir no banco
+            phone = `00${Date.now().toString().slice(-9)}`;
+          }
         }
 
         const booking = await BookingService.createBooking({
           tenantId,
-          serviceIds: [payload.serviceId],
-          professionalId: payload.professionalId,
+          serviceIds: [sId],
+          professionalId: pId,
           dateStr: payload.dateStr,
           startTime: payload.startTime,
           clientName: payload.clientName || 'Cliente Balcão',
-          clientPhone: payload.clientPhone || '00000000000',
+          clientPhone: phone,
           source: BookingSource.MANUAL_RECEPTION,
-          notes: 'Agendamento rápido via comando de voz'
+          notes: 'Agendamento rápido via Copiloto IA'
         });
 
         await prisma.auditLog.create({
@@ -625,11 +695,17 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
           }
         }).catch(() => null);
 
+        const realPhone = phone.startsWith('00') ? '' : phone;
+
         return {
           success: true,
           message: `Agendamento de ${payload.clientName} confirmado para ${payload.dateStr.slice(8, 10)}/${payload.dateStr.slice(5, 7)} às ${payload.startTime}!`,
           spokenFeedback: `Agendamento de ${payload.clientName} marcado com sucesso para às ${payload.startTime}.`,
-          data: booking
+          data: {
+            ...booking,
+            clientName: payload.clientName,
+            clientPhone: realPhone
+          }
         };
       }
 

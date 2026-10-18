@@ -222,7 +222,6 @@ export function ClientPortalModal({
                   mask="phone"
                   value={phone}
                   onChangeValue={(formatted) => setPhone(formatted)}
-                  placeholder="(00) 00000-0000"
                   className="w-full px-4 py-3 rounded-2xl border border-slate-300 text-sm font-bold font-mono text-center outline-hidden focus:border-slate-900 bg-slate-50/50"
                   required
                 />

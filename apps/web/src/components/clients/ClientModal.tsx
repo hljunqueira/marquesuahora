@@ -132,7 +132,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               required
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: Carolina Almeida"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all font-medium"
             />
           </div>
@@ -144,7 +143,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                 label="WhatsApp / Celular *"
                 value={phone}
                 onChangeValue={(formatted) => setPhone(formatted)}
-                placeholder="(11) 99999-9999"
                 required
               />
             </div>
@@ -157,7 +155,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="cliente@email.com"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
               />
             </div>
@@ -170,7 +167,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
                 label="CPF (Opcional)"
                 value={documentNumber}
                 onChangeValue={(formatted) => setDocumentNumber(formatted)}
-                placeholder="000.000.000-00"
               />
             </div>
 
@@ -195,7 +191,6 @@ export const ClientModal: React.FC<ClientModalProps> = ({
               rows={3}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ex: Alérgica a amônia, prefere café sem açúcar, corte repicado."
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>

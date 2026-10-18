@@ -767,11 +767,6 @@ export default function DashboardSuportePage() {
             type="text"
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
-            placeholder={
-              isRecording
-                ? `Gravando mensagem de voz... (${recordingSeconds}s)`
-                : `Digite sua dúvida ou relato de erro...`
-            }
             disabled={isRecording || isAiThinking}
             className="flex-1 px-3 py-2 text-xs sm:text-sm bg-transparent border-0 outline-none font-medium text-slate-800 placeholder-slate-400"
           />
@@ -899,7 +894,6 @@ export default function DashboardSuportePage() {
                     type="text"
                     value={contactName}
                     onChange={(e) => setContactName(e.target.value)}
-                    placeholder="Digite seu nome (ou deixe em branco)"
                     className="w-full px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-400 transition-all font-medium text-slate-800"
                   />
                 </div>
@@ -913,7 +907,6 @@ export default function DashboardSuportePage() {
                     type="text"
                     value={contactPhone}
                     onChange={(e) => setContactPhone(e.target.value)}
-                    placeholder="(00) 00000-0000"
                     className="w-full px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-400 transition-all font-medium text-slate-800"
                   />
                 </div>

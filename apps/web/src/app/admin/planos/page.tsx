@@ -452,7 +452,6 @@ export default function AdminPlanosPage() {
                       required
                       value={code}
                       onChange={(e) => setCode(e.target.value.toUpperCase())}
-                      placeholder="EX: EQUIPE_PRO"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-purple-700 font-bold focus:border-purple-600"
                     />
                   </div>
@@ -466,7 +465,6 @@ export default function AdminPlanosPage() {
                       required
                       value={name}
                       onChange={(e) => setName(e.target.value)}
-                      placeholder="Ex: Equipe Pro"
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 focus:border-purple-600"
                     />
                   </div>
@@ -480,7 +478,6 @@ export default function AdminPlanosPage() {
                     type="text"
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Para salões de médio porte com múltiplos profissionais"
                     className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none text-slate-900 focus:border-purple-600"
                   />
                 </div>

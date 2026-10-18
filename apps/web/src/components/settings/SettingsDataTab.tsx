@@ -42,7 +42,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               required
               value={settings.name || ''}
               onChange={(e) => onChange('name', e.target.value)}
-              placeholder="Ex: Studio Bella Donna"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -55,7 +54,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               type="text"
               value={settings.legalName || ''}
               onChange={(e) => onChange('legalName', e.target.value)}
-              placeholder="Ex: Bella Donna Estética Ltda"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -101,7 +99,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               label="WhatsApp / Telefone de Contato *"
               value={settings.phone || ''}
               onChangeValue={(formatted, raw) => onChange('phone', raw)}
-              placeholder="(11) 99999-9999"
               required
             />
           </div>
@@ -115,7 +112,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               type="url"
               value={settings.instagramUrl || ''}
               onChange={(e) => onChange('instagramUrl', e.target.value)}
-              placeholder="https://instagram.com/seuestudio"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -129,7 +125,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
             rows={3}
             value={settings.description || ''}
             onChange={(e) => onChange('description', e.target.value)}
-            placeholder="Ex: Especialistas em mega hair, mechas criativas e estética avançada há mais de 8 anos..."
             className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
           />
         </div>
@@ -158,7 +153,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               label="CEP *"
               value={settings.addressZip || ''}
               onChangeValue={(formatted) => onChange('addressZip', formatted)}
-              placeholder="00000-000"
               required
             />
           </div>
@@ -172,7 +166,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               required
               value={settings.addressStreet || ''}
               onChange={(e) => onChange('addressStreet', e.target.value)}
-              placeholder="Ex: Rua das Flores"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -186,7 +179,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               required
               value={settings.addressNumber || ''}
               onChange={(e) => onChange('addressNumber', e.target.value)}
-              placeholder="123"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -201,7 +193,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               type="text"
               value={settings.addressComplement || ''}
               onChange={(e) => onChange('addressComplement', e.target.value)}
-              placeholder="Sala 204, Bloco B"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -215,7 +206,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               required
               value={settings.addressNeighborhood || ''}
               onChange={(e) => onChange('addressNeighborhood', e.target.value)}
-              placeholder="Centro"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
           </div>
@@ -230,7 +220,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
                 required
                 value={settings.addressCity || ''}
                 onChange={(e) => onChange('addressCity', e.target.value)}
-                placeholder="São Paulo"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
               />
             </div>
@@ -244,7 +233,6 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
                 required
                 value={settings.addressState || ''}
                 onChange={(e) => onChange('addressState', e.target.value.toUpperCase())}
-                placeholder="SP"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 uppercase text-center focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all font-semibold"
               />
             </div>

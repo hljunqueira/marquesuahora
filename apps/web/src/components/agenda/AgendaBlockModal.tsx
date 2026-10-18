@@ -129,7 +129,6 @@ export function AgendaBlockModal({
               type="text"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Ex: Almoço, Reunião, Folga"
               required
               className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-purple-600 focus:ring-2 focus:ring-purple-600/20"
             />

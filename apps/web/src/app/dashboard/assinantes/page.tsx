@@ -367,7 +367,6 @@ export default function AssinantesPage() {
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nome da aluna ou WhatsApp..."
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-medium outline-hidden focus:bg-white focus:border-purple-600 transition-colors"
             />
           </div>
@@ -611,7 +610,6 @@ export default function AssinantesPage() {
                   required
                   value={studentName}
                   onChange={(e) => setStudentName(e.target.value)}
-                  placeholder="Nome completo da aluna"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600"
                 />
               </div>
@@ -625,7 +623,6 @@ export default function AssinantesPage() {
                   required
                   value={studentPhone}
                   onChangeValue={(val) => setStudentPhone(val)}
-                  placeholder="(00) 00000-0000"
                   className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600"
                 />
               </div>

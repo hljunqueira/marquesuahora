@@ -723,7 +723,6 @@ export default function DashboardProdutosPage() {
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar produtos por nome, descrição ou código SKU..."
               className="w-full pl-9 pr-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-medium"
             />
           </div>
@@ -982,7 +981,6 @@ export default function DashboardProdutosPage() {
                         required
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        placeholder="Ex: Máscara Nutritiva Profissional 500g"
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-semibold"
                       />
                     </div>
@@ -1014,7 +1012,6 @@ export default function DashboardProdutosPage() {
                         type="text"
                         value={sku}
                         onChange={(e) => setSku(e.target.value)}
-                        placeholder="Ex: MSK-500"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono font-semibold"
                       />
                     </div>
@@ -1028,7 +1025,6 @@ export default function DashboardProdutosPage() {
                         type="text"
                         value={costPrice}
                         onChange={(e) => setCostPrice(e.target.value)}
-                        placeholder="0,00"
                         className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-xs font-medium"
                       />
                     </div>
@@ -1043,7 +1039,6 @@ export default function DashboardProdutosPage() {
                         required
                         value={salePrice}
                         onChange={(e) => setSalePrice(e.target.value)}
-                        placeholder="0,00"
                         className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-mono font-bold text-xs"
                       />
                     </div>
@@ -1157,7 +1152,6 @@ export default function DashboardProdutosPage() {
                         rows={3}
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        placeholder="Descreva os benefícios, ativos e orientação de uso para o cliente..."
                         className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none resize-none"
                       />
                     </div>
@@ -1381,7 +1375,6 @@ export default function DashboardProdutosPage() {
                       type="text"
                       value={movementUnitCost}
                       onChange={(e) => setMovementUnitCost(e.target.value)}
-                      placeholder="0,00"
                       className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-sm"
                     />
                   </div>
@@ -1397,7 +1390,6 @@ export default function DashboardProdutosPage() {
                     required
                     value={movementReason}
                     onChange={(e) => setMovementReason(e.target.value)}
-                    placeholder="Ex: NF 10495 Fornecedor Wella / Avaria em bancada"
                     className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium"
                   />
                 </div>

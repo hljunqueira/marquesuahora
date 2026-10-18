@@ -182,7 +182,6 @@ export function CourseLessonModal({
                   mask="phone"
                   value={phone}
                   onChangeValue={(formatted) => setPhone(formatted)}
-                  placeholder="(00) 00000-0000"
                   className="w-full px-4 py-3 rounded-xl border border-slate-300 focus:ring-2 focus:ring-brand-purple/20 focus:border-brand-purple text-sm font-medium outline-hidden"
                 />
               </div>

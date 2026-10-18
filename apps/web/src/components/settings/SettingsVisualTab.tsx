@@ -215,7 +215,6 @@ export const SettingsVisualTab: React.FC<SettingsVisualTabProps> = ({
                 type="url"
                 value={settings.logoUrl || ''}
                 onChange={(e) => onChange('logoUrl', e.target.value)}
-                placeholder="https://suaimagem.com/logo.png"
                 className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
               />
               <p className="text-[11px] text-slate-500">

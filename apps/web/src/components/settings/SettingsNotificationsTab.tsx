@@ -540,7 +540,6 @@ export const SettingsNotificationsTab: React.FC = () => {
                         onChange={(e) => setModalWhatsappText(e.target.value)}
                         rows={12}
                         className="w-full text-xs font-mono leading-relaxed p-3.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-none"
-                        placeholder="Digite o texto da notificação..."
                       />
                     </div>
                   ) : (
@@ -554,7 +553,6 @@ export const SettingsNotificationsTab: React.FC = () => {
                           value={modalEmailSubject}
                           onChange={(e) => setModalEmailSubject(e.target.value)}
                           className="w-full text-xs p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none"
-                          placeholder="Assunto do e-mail..."
                         />
                       </div>
                       <div>
@@ -566,7 +564,6 @@ export const SettingsNotificationsTab: React.FC = () => {
                           onChange={(e) => setModalEmailBody(e.target.value)}
                           rows={9}
                           className="w-full text-xs font-mono leading-relaxed p-3.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500 outline-none resize-none"
-                          placeholder="Conteúdo do e-mail..."
                         />
                       </div>
                     </div>

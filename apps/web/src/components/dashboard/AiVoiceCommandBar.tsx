@@ -15,7 +15,9 @@ import {
   Clock,
   User,
   Tag,
-  ArrowRight
+  ArrowRight,
+  Phone,
+  MessageCircle
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -63,6 +65,14 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
   const [preview, setPreview] = useState<QuickCommandPreview | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [lastScheduleCreated, setLastScheduleCreated] = useState<{
+    id?: string;
+    clientName: string;
+    clientPhone: string;
+    dateStr: string;
+    startTime: string;
+    serviceName?: string;
+  } | null>(null);
 
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -215,10 +225,23 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
           }
         }
 
-        // Emite eventos de sincronização para a agenda e finanças atualizarem em tempo real
+        if (preview.action === 'CREATE_SCHEDULE') {
+          const bookingData = response.data?.data;
+          setLastScheduleCreated({
+            id: bookingData?.id,
+            clientName: preview.payload.clientName || 'Cliente',
+            clientPhone: bookingData?.clientPhone || preview.payload.clientPhone || '',
+            dateStr: preview.payload.dateStr || '',
+            startTime: preview.payload.startTime || '',
+            serviceName: preview.payload.serviceName || ''
+          });
+        }
+
+        // Emite eventos de sincronização para a agenda, finanças e clientes atualizarem em tempo real
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
           window.dispatchEvent(new CustomEvent('marquesuahora_financial_sync'));
+          window.dispatchEvent(new CustomEvent('marquesuahora_client_sync'));
         }
 
         onCommandExecuted?.();
@@ -289,21 +312,21 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
   };
 
   return (
-    <div className="w-full bg-linear-to-r from-violet-50/70 via-white to-pink-50/70 rounded-3xl p-3 sm:p-4 border border-violet-100/80 shadow-xs transition-all">
+    <div className="w-full bg-gradient-to-r from-purple-50/60 via-white to-violet-50/60 rounded-3xl p-3 sm:p-4 border border-purple-100/90 shadow-xs transition-all">
       {/* Barra de Entrada de Comando */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
         {/* Identificador com Ícone IA */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-white/90 border border-violet-200/60 rounded-2xl shadow-2xs shrink-0 self-start sm:self-auto">
-          <div className="w-6 h-6 rounded-lg bg-linear-to-tr from-violet-600 to-pink-500 flex items-center justify-center text-white shadow-xs">
-            <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+        <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 border border-purple-200/80 rounded-2xl shadow-xs shrink-0 self-start sm:self-auto">
+          <div className="w-6 h-6 rounded-lg bg-purple-600 flex items-center justify-center text-white shadow-xs">
+            <Sparkles className="w-3.5 h-3.5" />
           </div>
-          <span className="text-xs font-black tracking-tight bg-linear-to-r from-violet-700 to-pink-600 bg-clip-text text-transparent">
+          <span className="text-xs font-bold tracking-tight text-purple-800">
             Copiloto IA
           </span>
         </div>
 
         {/* Campo de Comando por Voz e Digitação */}
-        <div className="relative flex-1 flex items-center bg-white border border-slate-200/90 rounded-2xl shadow-2xs focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-100 transition-all">
+        <div className="relative flex-1 flex items-center bg-white border border-slate-200/90 rounded-2xl shadow-2xs focus-within:border-purple-400 focus-within:ring-2 focus-within:ring-purple-100 transition-all">
           <input
             ref={inputRef}
             type="text"
@@ -314,8 +337,7 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
                 handleInterpret();
               }
             }}
-            placeholder="Fale ou digite: 'Anotar 150 em produtos loja Fraceto hoje' ou 'Agendar cliente dia 22 às 17h'..."
-            className="w-full bg-transparent px-3.5 py-2.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden pr-20"
+            className="w-full bg-transparent px-3.5 py-2.5 text-xs sm:text-sm text-slate-800 focus:outline-none pr-20"
           />
 
           {/* Botões do Input (Microfone + Enviar) */}
@@ -350,7 +372,7 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
               onClick={() => handleInterpret()}
               disabled={!commandText.trim() || isParsing}
               title="Processar comando"
-              className="p-2 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-40 disabled:hover:bg-violet-600 text-white transition-all shadow-xs cursor-pointer active:scale-95"
+              className="p-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-40 disabled:hover:bg-purple-600 text-white transition-all shadow-xs cursor-pointer active:scale-95"
             >
               {isParsing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -386,9 +408,60 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
         </div>
       )}
 
+      {/* Notificação e Ação Rápida WhatsApp após Agendamento Criado */}
+      {lastScheduleCreated && (
+        <div className="mt-3 p-3.5 bg-emerald-50/90 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+          <div className="flex items-start gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CheckCircle2 className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-emerald-950">
+                Agendamento de {lastScheduleCreated.clientName} registrado!
+              </p>
+              <p className="text-2xs text-emerald-700 font-medium">
+                {lastScheduleCreated.serviceName || 'Serviço'} • {lastScheduleCreated.dateStr} às {lastScheduleCreated.startTime}
+                {lastScheduleCreated.clientPhone ? ` • WhatsApp: ${lastScheduleCreated.clientPhone}` : ' • Cliente sincronizado'}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {lastScheduleCreated.clientPhone ? (
+              <a
+                href={`https://wa.me/55${lastScheduleCreated.clientPhone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                  `Olá ${lastScheduleCreated.clientName}! Seu horário para ${lastScheduleCreated.serviceName || 'atendimento'} no dia ${lastScheduleCreated.dateStr.slice(8, 10)}/${lastScheduleCreated.dateStr.slice(5, 7)} às ${lastScheduleCreated.startTime} foi agendado com sucesso!`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>Enviar WhatsApp</span>
+              </a>
+            ) : (
+              <a
+                href="/dashboard/clientes"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+              >
+                <User className="w-3.5 h-3.5 text-purple-600" />
+                <span>Completar no CRM</span>
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setLastScheduleCreated(null)}
+              className="p-1.5 text-emerald-700 hover:text-emerald-950 transition-colors"
+              title="Fechar"
+            >
+              <XCircle className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* CARD DE PRÉVIA INTELIGENTE (1 CLIQUE PARA CONFIRMAR) */}
       {preview && !successMessage && (
-        <div className="mt-3 bg-white border border-violet-200 rounded-2xl p-3.5 sm:p-4 shadow-sm animate-fadeIn">
+        <div className="mt-3 bg-white border border-purple-200/90 rounded-2xl p-3.5 sm:p-4 shadow-sm animate-fadeIn">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-100">
             <div className="flex items-center gap-2">
               {(() => {
@@ -461,14 +534,57 @@ export function AiVoiceCommandBar({ onCommandExecuted }: AiVoiceCommandBarProps)
             )}
 
             {preview.action === 'CREATE_SCHEDULE' && (
-              <div className="flex flex-wrap items-center gap-3 text-2xs font-semibold text-slate-600 mt-2">
-                <span className="flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">
-                  <Calendar className="w-3 h-3" />
-                  Data: {preview.payload.dateStr} às {preview.payload.startTime}
-                </span>
-                <span>Cliente: {preview.payload.clientName}</span>
-                <span>Serviço: {preview.payload.serviceName}</span>
-                <span>Profissional: {preview.payload.professionalName}</span>
+              <div className="space-y-3 mt-2">
+                <div className="flex flex-wrap items-center gap-3 text-2xs font-semibold text-slate-600">
+                  <span className="flex items-center gap-1 text-purple-700 bg-purple-50 px-2 py-0.5 rounded-lg border border-purple-100">
+                    <Calendar className="w-3 h-3" />
+                    Data: {preview.payload.dateStr} às {preview.payload.startTime}
+                  </span>
+                  <span>Serviço: {preview.payload.serviceName}</span>
+                  <span>Profissional: {preview.payload.professionalName}</span>
+                </div>
+
+                {/* Edição Rápida do Cliente e Telefone WhatsApp */}
+                <div className="pt-2 border-t border-slate-200/60 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 block mb-1">
+                      Nome da Cliente:
+                    </label>
+                    <input
+                      type="text"
+                      value={preview.payload.clientName || ''}
+                      onChange={(e) => {
+                        setPreview({
+                          ...preview,
+                          payload: { ...preview.payload, clientName: e.target.value }
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:border-purple-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-emerald-600" />
+                      WhatsApp:
+                    </label>
+                    <input
+                      type="tel"
+                      value={preview.payload.clientPhone || ''}
+                      onChange={(e) => {
+                        setPreview({
+                          ...preview,
+                          payload: { ...preview.payload, clientPhone: e.target.value }
+                        });
+                      }}
+                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-800 focus:border-purple-500 focus:outline-none"
+                    />
+                    {!preview.payload.clientPhone && (
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">
+                        Opcional. Se não preenchido, a cliente é cadastrada automaticamente e pode ser editada depois.
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
 

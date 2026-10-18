@@ -626,7 +626,6 @@ export function AgendaAppointmentDetailsModal({
                     value={editTotalPrice}
                     onChange={(e) => setEditTotalPrice(e.target.value)}
                     required
-                    placeholder="0,00"
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold font-mono bg-white outline-hidden focus:border-purple-600"
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">
@@ -643,7 +642,6 @@ export function AgendaAppointmentDetailsModal({
                   rows={2}
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
-                  placeholder="Observações do atendimento..."
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium bg-white outline-hidden focus:border-purple-600 resize-none"
                 />
               </div>
