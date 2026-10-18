@@ -19,6 +19,57 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
     OTHER: { professional: 'Profissional', resource: 'Espaço', client: 'Cliente', service: 'Atendimento' }
   };
 
+  // POST /tenants/check-availability (Público - Verificação em tempo real de e-mail, telefone e slug)
+  app.post('/check-availability', async (request, reply) => {
+    const { email, phone, slug } = (request.body as { email?: string; phone?: string; slug?: string }) || {};
+
+    const response = {
+      emailAvailable: true,
+      phoneAvailable: true,
+      slugAvailable: true,
+      emailMessage: '',
+      phoneMessage: '',
+      slugMessage: ''
+    };
+
+    if (email && email.trim().includes('@')) {
+      const cleanEmail = email.trim().toLowerCase();
+      const existingUser = await prisma.user.findFirst({
+        where: { email: cleanEmail }
+      });
+      if (existingUser) {
+        response.emailAvailable = false;
+        response.emailMessage = 'Este e-mail já está em uso na plataforma. Faça login ou use outro.';
+      }
+    }
+
+    if (phone) {
+      const cleanPhone = phone.replace(/\D/g, '');
+      if (cleanPhone.length >= 10) {
+        const existingTenant = await prisma.tenant.findFirst({
+          where: { phone: cleanPhone }
+        });
+        if (existingTenant) {
+          response.phoneAvailable = false;
+          response.phoneMessage = 'Este telefone/WhatsApp já está cadastrado em outro estabelecimento.';
+        }
+      }
+    }
+
+    if (slug && slug.trim().length >= 3) {
+      const cleanSlug = slug.trim().toLowerCase();
+      const existingTenant = await prisma.tenant.findUnique({
+        where: { slug: cleanSlug }
+      });
+      if (existingTenant) {
+        response.slugAvailable = false;
+        response.slugMessage = 'Este link de vitrine já está em uso por outro espaço.';
+      }
+    }
+
+    return reply.send(response);
+  });
+
   // POST /tenants/onboarding (Público - Criação do Estabelecimento + Usuário Administrador + Serviços Iniciais)
   app.post('/onboarding', async (request, reply) => {
     const data = onboardingSchema.parse(request.body);

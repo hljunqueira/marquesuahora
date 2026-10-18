@@ -2,6 +2,7 @@
 
 import React, { useState, Suspense, useCallback } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -91,6 +92,58 @@ function CadastroForm() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [createdTenantData, setCreatedTenantData] = useState<{ name: string; email: string; slug: string } | null>(null);
 
+  // Estados de validação em tempo real (inline)
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [slugError, setSlugError] = useState<string | null>(null);
+  const [isValidatingStep, setIsValidatingStep] = useState(false);
+
+  // Verificação em tempo real de e-mail ao sair do campo
+  const handleEmailBlur = async () => {
+    if (!ownerEmail.trim() || !ownerEmail.includes('@')) return;
+    try {
+      const res = await api.post('/tenants/check-availability', { email: ownerEmail.trim() });
+      if (res.data?.emailAvailable === false) {
+        setEmailError(res.data.emailMessage || 'Este e-mail já está em uso.');
+      } else {
+        setEmailError(null);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Verificação em tempo real de WhatsApp ao sair do campo
+  const handlePhoneBlur = async () => {
+    const raw = onlyDigits(phone);
+    if (raw.length < 10) return;
+    try {
+      const res = await api.post('/tenants/check-availability', { phone: raw });
+      if (res.data?.phoneAvailable === false) {
+        setPhoneError(res.data.phoneMessage || 'Este WhatsApp já está cadastrado.');
+      } else {
+        setPhoneError(null);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  // Verificação em tempo real do Link/Slug da vitrine
+  const handleSlugBlur = async () => {
+    if (slug.trim().length < 3) return;
+    try {
+      const res = await api.post('/tenants/check-availability', { slug: slug.trim() });
+      if (res.data?.slugAvailable === false) {
+        setSlugError(res.data.slugMessage || 'Este link já está em uso.');
+      } else {
+        setSlugError(null);
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   // Auto-geração do slug limpo a partir do nome do estabelecimento
   const handleNameChange = (val: string) => {
     setName(val);
@@ -102,6 +155,7 @@ function CadastroForm() {
       .replace(/-+/g, '-')
       .replace(/^-|-$/g, '');
     setSlug(generatedSlug);
+    if (slugError) setSlugError(null);
   };
 
   const handleSelectTheme = (t: (typeof THEMES)[0]) => {
@@ -184,8 +238,8 @@ function CadastroForm() {
     }
   }, []);
 
-  // Validação para avanço de etapas
-  const handleNextStep = () => {
+  // Validação para avanço de etapas com verificação de duplicidade na API
+  const handleNextStep = async () => {
     setError(null);
 
     if (currentStep === 1) {
@@ -202,6 +256,33 @@ function CadastroForm() {
         setError('Informe um endereço de e-mail de acesso válido.');
         return;
       }
+
+      setIsValidatingStep(true);
+      try {
+        const res = await api.post('/tenants/check-availability', {
+          email: ownerEmail.trim(),
+          phone: rawPhone
+        });
+
+        if (res.data?.emailAvailable === false) {
+          setEmailError(res.data.emailMessage || 'Este e-mail já está em uso.');
+          setError(res.data.emailMessage || 'Este e-mail já está em uso na plataforma. Faça login ou utilize outro.');
+          setIsValidatingStep(false);
+          return;
+        }
+
+        if (res.data?.phoneAvailable === false) {
+          setPhoneError(res.data.phoneMessage || 'Este WhatsApp já está cadastrado.');
+          setError(res.data.phoneMessage || 'Este WhatsApp já está cadastrado em outro estabelecimento.');
+          setIsValidatingStep(false);
+          return;
+        }
+      } catch {
+        // Se a rota falhar pontualmente, permite avançar
+      } finally {
+        setIsValidatingStep(false);
+      }
+
       setCurrentStep(2);
     } else if (currentStep === 2) {
       if (!name.trim()) {
@@ -229,6 +310,22 @@ function CadastroForm() {
         setError('Informe a cidade e estado do estabelecimento.');
         return;
       }
+
+      setIsValidatingStep(true);
+      try {
+        const res = await api.post('/tenants/check-availability', { slug: slug.trim() });
+        if (res.data?.slugAvailable === false) {
+          setSlugError(res.data.slugMessage || 'Este link já está em uso.');
+          setError(res.data.slugMessage || 'Este link de vitrine já está em uso por outro espaço.');
+          setIsValidatingStep(false);
+          return;
+        }
+      } catch {
+        // ignore
+      } finally {
+        setIsValidatingStep(false);
+      }
+
       setCurrentStep(3);
     }
   };
@@ -295,6 +392,19 @@ function CadastroForm() {
     return (
       <div className="min-h-screen bg-[#F8FAFC] py-12 px-4 sm:px-6 flex flex-col items-center justify-center">
         <div className="w-full max-w-2xl bg-white rounded-3xl border border-slate-200/80 shadow-2xl p-8 sm:p-12 text-center space-y-6">
+          <div className="flex justify-center">
+            <Link href="/" className="inline-block transition-transform hover:scale-[1.02]">
+              <Image
+                src="/brand/logooficial-semfundo.png"
+                alt="Marque Sua Hora"
+                width={240}
+                height={64}
+                className="h-12 sm:h-14 w-auto object-contain mx-auto"
+                priority
+              />
+            </Link>
+          </div>
+
           <div className="w-16 h-16 rounded-3xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
             <CheckCircle2 className="w-8 h-8" />
           </div>
@@ -357,12 +467,17 @@ function CadastroForm() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] py-4 sm:py-6 px-4 flex flex-col items-center justify-center">
       <div className="w-full max-w-3xl space-y-3.5">
-        {/* Cabeçalho Compacto */}
-        <div className="text-center space-y-1">
-          <Link href="/" className="inline-block">
-            <span className="text-xl font-black tracking-tight text-slate-900 font-display">
-              Marque<span className="text-purple-600">SuaHora</span>
-            </span>
+        {/* Cabeçalho com Logo Oficial Sem Fundo */}
+        <div className="text-center space-y-2 mb-1">
+          <Link href="/" className="inline-block transition-transform hover:scale-[1.02]">
+            <Image
+              src="/brand/logooficial-semfundo.png"
+              alt="Marque Sua Hora"
+              width={260}
+              height={70}
+              className="h-12 sm:h-14 w-auto object-contain mx-auto"
+              priority
+            />
           </Link>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
             Crie sua conta profissional
@@ -461,13 +576,26 @@ function CadastroForm() {
                     <InputMask
                       mask="phone"
                       value={phone}
-                      onChangeValue={(_formatted, raw) => setPhone(raw)}
+                      onChangeValue={(_formatted, raw) => {
+                        setPhone(raw);
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      onBlur={handlePhoneBlur}
                       required
-                      className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                      className={`w-full px-3 py-2 rounded-lg bg-slate-50 border ${
+                        phoneError ? '!border-rose-500 focus:!border-rose-600' : 'border-slate-200 focus:border-purple-600'
+                      } text-xs text-slate-800 focus:bg-white outline-none transition-all font-medium`}
                     />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">
-                      Usado para o suporte e notificações do espaço.
-                    </span>
+                    {phoneError ? (
+                      <span className="text-[11px] font-semibold text-rose-600 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {phoneError}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">
+                        Usado para o suporte e notificações do espaço.
+                      </span>
+                    )}
                   </div>
 
                   <div>
@@ -478,12 +606,25 @@ function CadastroForm() {
                       type="email"
                       required
                       value={ownerEmail}
-                      onChange={(e) => setOwnerEmail(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 focus:bg-white focus:border-purple-600 outline-none transition-all font-medium"
+                      onChange={(e) => {
+                        setOwnerEmail(e.target.value);
+                        if (emailError) setEmailError(null);
+                      }}
+                      onBlur={handleEmailBlur}
+                      className={`w-full px-3 py-2 rounded-lg bg-slate-50 border ${
+                        emailError ? 'border-rose-500 focus:border-rose-600' : 'border-slate-200 focus:border-purple-600'
+                      } text-xs text-slate-800 focus:bg-white outline-none transition-all font-medium`}
                     />
-                    <span className="text-[10px] text-slate-400 mt-0.5 block">
-                      Seu login de acesso ao painel do estabelecimento.
-                    </span>
+                    {emailError ? (
+                      <span className="text-[11px] font-semibold text-rose-600 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {emailError}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">
+                        Seu login de acesso ao painel do estabelecimento.
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -511,10 +652,20 @@ function CadastroForm() {
                   <button
                     type="button"
                     onClick={handleNextStep}
-                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                    disabled={isValidatingStep}
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
                   >
-                    <span>Avançar para Estabelecimento e Endereço</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {isValidatingStep ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verificando dados...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Avançar para Estabelecimento e Endereço</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 </div>
               </motion.div>
@@ -553,7 +704,9 @@ function CadastroForm() {
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
                       Link Exclusivo da Vitrine Pública *
                     </label>
-                    <div className="flex items-center rounded-lg bg-slate-50 border border-slate-200 overflow-hidden focus-within:bg-white focus-within:border-purple-600">
+                    <div className={`flex items-center rounded-lg bg-slate-50 border ${
+                      slugError ? 'border-rose-500 focus-within:border-rose-600' : 'border-slate-200 focus-within:border-purple-600'
+                    } overflow-hidden focus-within:bg-white`}>
                       <span className="pl-3 text-[11px] font-mono text-slate-400 select-none">
                         marquesuahora.com.br/
                       </span>
@@ -561,10 +714,20 @@ function CadastroForm() {
                         type="text"
                         required
                         value={slug}
-                        onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                        onChange={(e) => {
+                          setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                          if (slugError) setSlugError(null);
+                        }}
+                        onBlur={handleSlugBlur}
                         className="w-full py-2 pr-3 bg-transparent text-xs text-slate-900 outline-none font-mono font-bold"
                       />
                     </div>
+                    {slugError && (
+                      <span className="text-[11px] font-semibold text-rose-600 mt-1 flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {slugError}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -741,10 +904,20 @@ function CadastroForm() {
                   <button
                     type="button"
                     onClick={handleNextStep}
-                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
+                    disabled={isValidatingStep}
+                    className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-60 text-white rounded-lg font-bold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer active:scale-98"
                   >
-                    <span>Avançar para Identidade Visual</span>
-                    <ArrowRight className="w-4 h-4" />
+                    {isValidatingStep ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Verificando link...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Avançar para Identidade Visual</span>
+                        <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
                   </button>
                 </div>
               </motion.div>
