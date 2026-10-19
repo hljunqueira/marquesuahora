@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { formatLocalDateToYMD } from '@/lib/dateUtils';
 import { ScheduleAppointment, ProfessionalItem, BlockItem } from './types';
+import { StatusColors, getDefaultStatusColors } from './AgendaStatusColorPicker';
 
 interface AgendaWeeklyGridProps {
   dates: Date[];
@@ -11,6 +12,7 @@ interface AgendaWeeklyGridProps {
   selectedProfessionalId?: string;
   appointments: ScheduleAppointment[];
   blocks?: BlockItem[];
+  statusColors?: StatusColors;
   onSlotClick: (dateStr: string, timeStr: string, professionalId?: string) => void;
   onAppointmentClick: (appt: ScheduleAppointment) => void;
   onBlockClick?: (block: BlockItem) => void;
@@ -192,52 +194,40 @@ function getContrastColor(hexColor: string) {
   return yiq >= 160 ? '#0F172A' : '#FFFFFF';
 }
 
-// Estilo visual dos cards de agendamento (100% dinâmico conforme personalização do estabelecimento)
-function getAppointmentColor(appt: ScheduleAppointment, tenantColor: string = '#7C3AED') {
-  // 1. Se o serviço tiver cor personalizada explícita (e diferente do azul padrão de fábrica #3B82F6)
-  const svcColor = appt.service?.color?.trim();
-  if (svcColor && svcColor.toUpperCase() !== '#3B82F6') {
+// Estilo visual dos cards de agendamento (100% dinâmico por status e tema do estabelecimento)
+function getAppointmentColor(
+  appt: ScheduleAppointment,
+  tenantColor?: string,
+  statusColors?: StatusColors
+) {
+  const primary = tenantColor || (typeof window !== 'undefined' ? localStorage.getItem('tenant_primary_color') : null) || '#5c0701';
+
+  // 1. Prioridade Absoluta: Cores por Status (Pendente, Confirmado, Em Atendimento, Concluído, No-Show, Cancelado)
+  if (statusColors && statusColors[appt.status as keyof StatusColors]) {
+    const sColor = statusColors[appt.status as keyof StatusColors];
     return {
-      bg: svcColor,
-      text: getContrastColor(svcColor),
+      bg: sColor,
+      text: getContrastColor(sColor),
       border: 'rgba(0,0,0,0.18)'
     };
   }
 
-  // 2. Se o profissional tiver cor personalizada explícita (e diferente de defaults genéricos)
-  const profColor = appt.professional?.color?.trim();
-  if (profColor && profColor.toUpperCase() !== '#7C3AED' && profColor.toUpperCase() !== '#3B82F6') {
+  // 2. Fallbacks estruturados caso statusColors ainda não tenha sido carregado
+  const defaults = getDefaultStatusColors(primary);
+  if (defaults[appt.status as keyof StatusColors]) {
+    const sColor = defaults[appt.status as keyof StatusColors];
     return {
-      bg: profColor,
-      text: getContrastColor(profColor),
+      bg: sColor,
+      text: getContrastColor(sColor),
       border: 'rgba(0,0,0,0.18)'
     };
   }
 
-  // 3. Status especial: Em atendimento
-  if (appt.status === 'IN_SERVICE') {
-    return {
-      bg: '#7c3aed',
-      text: '#FFFFFF',
-      border: '#6d28d9'
-    };
-  }
-
-  // 4. Status especial: Cancelado
-  if (appt.status === 'CANCELLED') {
-    return {
-      bg: '#94a3b8',
-      text: '#FFFFFF',
-      border: '#64748b'
-    };
-  }
-
-  // 5. Cor primária dinâmica do estabelecimento definida pelo usuário
-  const primary = tenantColor || '#7C3AED';
+  // 3. Cor primária dinâmica do estabelecimento definida pelo usuário (ex: #5c0701)
   return {
     bg: primary,
     text: getContrastColor(primary),
-    border: 'rgba(0,0,0,0.18)'
+    border: 'rgba(0,0,0,0.2)'
   };
 }
 
@@ -248,6 +238,7 @@ export function AgendaWeeklyGrid({
   selectedProfessionalId = '',
   appointments,
   blocks = [],
+  statusColors: statusColorsProp,
   onSlotClick,
   onAppointmentClick,
   onBlockClick,
@@ -257,10 +248,36 @@ export function AgendaWeeklyGrid({
   // Cor primária do estabelecimento definida pelo usuário (dinâmica)
   const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
     }
-    return '#7C3AED';
+    return '#5c0701';
   });
+
+  // Cores dinâmicas por status configuradas pelo usuário
+  const [activeStatusColors, setActiveStatusColors] = useState<StatusColors>(() => {
+    if (statusColorsProp) return statusColorsProp;
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('marquesuahora_agenda_status_colors');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return getDefaultStatusColors(tenantPrimaryColor);
+  });
+
+  useEffect(() => {
+    if (statusColorsProp) {
+      setActiveStatusColors(statusColorsProp);
+    }
+  }, [statusColorsProp]);
+
+  useEffect(() => {
+    const handleStatusSync = (e: any) => {
+      if (e?.detail) setActiveStatusColors(e.detail);
+    };
+    window.addEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+    return () => window.removeEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+  }, []);
 
   useEffect(() => {
     const syncColor = () => {
@@ -342,7 +359,34 @@ export function AgendaWeeklyGrid({
         }));
   }, [isDayModeWithMultiplePros, professionals, dates, selectedProfessionalId]);
 
-  // Bloqueios de dia todo (almoço/folga geral)
+  // Bloqueios de dia todo (almoço/folga geral ou que cobrem todo o expediente)
+  const isColumnDayBlocked = (colDate: Date, profId?: string) => {
+    const dateStr = formatLocalDateToYMD(colDate);
+    const dayOfWeek = colDate.getDay();
+
+    return blocks.some((b) => {
+      if (b.isPaused) return false;
+      const bDateStr = b.date ? formatLocalDateToYMD(new Date(b.date)) : null;
+      const matchesDate = bDateStr === dateStr || b.dayOfWeek === dayOfWeek;
+      const matchesProf = profId ? !b.professionalId || b.professionalId === profId : true;
+      if (!matchesDate || !matchesProf) return false;
+
+      // Se não tem startTime ou é 00:00 com endTime >= 18:00 ou sem endTime, ou motivo Folga
+      if (!b.startTime || b.startTime === '00:00') {
+        if (!b.endTime || b.endTime === '23:59' || b.endTime >= '18:00' || /folga/i.test(b.reason)) {
+          return true;
+        }
+      }
+      if (b.startTime <= '08:00' && b.endTime >= '18:00') {
+        return true;
+      }
+      if (/folga/i.test(b.reason) && (!b.startTime || b.startTime <= '08:00')) {
+        return true;
+      }
+      return false;
+    });
+  };
+
   const allDayBlocks = useMemo(() => {
     return blocks.filter((b) => !b.startTime || b.startTime === '00:00');
   }, [blocks]);
@@ -372,7 +416,7 @@ export function AgendaWeeklyGrid({
   return (
     <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col select-none">
       {/* ========================================================================= */}
-      {/* 1. CABEÇALHO SUPERIOR DE DIAS (IDÊNTICO AO GURUAGENDA)                     */}
+      {/* 1. CABEÇALHO SUPERIOR DE DIAS (COM CONTAGEM DE AGENDAMENTOS E BLOQUEIOS)  */}
       {/* ========================================================================= */}
       <div className="flex border-b border-slate-200 bg-white sticky top-0 z-30 shadow-[0_2px_6px_rgba(0,0,0,0.03)]">
         {/* Espaço da Coluna de Horas */}
@@ -385,8 +429,18 @@ export function AgendaWeeklyGrid({
         {/* Colunas dos Dias da Semana */}
         <div className="flex-1 flex min-w-0">
           {activeColumns.map((col, idx) => {
+            const dateStr = formatLocalDateToYMD(col.date);
             const isCurrentDay = isToday(col.date);
             const isClickable = Boolean(onDayClick);
+            const isBlocked = isColumnDayBlocked(col.date, col.professionalId);
+
+            // Contagem de agendamentos válidos deste dia
+            const colApptsCount = appointments.filter((a) => {
+              const aDateStr = formatLocalDateToYMD(a.date);
+              const matchesDate = aDateStr === dateStr;
+              const matchesProf = col.professionalId ? a.professionalId === col.professionalId : true;
+              return matchesDate && matchesProf && a.status !== 'CANCELLED';
+            }).length;
 
             return (
               <button
@@ -397,18 +451,26 @@ export function AgendaWeeklyGrid({
                     onDayClick?.(col.date);
                   }
                 }}
-                className={`flex-1 min-w-0 py-2 sm:py-3 px-1 flex flex-col items-center justify-center border-r last:border-r-0 border-slate-200 transition-colors cursor-pointer ${
-                  isCurrentDay ? 'bg-tenant-light' : 'hover:bg-slate-50'
+                className={`flex-1 min-w-0 py-2 sm:py-2.5 px-1 flex flex-col items-center justify-center border-r last:border-r-0 border-slate-200 transition-colors cursor-pointer ${
+                  isBlocked
+                    ? 'bg-slate-100/90 hover:bg-slate-200/80'
+                    : isCurrentDay
+                      ? 'bg-tenant-light'
+                      : 'hover:bg-slate-50'
                 }`}
-                style={isCurrentDay ? { backgroundColor: `${tenantPrimaryColor}14` } : undefined}
-                title={isWeekMode ? 'Toque para abrir a visão deste dia' : undefined}
+                style={isCurrentDay && !isBlocked ? { backgroundColor: `${tenantPrimaryColor}14` } : undefined}
+                title={isBlocked ? 'Dia bloqueado para agendamentos' : isWeekMode ? 'Toque para abrir a visão deste dia' : undefined}
               >
                 {/* Sigla do Dia da Semana (SEG, TER, QUA...) */}
                 <span
                   className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider block ${
-                    isCurrentDay ? 'text-tenant-primary font-extrabold' : 'text-slate-500'
+                    isBlocked
+                      ? 'text-slate-400'
+                      : isCurrentDay
+                        ? 'text-tenant-primary font-extrabold'
+                        : 'text-slate-500'
                   }`}
-                  style={isCurrentDay ? { color: tenantPrimaryColor } : undefined}
+                  style={isCurrentDay && !isBlocked ? { color: tenantPrimaryColor } : undefined}
                 >
                   {col.weekdayShort}
                 </span>
@@ -416,12 +478,14 @@ export function AgendaWeeklyGrid({
                 {/* Número do Dia com Círculo Sólido Dinâmico se Hoje/Ativo */}
                 <div
                   className={`mt-0.5 sm:mt-1 flex items-center justify-center font-extrabold text-xs sm:text-sm ${
-                    isCurrentDay
-                      ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-xs'
-                      : 'text-slate-800'
+                    isBlocked
+                      ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-200 text-slate-500 font-bold'
+                      : isCurrentDay
+                        ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-xs'
+                        : 'text-slate-800'
                   }`}
                   style={
-                    isCurrentDay
+                    isCurrentDay && !isBlocked
                       ? {
                           backgroundColor: tenantPrimaryColor,
                           color: getContrastColor(tenantPrimaryColor)
@@ -430,6 +494,23 @@ export function AgendaWeeklyGrid({
                   }
                 >
                   {col.dayNumber}
+                </div>
+
+                {/* Quantidade de Agendamentos Embaixo do Dia (ou badge Bloqueado) */}
+                <div className="mt-1 flex items-center justify-center">
+                  {isBlocked ? (
+                    <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-600 uppercase tracking-tight">
+                      Bloqueado
+                    </span>
+                  ) : colApptsCount > 0 ? (
+                    <span className="text-[9px] sm:text-[9.5px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap">
+                      {colApptsCount} {colApptsCount === 1 ? 'agend.' : 'agend.'}
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-slate-300 font-medium">
+                      0 agend.
+                    </span>
+                  )}
                 </div>
               </button>
             );
@@ -533,6 +614,8 @@ export function AgendaWeeklyGrid({
             const dayOfWeek = col.date.getDay();
             const isCurrentDay = isToday(col.date);
 
+            const isDayBlocked = isColumnDayBlocked(col.date, col.professionalId);
+
             // Filtra agendamentos deste dia
             const dayAppts = appointments.filter((a) => {
               const aDateStr = formatLocalDateToYMD(a.date);
@@ -557,6 +640,10 @@ export function AgendaWeeklyGrid({
               <div
                 key={col.id || cIdx}
                 onClick={(e) => {
+                  if (isDayBlocked) {
+                    e.stopPropagation();
+                    return;
+                  }
                   // Ao clicar no espaço livre, detecta o horário do clique
                   const rect = e.currentTarget.getBoundingClientRect();
                   const clickY = e.clientY - rect.top;
@@ -568,18 +655,40 @@ export function AgendaWeeklyGrid({
                   const timeStr = formatMinutesToTime(roundedMin);
                   onSlotClick(dateStr, timeStr, col.professionalId);
                 }}
-                className={`flex-1 min-w-0 border-r last:border-r-0 border-slate-200 relative transition-colors cursor-pointer group ${
-                  isCurrentDay ? 'hover:bg-slate-50/50' : 'hover:bg-slate-50/40'
+                className={`flex-1 min-w-0 border-r last:border-r-0 border-slate-200 relative transition-colors ${
+                  isDayBlocked
+                    ? 'cursor-not-allowed'
+                    : isCurrentDay
+                      ? 'cursor-pointer hover:bg-slate-50/50'
+                      : 'cursor-pointer hover:bg-slate-50/40'
                 }`}
-                style={isCurrentDay ? { backgroundColor: `${tenantPrimaryColor}08` } : undefined}
+                style={
+                  isDayBlocked
+                    ? {
+                        background:
+                          'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 12px, #f1f5f9 12px, #f1f5f9 24px)'
+                      }
+                    : isCurrentDay
+                      ? { backgroundColor: `${tenantPrimaryColor}08` }
+                      : undefined
+                }
               >
                 {/* Linha "Agora" em Tempo Real (se for o dia de hoje) */}
-                {isCurrentDay && showNowLine && (
+                {isCurrentDay && showNowLine && !isDayBlocked && (
                   <div
                     style={{ top: `${nowTopPosition}px` }}
                     className="absolute left-0 right-0 z-20 border-t-2 border-red-500 pointer-events-none flex items-center"
                   >
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500 -ml-1 shadow-xs" />
+                  </div>
+                )}
+
+                {/* Badge de Dia Inteiro Bloqueado */}
+                {isDayBlocked && (
+                  <div className="absolute inset-x-1 top-2 z-10 flex justify-center pointer-events-none">
+                    <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-200/90 text-slate-500 border border-slate-300/70 shadow-2xs">
+                      Dia Bloqueado
+                    </span>
                   </div>
                 )}
 
@@ -593,7 +702,7 @@ export function AgendaWeeklyGrid({
                   const leftPercent = evt.colIndex * widthPercent;
 
                   // ==========================================
-                  // 1. BLOQUEIO DE HORÁRIO (Listras diagonais)
+                  // 1. BLOQUEIO DE HORÁRIO (Listras diagonais em cinza apagado)
                   // ==========================================
                   if (evt.type === 'block' && evt.rawBlock) {
                     const block = evt.rawBlock;
@@ -610,16 +719,21 @@ export function AgendaWeeklyGrid({
                           left: `${leftPercent}%`,
                           width: `${widthPercent}%`,
                           background:
-                            'repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 8px, #f8fafc 8px, #f8fafc 16px)'
+                            'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 8px, #e2e8f0 8px, #e2e8f0 16px)'
                         }}
-                        className="absolute z-10 rounded-md border border-slate-300/80 p-1 text-slate-700 overflow-hidden cursor-pointer shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-start"
-                        title={`Bloqueio: ${block.reason} (${block.startTime} - ${block.endTime})`}
+                        className="absolute z-10 rounded-md border border-slate-300/90 p-1 text-slate-700 overflow-hidden cursor-pointer shadow-2xs hover:border-slate-400 transition-all flex flex-col justify-start bg-slate-100/90"
+                        title={`Bloqueio: ${block.reason || 'Bloqueado'} (${block.startTime} - ${block.endTime})`}
                       >
-                        <span className="text-[9px] font-mono font-bold text-slate-600 block leading-tight">
-                          {block.startTime}
-                        </span>
-                        <span className="text-[10px] font-bold text-slate-800 leading-tight block truncate mt-0.5">
-                          {block.reason || 'Bloqueado'}
+                        <div className="flex items-center justify-between gap-1 leading-tight">
+                          <span className="text-[9px] font-mono font-bold text-slate-500 block">
+                            {block.startTime} - {block.endTime}
+                          </span>
+                          <span className="text-[8px] font-bold uppercase tracking-wider bg-slate-200 text-slate-600 px-1 py-0.2 rounded shrink-0">
+                            Bloq
+                          </span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-700 leading-tight block truncate mt-0.5">
+                          {block.reason || 'Horário Indisponível'}
                         </span>
                       </div>
                     );
@@ -630,8 +744,9 @@ export function AgendaWeeklyGrid({
                   // ==========================================
                   if (evt.type === 'appointment' && evt.rawAppointment) {
                     const appt = evt.rawAppointment;
-                    const colorStyle = getAppointmentColor(appt, tenantPrimaryColor);
-                    const isCompact = height < 40 || evt.totalCols > 2 || isWeekMode;
+                    const colorStyle = getAppointmentColor(appt, tenantPrimaryColor, activeStatusColors);
+                    const serviceName = appt.service?.name || (appt.items?.[0]?.service?.name) || 'Procedimento';
+                    const isUltraCompact = height < 32;
 
                     return (
                       <div
@@ -666,23 +781,26 @@ export function AgendaWeeklyGrid({
                         className={`absolute z-10 rounded-md border p-1 sm:p-1.5 overflow-hidden cursor-pointer shadow-xs hover:shadow-md transition-all active:scale-[0.98] select-none flex flex-col justify-start ${
                           draggedApptId === appt.id ? 'opacity-40' : ''
                         }`}
-                        title={`${appt.startTime} - ${appt.client?.name || 'Cliente'} (${appt.service?.name || 'Serviço'})`}
+                        title={`${appt.startTime} - ${appt.client?.name || 'Cliente'} (${serviceName})`}
                       >
-                        {/* Horário no Topo em Fonte Menor */}
-                        <span className="text-[9px] sm:text-[10px] font-mono font-bold leading-tight block opacity-95">
-                          {appt.startTime}
-                        </span>
-
-                        {/* Nome do Cliente em Negrito */}
-                        <span className="text-[10px] sm:text-[11px] font-extrabold leading-tight block truncate mt-0.5">
-                          {appt.client?.name || 'Cliente'}
-                        </span>
-
-                        {/* Procedimento / Serviço em Caixa Alta Menor */}
-                        {!isCompact && (
-                          <span className="text-[9px] uppercase font-semibold leading-tight block truncate opacity-90 mt-0.5">
-                            {appt.service?.name || 'Procedimento'}
+                        {/* Linha 1: Horário e Nome da Cliente na Mesma Linha */}
+                        <div className="flex items-baseline gap-1.5 min-w-0 leading-tight">
+                          <span className="text-[9px] sm:text-[9.5px] font-mono font-bold shrink-0 opacity-95">
+                            {appt.startTime}
                           </span>
+                          <span className="text-[8px] opacity-40 shrink-0">•</span>
+                          <span className="text-[9.5px] sm:text-[10.5px] font-extrabold truncate">
+                            {appt.client?.name || 'Cliente'}
+                          </span>
+                        </div>
+
+                        {/* Linha 2: Procedimento / Serviço Mais Embaixo com Espaço (Respiro) */}
+                        {!isUltraCompact && (
+                          <div className="mt-1 sm:mt-1.5 pt-0.5 border-t border-current/10 min-w-0">
+                            <span className="text-[8px] sm:text-[9px] uppercase font-bold tracking-tight block truncate opacity-90">
+                              {serviceName}
+                            </span>
+                          </div>
                         )}
                       </div>
                     );

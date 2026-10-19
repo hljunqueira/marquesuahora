@@ -53,7 +53,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    // Geração do Access Token JWT (7 dias para persistência de sessão contínua)
+    // Geração do Access Token JWT (30 dias para persistência de sessão contínua no celular e desktop)
     const token = app.jwt.sign(
       {
         sub: user.id,
@@ -62,13 +62,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         email: user.email,
         name: user.name
       },
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
-    // Geração do Refresh Token (30 dias)
+    // Geração do Refresh Token (90 dias)
     const refreshToken = app.jwt.sign(
       { sub: user.id },
-      { expiresIn: '30d' }
+      { expiresIn: '90d' }
     );
 
     // Armazena Refresh Token em Cookie HttpOnly Seguro
@@ -77,7 +77,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       httpOnly: true,
-      maxAge: 30 * 24 * 60 * 60 // 30 dias em segundos
+      maxAge: 90 * 24 * 60 * 60 // 90 dias em segundos
     });
 
     return reply.send({
@@ -130,12 +130,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           email: user.email,
           name: user.name
         },
-        { expiresIn: '7d' }
+        { expiresIn: '30d' }
       );
 
       const newRefreshToken = app.jwt.sign(
         { sub: user.id },
-        { expiresIn: '30d' }
+        { expiresIn: '90d' }
       );
 
       reply.setCookie('refreshToken', newRefreshToken, {
@@ -143,7 +143,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         httpOnly: true,
-        maxAge: 30 * 24 * 60 * 60
+        maxAge: 90 * 24 * 60 * 60
       });
 
       return reply.send({ token, refreshToken: newRefreshToken });

@@ -132,7 +132,10 @@ model Plan {
   isUnlimitedBookings Boolean  // Booleano indicando se o plano possui agendamentos ilimitados
   monthlyFreeBookings Int      // Franquia mensal de agendamentos para planos híbridos
   extraBookingFee     Decimal  @db.Decimal(10, 2) // Tarifa cobrada por agendamento extra excedente
-  hasAiAssistant      Boolean  // Toggle de liberação da Atendente IA no WhatsApp
+  hasAiAssistant      Boolean  // Toggle de liberação do Copiloto IA na agenda
+  hasAutoWhatsapp     Boolean  @default(false) // Toggle de liberação das automações de WhatsApp (Lembretes/Confirmações)
+  hasCourses          Boolean  @default(false) // Toggle de liberação do módulo de Cursos Online para alunas
+  hasSupport          Boolean  @default(true)  // Toggle de liberação da Central de Suporte Oficial com IA
   hasAnamnesis        Boolean  // Toggle de liberação de Ficha de Anamnese Digital com fotos
   hasCommissions      Boolean  // Toggle de liberação do cálculo automático de comissões
   hasGoogleCalendar   Boolean  // Toggle de sincronização bidirecional com Google Calendar
@@ -158,6 +161,8 @@ model Tenant {
   niche                   BusinessNiche
   terminology             Json          // Rótulos dinâmicos adaptados: { professional: "Barbeiro", space: "Cadeira", ... }
   logoUrl                 String?
+  coverUrl                String?       // Banner panorâmico / capa oficial da vitrine
+  galleryPhotos           String[]      @default([]) // Galeria de fotos de resultados, unhas e trabalhos da vitrine
   themeTemplate           ThemeTemplate @default(PURPLE_GOLD)
   primaryColor            String        @default("#7C3AED")
   secondaryColor          String        @default("#0B0F19")
@@ -176,6 +181,10 @@ model Tenant {
   bufferMinutes           Int           @default(15) // Intervalo de higienização entre atendimentos
   minAdvanceBookingMinutes Int          @default(60) // Antecedência mínima para agendar
   maxAdvanceBookingDays   Int           @default(30) // Antecedência máxima (dias à frente)
+  blockNationalHolidays   Boolean       @default(true) // Bloquear agendamentos em feriados nacionais oficiais
+  holidayExceptions       Json          @default("[]") // Lista de datas YYYY-MM-DD em que o salão abre mesmo em feriado
+  welcomeMessageEnabled   Boolean       @default(true) // Envio automático de boas-vindas no 1º contato WhatsApp
+  welcomeMessageCustom    String?       // Mensagem customizada de boas-vindas do estabelecimento
   birthdayMessageEnabled  Boolean       @default(true)
   birthdayMessageCustom   String?
   googleReviewUrl         String?       // Link direto da página de avaliação do Google Meu Negócio
@@ -199,6 +208,7 @@ model Tenant {
   extraBookingsBalance    Int           @default(0) // Contador de agendamentos excedentes no plano híbrido
   blockedReason           String?       // "INADIMPLENCIA", "MANUAL_SUPERADMIN", etc.
   blockedAt               DateTime?
+  aftercareGuides         Json?         @default("[]") // Lista de guias de cuidados pós-atendimento dinâmicos
   createdAt               DateTime      @default(now())
   updatedAt               DateTime      @updatedAt
 
@@ -272,7 +282,7 @@ model Professional {
   role           String?
   phone          String
   avatarUrl      String?
-  color          String                @default("#7C3AED")
+  color          String?               // Cor opcional do profissional na agenda (se null, herda cor dinamica do tenant)
   commissionRate Decimal               @default(50.0) @db.Decimal(5, 2)
   scheduleConfig Json                  // Escala: { "mon": { "start": "09:00", "end": "18:00", "lunchStart": "12:00", "lunchEnd": "13:00" }, ... }
   isActive       Boolean               @default(true)
@@ -309,6 +319,7 @@ model Service {
   requiresDeposit      Boolean     @default(false) // Exigência de sinal de reserva antecipado para este serviço
   depositType          String      @default("PERCENTAGE") // "PERCENTAGE" ou "FIXED"
   depositAmount        Decimal     @default(50.0) @db.Decimal(10, 2) // Valor do sinal (default 50%)
+  color                String?     // Cor opcional do procedimento/serviço na agenda (se null, herda cor dinamica do tenant)
   createdAt       DateTime       @default(now())
 
   tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -514,9 +525,10 @@ model Course {
   coverUrl    String?
   videoUrl    String?
   sortOrder   Int            @default(0)
-  isActive    Boolean        @default(true)
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  isActive          Boolean        @default(true)
+  certificateConfig Json?          // Customização do certificado (logo, instrutor, assinatura, carga horária, outorga, etc.)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   lessons     CourseLesson[]
@@ -543,13 +555,15 @@ model CourseLesson {
 }
 
 model CourseAccess {
-  id        String    @id @default(uuid())
-  courseId  String
-  clientId  String?
-  phone     String    // Chave de identificação da aluna
-  grantedAt DateTime  @default(now())
-  revokedAt DateTime?
-  isActive  Boolean   @default(true)
+  id              String    @id @default(uuid())
+  courseId        String
+  clientId        String?
+  phone           String    // Chave de identificação da aluna
+  certificateCode String?   @unique // Código verificador anti-fraude (ex: MSH-CERT-8F2A-9C1D)
+  completedAt     DateTime? // Data oficial de conclusão da formação
+  grantedAt       DateTime  @default(now())
+  revokedAt       DateTime?
+  isActive        Boolean   @default(true)
 
   course    Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
   client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)

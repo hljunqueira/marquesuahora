@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '@/lib/api';
 import { BlockItem, ProfessionalItem } from './types';
 
@@ -27,6 +28,11 @@ export function AgendaUnblockModal({
   onClose,
   onSuccess
 }: AgendaUnblockModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [loadingDelete, setLoadingDelete] = useState(false);
   const [loadingToggle, setLoadingToggle] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,11 +80,13 @@ export function AgendaUnblockModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative max-w-md w-full bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200"
+        className="relative max-w-md w-full bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl border border-slate-200"
       >
         {/* Cabeçalho */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
@@ -197,6 +205,7 @@ export function AgendaUnblockModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

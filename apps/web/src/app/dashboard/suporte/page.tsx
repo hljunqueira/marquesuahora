@@ -2,10 +2,20 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { RotateCcw, Mic, Send, HelpCircle, User } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
-export type TicketCategory = 'SUPORTE' | 'MELHORIA' | 'FINANCEIRO';
+export type TicketCategory = 'SUPORTE' | 'MELHORIA' | 'FINANCEIRO' | 'ERRO_TECNICO';
+
+const QUICK_QUESTIONS = [
+  'Quantos agendamentos tenho hoje?',
+  'Quais são meus serviços?',
+  'Meu WhatsApp tá conectado?',
+  'Como configurar sinal PIX?',
+  'Qual é o meu plano?',
+  'Relatar erro no sistema'
+];
 
 interface ChatMessage {
   id: string;
@@ -22,22 +32,35 @@ interface ChatMessage {
 const TICKET_CATEGORIES = [
   {
     id: 'SUPORTE' as TicketCategory,
-    title: 'Suporte do Sistema',
-    desc: 'Dúvidas de uso, vitrine, agenda, sinal PIX ou regras',
+    title: 'Dúvidas e Uso do Sistema',
+    desc: 'Agenda, vitrine online, sinal anti-falta PIX ou regras',
     badgeColor: 'text-blue-700 bg-blue-50 border-blue-200'
+  },
+  {
+    id: 'ERRO_TECNICO' as TicketCategory,
+    title: 'Relatar Erro Técnico / Bug',
+    desc: 'Falhas, travamentos ou instabilidade (SLA prioritário 24h)',
+    badgeColor: 'text-rose-700 bg-rose-50 border-rose-200'
+  },
+  {
+    id: 'FINANCEIRO' as TicketCategory,
+    title: 'Financeiro & Planos',
+    desc: 'Assinaturas da plataforma, upgrade ou faturas',
+    badgeColor: 'text-emerald-700 bg-emerald-50 border-emerald-200'
   },
   {
     id: 'MELHORIA' as TicketCategory,
     title: 'Sugestão de Melhoria',
     desc: 'Ideias de novos recursos ou ajustes de fluxo',
     badgeColor: 'text-amber-700 bg-amber-50 border-amber-200'
-  },
-  {
-    id: 'FINANCEIRO' as TicketCategory,
-    title: 'Financeiro & Planos',
-    desc: 'Assinaturas da plataforma, faturas ou upgrade',
-    badgeColor: 'text-emerald-700 bg-emerald-50 border-emerald-200'
   }
+];
+
+const ATTENDANT_ROLES = [
+  'Proprietário(a) / Administrador(a)',
+  'Recepção / Atendimento',
+  'Profissional Parceiro(a)',
+  'Financeiro / Gestão'
 ];
 
 function detectIsTechnicalError(text: string): boolean {
@@ -78,6 +101,7 @@ function generateFrontendSmartReply(params: {
   isErrorDetected: boolean;
   protocol: string;
   userName?: string;
+  tenantName?: string;
 }): string {
   const text = params.messageText.toLowerCase();
   const name = params.userName && params.userName !== 'Estabelecimento' ? `Olá, ${params.userName}! ` : 'Olá! ';
@@ -170,13 +194,14 @@ function generateFrontendSmartReply(params: {
 
   // 8. Resposta padrão acolhedora
   return (
-    `${name}Sou o assistente de inteligência artificial do MarqueSuaHora!\n\n` +
-    `Estou aqui para tirar qualquer dúvida sobre o uso da plataforma:\n` +
-    `• Como configurar sua **Chave PIX direta** para sinal anti-falta;\n` +
-    `• Como cadastrar **Serviços**, **Profissionais** e **Comissões**;\n` +
-    `• Como gerenciar a **Agenda** e fazer **Bloqueios de Horário**;\n` +
-    `• Como usar seu **Link da Vitrine** para receber agendamentos online.\n\n` +
-    `Como posso te ajudar especificamente agora?`
+    `${name}Sou a inteligência artificial de suporte do MarqueSuaHora!\n\n` +
+    `Estou conectada ao seu estabelecimento e posso tirar qualquer dúvida operacional sobre a plataforma ou consultar informações dos seus dados no sistema:\n` +
+    `• Seus **Agendamentos de Hoje**;\n` +
+    `• Configuração do **Sinal PIX Direto**;\n` +
+    `• Seus **Serviços** e **Profissionais** da equipe;\n` +
+    `• Como gerenciar a **Agenda** e fazer **Bloqueios**;\n` +
+    `• Status do seu **Plano** e do seu **WhatsApp**.\n\n` +
+    `Como posso te orientar agora?`
   );
 }
 
@@ -273,12 +298,14 @@ function renderFormattedMessage(text: string, isMe: boolean) {
 }
 
 export default function DashboardSuportePage() {
-  // Estado de identificação e modal
-  const [isNameConfirmed, setIsNameConfirmed] = useState(false);
-  const [isIdentificationModalOpen, setIsIdentificationModalOpen] = useState(false);
+  // Estado de identificação obrigatória
+  const [isIdentified, setIsIdentified] = useState(false);
+  const [isSwitchingAttendant, setIsSwitchingAttendant] = useState(false);
+  const [attendantName, setAttendantName] = useState('');
+  const [attendantRole, setAttendantRole] = useState(ATTENDANT_ROLES[0]);
+  const [attendantPhone, setAttendantPhone] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<TicketCategory>('SUPORTE');
-  const [contactName, setContactName] = useState('');
-  const [contactPhone, setContactPhone] = useState('');
+  const [tenantName, setTenantName] = useState('Estabelecimento');
   const [protocolNumber, setProtocolNumber] = useState(
     () => `#TK-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`
   );
@@ -335,56 +362,65 @@ export default function DashboardSuportePage() {
     scrollToBottom();
   }, [messages, isAiThinking]);
 
-  // Carrega preferências e histórico
+  // Carrega preferências do tenant e histórico da sessão
   useEffect(() => {
-    let hasLoadedMessages = false;
+    let loadedTenantName = 'Estabelecimento';
+
+    // 1. Carrega dados do estabelecimento para pré-preenchimento
+    api
+      .get('/tenants/me')
+      .then((res) => {
+        if (res.data?.name) {
+          loadedTenantName = res.data.name;
+          setTenantName(res.data.name);
+        }
+      })
+      .catch(() => {});
+
+    // 2. Verifica se já se identificou nesta sessão
     try {
-      const savedConfirmed = localStorage.getItem('marquesuahora_support_name_confirmed');
-      const savedPhone = localStorage.getItem('marquesuahora_support_contact_phone');
-      const savedName = localStorage.getItem('marquesuahora_support_contact_name');
-      const savedCat = localStorage.getItem('marquesuahora_support_category') as TicketCategory | null;
+      const savedIdentified = sessionStorage.getItem('msh_support_identified');
+      const savedName = sessionStorage.getItem('msh_support_attendant_name');
+      const savedRole = sessionStorage.getItem('msh_support_attendant_role');
+      const savedPhone = sessionStorage.getItem('msh_support_attendant_phone');
+      const savedCategory = sessionStorage.getItem('msh_support_category') as TicketCategory | null;
       const savedMessagesStr = localStorage.getItem('marquesuahora_support_messages');
 
-      if (savedPhone) setContactPhone(savedPhone);
-      if (savedCat) setSelectedCategory(savedCat);
-      if (savedName) setContactName(savedName);
+      if (savedName) setAttendantName(savedName);
+      if (savedRole) setAttendantRole(savedRole);
+      if (savedPhone) setAttendantPhone(savedPhone);
+      if (savedCategory) setSelectedCategory(savedCategory);
 
+      let hasLocalMessages = false;
       if (savedMessagesStr) {
         try {
           const parsed = JSON.parse(savedMessagesStr);
           if (Array.isArray(parsed) && parsed.length > 0) {
             setMessages(parsed);
-            hasLoadedMessages = true;
+            hasLocalMessages = true;
           }
         } catch {
           // ignore
         }
       }
 
-      if (savedConfirmed === 'true') {
-        setIsNameConfirmed(true);
-        setIsIdentificationModalOpen(false);
-
-        if (!hasLoadedMessages) {
-          const greeting = buildInitialGreeting(savedCat || 'SUPORTE', savedName || 'Estabelecimento');
+      if (savedIdentified === 'true' && savedName && savedName.trim().length >= 2) {
+        setIsIdentified(true);
+        if (!hasLocalMessages) {
+          const greeting = buildInitialGreeting(savedCategory || 'SUPORTE', savedName, savedRole || ATTENDANT_ROLES[0], loadedTenantName);
           setMessages([greeting]);
-          try {
-            localStorage.setItem('marquesuahora_support_messages', JSON.stringify([greeting]));
-          } catch {
-            // ignore
-          }
         }
       } else {
-        setIsIdentificationModalOpen(true);
+        setIsIdentified(false);
       }
     } catch {
-      setIsIdentificationModalOpen(true);
+      setIsIdentified(false);
     }
 
-    // Carrega chamado ativo do backend se existir
+    // 3. Carrega ticket ativo do PostgreSQL no backend
     async function loadActiveBackendTicket() {
       try {
-        const res = await api.get('/support/active-ticket', { timeout: 4000 });
+        const res = await api.get('/support/active-ticket', { timeout: 4500 });
         if (res.data) {
           const t = res.data;
           setProtocolNumber(t.protocol);
@@ -406,32 +442,45 @@ export default function DashboardSuportePage() {
           }
         }
       } catch {
-        // Fallback gracioso para cache local
+        // Fallback silencioso
       }
     }
 
     loadActiveBackendTicket();
   }, []);
 
-  // Gera saudação contextual inicial se não houver histórico
-  const buildInitialGreeting = (cat: TicketCategory, name: string): ChatMessage => {
+  // Gera mensagem contextual inicial com dados da pessoa e estabelecimento
+  const buildInitialGreeting = (cat: TicketCategory, name: string, role: string, establishment: string): ChatMessage => {
     const timeNow = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const trimmed = name.trim();
-    const hasName = trimmed && trimmed !== 'Estabelecimento';
+    const trimmedName = name.trim();
+    const roleText = role ? ` (${role})` : '';
+    const establishmentText = establishment && establishment !== 'Estabelecimento' ? ` do **${establishment}**` : '';
+
     let greetingText = '';
 
-    if (cat === 'MELHORIA') {
-      greetingText = hasName
-        ? `Olá, ${trimmed}! Como podemos evoluir a sua experiência com o Marque Sua Hora? Descreva a melhoria que você gostaria de ver na plataforma.`
-        : `Olá! Como podemos evoluir a sua experiência com o Marque Sua Hora? Descreva a melhoria que você gostaria de ver na plataforma.`;
+    if (cat === 'ERRO_TECNICO') {
+      greetingText =
+        `Olá, ${trimmedName}${roleText}!\n\n` +
+        `Sou a inteligência artificial de suporte do **MarqueSuaHora**.\n\n` +
+        `Estou pronta para registrar qualquer erro técnico ou instabilidade no seu estabelecimento${establishmentText}.\n\n` +
+        `Descreva o que ocorreu, a tela em que estava ou o que tentou fazer. Se for um erro do sistema, abriremos um chamado prioritário com protocolo para o Administrador da plataforma analisar em **até 24 horas**.`;
+    } else if (cat === 'MELHORIA') {
+      greetingText =
+        `Olá, ${trimmedName}${roleText}!\n\n` +
+        `Como podemos evoluir a plataforma para o seu estabelecimento${establishmentText}?\n\n` +
+        `Descreva a sugestão de melhoria ou novo recurso que você gostaria de ver no sistema. Suas sugestões são analisadas diretamente pela nossa equipe de produto.`;
     } else if (cat === 'FINANCEIRO') {
-      greetingText = hasName
-        ? `Olá, ${trimmed}! Bem-vindo ao canal financeiro. Qual é a sua dúvida sobre planos ou assinaturas do sistema?`
-        : `Olá! Bem-vindo ao canal financeiro. Qual é a sua dúvida sobre planos ou assinaturas do sistema?`;
+      greetingText =
+        `Olá, ${trimmedName}${roleText}!\n\n` +
+        `Bem-vindo(a) ao canal financeiro do **MarqueSuaHora**.\n\n` +
+        `Tenho acesso em tempo real ao status do seu plano, valores de mensalidade e faturas do estabelecimento${establishmentText}.\n\n` +
+        `Qual é a sua dúvida ou solicitação financeira?`;
     } else {
-      greetingText = hasName
-        ? `Olá, ${trimmed}! Sou o assistente de suporte do Marque Sua Hora. Como posso te orientar sobre o sistema hoje? Descreva sua dúvida ou informe se houve algum erro.`
-        : `Olá! Sou o assistente de suporte do Marque Sua Hora. Como posso te orientar sobre o sistema hoje? Descreva sua dúvida ou informe se houve algum erro.`;
+      greetingText =
+        `Olá, ${trimmedName}${roleText}!\n\n` +
+        `Sou a inteligência artificial especialista em suporte do **MarqueSuaHora**.\n\n` +
+        `Estou conectada ao sistema do seu estabelecimento${establishmentText} com acesso em tempo real aos dados operacionais do PostgreSQL (serviços cadastrados, agendamentos de hoje, configurações do sinal PIX, equipe e regras da plataforma).\n\n` +
+        `Você pode me perguntar sobre seus **agendamentos de hoje**, tirar dúvidas de configuração ou relatar qualquer necessidade. Como posso te ajudar agora?`;
     }
 
     return {
@@ -443,13 +492,19 @@ export default function DashboardSuportePage() {
     };
   };
 
+  // Submissão do formulário obrigatório de identificação
   const handleConfirmIdentification = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalName = contactName.trim() || 'Estabelecimento';
-    setContactName(finalName);
+    const cleanName = attendantName.trim();
+    if (!cleanName || cleanName.length < 2) {
+      showToast('Por favor, informe seu nome completo para se identificar.');
+      return;
+    }
 
     const protocolPrefix =
-      selectedCategory === 'MELHORIA'
+      selectedCategory === 'ERRO_TECNICO'
+        ? '#ERR'
+        : selectedCategory === 'MELHORIA'
         ? '#MEL'
         : selectedCategory === 'FINANCEIRO'
         ? '#FIN'
@@ -458,23 +513,23 @@ export default function DashboardSuportePage() {
     setProtocolNumber(proto);
 
     try {
-      localStorage.setItem('marquesuahora_support_name_confirmed', 'true');
-      if (contactName.trim()) {
-        localStorage.setItem('marquesuahora_support_contact_name', finalName);
+      sessionStorage.setItem('msh_support_identified', 'true');
+      sessionStorage.setItem('msh_support_attendant_name', cleanName);
+      sessionStorage.setItem('msh_support_attendant_role', attendantRole);
+      if (attendantPhone.trim()) {
+        sessionStorage.setItem('msh_support_attendant_phone', attendantPhone.trim());
       }
-      localStorage.setItem('marquesuahora_support_category', selectedCategory);
-      if (contactPhone.trim()) {
-        localStorage.setItem('marquesuahora_support_contact_phone', contactPhone.trim());
-      }
+      sessionStorage.setItem('msh_support_category', selectedCategory);
     } catch {
       // ignore
     }
 
-    setIsNameConfirmed(true);
-    setIsIdentificationModalOpen(false);
+    setIsIdentified(true);
+    setIsSwitchingAttendant(false);
 
+    // Se ainda não houver mensagens no chat, gera a saudação personalizada
     if (messages.length === 0) {
-      const greeting = buildInitialGreeting(selectedCategory, finalName);
+      const greeting = buildInitialGreeting(selectedCategory, cleanName, attendantRole, tenantName);
       setMessages([greeting]);
       try {
         localStorage.setItem('marquesuahora_support_messages', JSON.stringify([greeting]));
@@ -482,39 +537,11 @@ export default function DashboardSuportePage() {
         // ignore
       }
     }
+
+    showToast(`Atendimento iniciado como ${cleanName}.`);
   };
 
-  const closeModal = () => {
-    setIsIdentificationModalOpen(false);
-    if (!isNameConfirmed) {
-      setIsNameConfirmed(true);
-      try {
-        localStorage.setItem('marquesuahora_support_name_confirmed', 'true');
-      } catch {
-        // ignore
-      }
-    }
-    if (messages.length === 0) {
-      const greeting = buildInitialGreeting(selectedCategory, contactName || 'Estabelecimento');
-      setMessages([greeting]);
-      try {
-        localStorage.setItem('marquesuahora_support_messages', JSON.stringify([greeting]));
-      } catch {
-        // ignore
-      }
-    }
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isIdentificationModalOpen) {
-        closeModal();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isIdentificationModalOpen, messages, selectedCategory, contactName]);
-
+  // Reiniciar sessão de atendimento
   const handleResetSession = () => {
     setConfirmModal({
       isOpen: true,
@@ -524,22 +551,28 @@ export default function DashboardSuportePage() {
       cancelLabel: 'Cancelar',
       isDestructive: true,
       onConfirm: () => {
-        setIsNameConfirmed(false);
+        setIsIdentified(false);
+        setIsSwitchingAttendant(false);
         setMessages([]);
         setEscalatedTicket(null);
         try {
-          localStorage.removeItem('marquesuahora_support_name_confirmed');
+          sessionStorage.removeItem('msh_support_identified');
           localStorage.removeItem('marquesuahora_support_messages');
         } catch {
           // ignore
         }
-        setIsIdentificationModalOpen(true);
         setConfirmModal((prev) => ({ ...prev, isOpen: false }));
         showToast('Atendimento reiniciado com sucesso.');
       }
     });
   };
 
+  // Trocar de atendente mantendo ou renovando o chat
+  const handleOpenSwitchAttendant = () => {
+    setIsSwitchingAttendant(true);
+  };
+
+  // Gravação de áudio
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -576,10 +609,11 @@ export default function DashboardSuportePage() {
     }
   };
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const textToSend = inputMessage.trim();
-    if (!textToSend && !audioUrl) return;
+  // Envio de mensagem (texto ou áudio)
+  const submitMessage = async (rawText?: string, rawAudio?: string | null) => {
+    const textToSend = (rawText !== undefined ? rawText : inputMessage).trim();
+    const currentAudio = rawAudio !== undefined ? rawAudio : audioUrl;
+    if (!textToSend && !currentAudio) return;
 
     const timeNow = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
@@ -587,8 +621,8 @@ export default function DashboardSuportePage() {
       id: `msg-${Date.now()}`,
       sender: 'TENANT',
       content: textToSend || undefined,
-      attachmentUrl: audioUrl || undefined,
-      audioDurationSeconds: audioUrl ? recordingSeconds : undefined,
+      attachmentUrl: currentAudio || undefined,
+      audioDurationSeconds: currentAudio ? recordingSeconds : undefined,
       timestamp: `Hoje às ${timeNow}`
     };
 
@@ -604,7 +638,7 @@ export default function DashboardSuportePage() {
     setAudioUrl(null);
     setRecordingSeconds(0);
 
-    // Consulta à Inteligência Artificial do MarqueSuaHora
+    // Consulta à Inteligência Artificial do MarqueSuaHora conectada ao banco
     if (textToSend) {
       setIsAiThinking(true);
       try {
@@ -613,9 +647,11 @@ export default function DashboardSuportePage() {
           {
             message: textToSend,
             category: selectedCategory,
-            protocol: protocolNumber
+            protocol: protocolNumber,
+            attendantName: attendantName.trim() || 'Assinante',
+            attendantRole: attendantRole
           },
-          { timeout: 7000 }
+          { timeout: 8500 }
         );
 
         const replyData = res.data;
@@ -645,7 +681,7 @@ export default function DashboardSuportePage() {
           setProtocolNumber(replyData.protocol);
         }
       } catch (err) {
-        console.warn('[Suporte Frontend] API externa/backend demorou ou falhou, ativando inteligência local integrada:', err);
+        console.warn('[Suporte Frontend] API externa demorou ou falhou, ativando motor local integrado:', err);
 
         // MOTOR DE CONTINGÊNCIA INTELIGENTE: A IA NUNCA FICA EM SILÊNCIO
         const isError = detectIsTechnicalError(textToSend);
@@ -653,7 +689,8 @@ export default function DashboardSuportePage() {
           messageText: textToSend,
           isErrorDetected: isError,
           protocol: protocolNumber,
-          userName: contactName
+          userName: attendantName,
+          tenantName
         });
 
         const aiMsg: ChatMessage = {
@@ -686,70 +723,257 @@ export default function DashboardSuportePage() {
     }
   };
 
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitMessage();
+  };
+
+  const handleSendDirectText = (text: string) => {
+    submitMessage(text, null);
+  };
+
   const currentCategoryMeta =
     TICKET_CATEGORIES.find((c) => c.id === selectedCategory) || TICKET_CATEGORIES[0];
 
+  // =========================================================================
+  // PASSO 1: IDENTIFICAÇÃO OBRIGATÓRIA ANTES DE FALAR COM O SUPORTE
+  // =========================================================================
+  if (!isIdentified || isSwitchingAttendant) {
+    return (
+      <div className="w-full max-w-2xl mx-auto py-4 sm:py-8 px-3 sm:px-6">
+        <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 sm:p-10 text-left space-y-6">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 pb-5">
+            <div>
+              <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
+                Identificação Obrigatória
+              </span>
+              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 mt-2.5">
+                Identifique-se para Iniciar o Suporte
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
+                Antes de iniciar o chat inteligente, confirme quem está solicitando o atendimento no estabelecimento{' '}
+                <strong>{tenantName}</strong>.
+              </p>
+            </div>
+            {isSwitchingAttendant && (
+              <button
+                type="button"
+                onClick={() => setIsSwitchingAttendant(false)}
+                className="text-xs font-bold text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                Voltar ao Chat
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleConfirmIdentification} className="space-y-5">
+            {/* 1. Nome do Atendente */}
+            <div>
+              <label className="text-xs font-bold text-slate-800 block mb-1.5">
+                Quem está falando? (Seu Nome) *
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  placeholder="Ex: Emanuelle Telles"
+                  value={attendantName}
+                  onChange={(e) => setAttendantName(e.target.value)}
+                  className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all font-medium text-slate-900"
+                />
+                <User className="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5 pointer-events-none" />
+              </div>
+              <span className="text-[11px] text-slate-400 mt-1 block">
+                Nome de quem está operando o sistema ou solicitando auxílio.
+              </span>
+            </div>
+
+            {/* 2. Função / Cargo */}
+            <div>
+              <label className="text-xs font-bold text-slate-800 block mb-1.5">
+                Sua Função no Estabelecimento *
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {ATTENDANT_ROLES.map((role) => {
+                  const isSelected = attendantRole === role;
+                  return (
+                    <button
+                      key={role}
+                      type="button"
+                      onClick={() => setAttendantRole(role)}
+                      className={`px-3.5 py-2.5 rounded-xl border text-left text-xs font-semibold transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {role}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. WhatsApp para Contato */}
+            <div>
+              <label className="text-xs font-bold text-slate-800 block mb-1.5">
+                WhatsApp de Retorno <span className="text-slate-400 font-normal">(Opcional)</span>
+              </label>
+              <input
+                type="text"
+                placeholder="(DDD) 99999-9999"
+                value={attendantPhone}
+                onChange={(e) => setAttendantPhone(e.target.value)}
+                className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all font-medium text-slate-900"
+              />
+            </div>
+
+            {/* 4. Categoria do Atendimento */}
+            <div>
+              <label className="text-xs font-bold text-slate-800 block mb-1.5">
+                Assunto Principal do Atendimento *
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {TICKET_CATEGORIES.map((cat) => {
+                  const isSelected = selectedCategory === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setSelectedCategory(cat.id)}
+                      className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                          : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
+                      }`}
+                    >
+                      <span className="text-xs font-bold block mb-1">
+                        {cat.title}
+                      </span>
+                      <span
+                        className={`text-[11px] leading-tight block ${
+                          isSelected ? 'text-slate-300' : 'text-slate-500'
+                        }`}
+                      >
+                        {cat.desc}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Botão de Confirmação */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-slate-400">
+                A IA carregará os dados operacionais do seu salão em tempo real.
+              </span>
+              <button
+                type="submit"
+                disabled={!attendantName.trim() || attendantName.trim().length < 2}
+                className="px-6 py-3 bg-slate-900 hover:bg-black disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
+              >
+                Confirmar e Iniciar Atendimento
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Toast Notifier */}
+        {toastMsg && (
+          <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-slate-800 text-xs font-semibold">
+            <div className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>{toastMsg}</span>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // =========================================================================
+  // PASSO 2: CHAT DE SUPORTE INTERATIVO COM ACESSO AO BANCO DE DADOS
+  // =========================================================================
   return (
-    <div className="w-full h-[calc(100vh-130px)] flex flex-col bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden relative">
-      {/* ========================================================= */}
-      {/* 1. CABEÇALHO PURAMENTE TIPOGRÁFICO E FUNCIONAL             */}
-      {/* ========================================================= */}
-      <header className="px-5 sm:px-7 py-3 bg-white border-b border-slate-200 flex items-center justify-between gap-4 shrink-0 z-10">
-        <div className="flex items-center gap-3.5 min-w-0">
+    <div className="w-full h-[calc(100dvh-120px)] sm:h-[calc(100vh-130px)] max-h-[860px] min-h-[520px] flex flex-col bg-white rounded-2xl sm:rounded-3xl border border-slate-200 shadow-xs overflow-hidden relative">
+      {/* 1. CABEÇALHO COM IDENTIFICAÇÃO E PROTOCOLO */}
+      <header className="px-3.5 sm:px-7 py-2.5 sm:py-3.5 bg-white border-b border-slate-200 flex items-center justify-between gap-3 shrink-0 z-10">
+        <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-sm font-bold text-slate-900 truncate">
-                Central de Atendimento & Dúvidas
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <h2 className="text-xs sm:text-sm font-bold text-slate-900 truncate">
+                Central de Suporte Oficial
               </h2>
-              <span className="inline-flex items-center text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+              <span className="inline-flex items-center text-[10px] sm:text-[11px] font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
                 {protocolNumber}
               </span>
               <span
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${currentCategoryMeta.badgeColor}`}
+                className={`text-[9px] sm:text-[10px] font-bold px-1.5 sm:px-2 py-0.5 rounded-full border ${currentCategoryMeta.badgeColor}`}
               >
                 {currentCategoryMeta.title}
               </span>
             </div>
 
-            <div className="flex items-center gap-2.5 text-xs text-slate-500 mt-0.5">
+            <div className="flex items-center gap-2 text-[11px] sm:text-xs text-slate-500 mt-0.5">
               <span className="truncate">
-                Atendimento: <strong>{contactName || 'Estabelecimento'}</strong>
+                Atendente: <strong>{attendantName}</strong> ({attendantRole}) • <strong>{tenantName}</strong>
               </span>
               <button
                 type="button"
-                onClick={() => setIsIdentificationModalOpen(true)}
+                onClick={handleOpenSwitchAttendant}
                 className="text-slate-600 hover:text-slate-900 underline font-semibold cursor-pointer transition-colors"
-                title="Alterar dados ou categoria do chamado"
+                title="Trocar atendente ou atualizar dados de contato"
               >
-                Alterar
+                Trocar Atendente
               </button>
             </div>
           </div>
         </div>
 
         {/* Lado Direito do Cabeçalho */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <div className="hidden md:flex flex-col text-right">
             <span className="text-[11px] font-bold text-emerald-600">
-              IA Online
+              IA com Acesso ao Banco
             </span>
-            <span className="text-[10px] text-slate-400">Resposta imediata</span>
+            <span className="text-[10px] text-slate-400">PostgreSQL Ativo</span>
           </div>
 
           <button
             type="button"
             onClick={handleResetSession}
-            className="px-3.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-2.5 sm:px-3.5 py-1.5 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
             title="Reiniciar conversa e limpar mensagens"
           >
-            Novo Atendimento
+            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden sm:inline">Novo Atendimento</span>
+            <span className="sm:hidden">Novo</span>
           </button>
         </div>
       </header>
 
+      {/* Sugestões Rápidas de 1 Toque */}
+      <div className="px-3 sm:px-6 py-2 bg-slate-50/90 border-b border-slate-200/60 flex items-center gap-1.5 sm:gap-2 overflow-x-auto no-scrollbar shrink-0">
+        <span className="text-[10px] sm:text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+          <HelpCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400" />
+          Sugestões:
+        </span>
+        {QUICK_QUESTIONS.map((q) => (
+          <button
+            key={q}
+            type="button"
+            disabled={isAiThinking}
+            onClick={() => handleSendDirectText(q)}
+            className="px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-medium bg-white hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 shadow-2xs transition-all shrink-0 cursor-pointer disabled:opacity-50 active:scale-95 whitespace-nowrap"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+
       {/* Banner de Erro Técnico Escalado com SLA de 24h */}
       {escalatedTicket && (
-        <div className="mx-4 sm:mx-6 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-3 text-amber-900 shadow-xs">
+        <div className="mx-3 sm:mx-6 mt-3 p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between gap-3 text-amber-900 shadow-xs">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200/80 text-amber-900 uppercase">
@@ -769,14 +993,12 @@ export default function DashboardSuportePage() {
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* 2. ÁREA DE MENSAGENS (TELA CHEIA SCROLLÁVEL)              */}
-      {/* ========================================================= */}
-      <div className="flex-1 bg-slate-50/70 p-4 sm:p-6 overflow-y-auto space-y-4">
+      {/* 2. ÁREA DE MENSAGENS */}
+      <div className="flex-1 bg-slate-50/70 p-3 sm:p-6 overflow-y-auto space-y-3 sm:space-y-4">
         {/* Banner Informativo Discreto e Tipográfico */}
         <div className="max-w-md mx-auto text-center py-1">
-          <span className="text-[11px] font-medium text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200">
-            Canal de suporte oficial — Tire dúvidas sobre as funções do sistema.
+          <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 bg-white px-3 py-1 rounded-full border border-slate-200">
+            Canal oficial com IA — Respostas operacionais com acesso ao banco e regras do sistema.
           </span>
         </div>
 
@@ -800,7 +1022,7 @@ export default function DashboardSuportePage() {
                 className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
               >
                 <div
-                  className={`max-w-lg p-4 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs ${
+                  className={`max-w-[88%] sm:max-w-lg p-3 sm:p-4 rounded-2xl text-xs sm:text-sm leading-relaxed shadow-xs ${
                     isMe
                       ? 'bg-slate-900 text-white rounded-br-xs'
                       : 'bg-white text-slate-800 border border-slate-200 rounded-bl-xs'
@@ -818,9 +1040,9 @@ export default function DashboardSuportePage() {
                 <div className="flex items-center gap-1.5 text-[10px] text-slate-400 mt-1 px-1">
                   <span>
                     {isMe
-                      ? `${contactName || 'Você'} • ${msg.timestamp}`
+                      ? `${attendantName || 'Você'} • ${msg.timestamp}`
                       : msg.isAi
-                      ? `Assistente do Sistema • ${msg.timestamp}`
+                      ? `IA MarqueSuaHora • ${msg.timestamp}`
                       : `Administrador Oficial • ${msg.timestamp}`}
                   </span>
                   {msg.isTechnicalError && (
@@ -838,7 +1060,7 @@ export default function DashboardSuportePage() {
         {isAiThinking && (
           <div className="flex flex-col items-start space-y-1">
             <div className="px-4 py-3 bg-white border border-slate-200 rounded-2xl rounded-bl-xs text-xs text-slate-600 shadow-xs">
-              Assistente analisando sua dúvida...
+              IA consultando dados e analisando sua solicitação...
             </div>
           </div>
         )}
@@ -846,13 +1068,11 @@ export default function DashboardSuportePage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* ========================================================= */}
-      {/* 3. BARRA DE DIGITAÇÃO E GRAVAÇÃO DE VOZ                   */}
-      {/* ========================================================= */}
-      <footer className="p-3 sm:p-4 bg-white border-t border-slate-200 shrink-0">
+      {/* 3. BARRA DE DIGITAÇÃO E GRAVAÇÃO DE VOZ */}
+      <footer className="p-2 sm:p-4 bg-white border-t border-slate-200 shrink-0">
         <form
           onSubmit={handleSendMessage}
-          className="flex items-center gap-2 relative bg-slate-50 border border-slate-200 rounded-2xl p-1.5 sm:p-2 focus-within:bg-white focus-within:border-slate-400 transition-all"
+          className="flex items-center gap-1.5 sm:gap-2 relative bg-slate-50 border border-slate-200 rounded-2xl p-1 sm:p-2 focus-within:bg-white focus-within:border-slate-400 transition-all"
         >
           <input
             ref={inputRef}
@@ -860,7 +1080,8 @@ export default function DashboardSuportePage() {
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}
             disabled={isRecording || isAiThinking}
-            className="flex-1 px-3 py-2 text-xs sm:text-sm bg-transparent border-0 outline-none font-medium text-slate-800 placeholder-slate-400"
+            placeholder={isRecording ? 'Gravando áudio...' : 'Digite sua dúvida, pergunta sobre agendamentos ou relato de erro...'}
+            className="flex-1 min-w-0 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm bg-transparent border-0 outline-none font-medium text-slate-800 placeholder-slate-400"
           />
 
           {/* Gravação de Áudio */}
@@ -868,19 +1089,21 @@ export default function DashboardSuportePage() {
             <button
               type="button"
               onClick={stopRecording}
-              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold animate-pulse transition-all cursor-pointer shrink-0 shadow-xs"
+              className="inline-flex items-center gap-1 px-2.5 sm:px-3.5 py-1.5 sm:py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold animate-pulse transition-all cursor-pointer shrink-0 shadow-xs"
               title="Parar Gravação"
             >
-              Parar ({recordingSeconds}s)
+              <Mic className="w-3.5 h-3.5" />
+              <span>Parar ({recordingSeconds}s)</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={startRecording}
-              className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer shrink-0"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded-xl transition-colors cursor-pointer shrink-0"
               title="Gravar mensagem de voz"
             >
-              Gravar Áudio
+              <Mic className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden sm:inline">Gravar Áudio</span>
             </button>
           )}
 
@@ -888,142 +1111,14 @@ export default function DashboardSuportePage() {
           <button
             type="submit"
             disabled={(!inputMessage.trim() && !audioUrl) || isAiThinking}
-            className="px-4 py-2 bg-slate-900 hover:bg-black active:scale-95 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-900 hover:bg-black active:scale-95 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all cursor-pointer shrink-0 shadow-xs"
             title="Enviar Mensagem"
           >
-            Enviar
+            <Send className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Enviar</span>
           </button>
         </form>
       </footer>
-
-      {/* ========================================================= */}
-      {/* 4. MODAL DE IDENTIFICAÇÃO (SEM ÍCONES DECORATIVOS)        */}
-      {/* ========================================================= */}
-      <AnimatePresence>
-        {isIdentificationModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={closeModal}
-              className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity cursor-pointer"
-            />
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', duration: 0.3 }}
-              className="w-full max-w-lg bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 sm:p-8 space-y-6 text-left relative z-10"
-            >
-              <button
-                type="button"
-                onClick={closeModal}
-                className="absolute top-5 right-5 text-xs font-bold text-slate-400 hover:text-slate-700 px-2 py-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer z-20"
-                title="Fechar e ir para o chat"
-              >
-                ✕ Fechar
-              </button>
-
-              <div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 bg-slate-100 px-3 py-1 rounded-full border border-slate-200">
-                  Canal de Ajuda
-                </span>
-                <h2 className="text-xl font-display font-bold text-slate-900 mt-2.5">
-                  Iniciar Atendimento
-                </h2>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Confirme seus dados para direcionarmos suas dúvidas ou relatos de erro com precisão.
-                </p>
-              </div>
-
-              <form onSubmit={handleConfirmIdentification} className="space-y-4">
-                {/* Seletor de Categoria Sem Ícones Decorativos */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-2">
-                    Tipo de Atendimento *
-                  </label>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    {TICKET_CATEGORIES.map((cat) => {
-                      const isSelected = selectedCategory === cat.id;
-
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setSelectedCategory(cat.id)}
-                          className={`p-3 rounded-2xl border text-left transition-all flex flex-col justify-between cursor-pointer ${
-                            isSelected
-                              ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                              : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold block">
-                              {cat.title}
-                            </span>
-                          </div>
-                          <span
-                            className={`text-[10px] leading-tight block ${
-                              isSelected ? 'text-slate-300' : 'text-slate-500'
-                            }`}
-                          >
-                            {cat.desc}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Nome Completo */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Seu Nome <span className="text-slate-400 font-normal">(Opcional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={contactName}
-                    onChange={(e) => setContactName(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-400 transition-all font-medium text-slate-800"
-                  />
-                </div>
-
-                {/* WhatsApp */}
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    WhatsApp para Retorno <span className="text-slate-400 font-normal">(Opcional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={contactPhone}
-                    onChange={(e) => setContactPhone(e.target.value)}
-                    className="w-full px-4 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-400 transition-all font-medium text-slate-800"
-                  />
-                </div>
-
-                {/* Botão de Ação */}
-                <div className="pt-2 flex items-center justify-end gap-2.5">
-                  <button
-                    type="button"
-                    onClick={closeModal}
-                    className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
-                  >
-                    Entrar Direto
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
-                  >
-                    Confirmar e Iniciar
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
 
       {/* Modal de Confirmação Seguro */}
       <ConfirmModal
@@ -1040,8 +1135,8 @@ export default function DashboardSuportePage() {
 
       {/* Toast Feedback */}
       {toastMsg && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 border border-slate-800 text-xs font-semibold">
-          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-slate-800 text-xs font-semibold">
+          <div className="w-2 h-2 rounded-full bg-emerald-400" />
           <span>{toastMsg}</span>
         </div>
       )}

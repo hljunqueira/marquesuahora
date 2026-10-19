@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'motion/react';
 import Image from 'next/image';
 import {
@@ -27,10 +28,15 @@ import {
   TrendingUp,
   Percent,
   RefreshCw,
-  Loader2
+  Loader2,
+  Lock,
+  ArrowUpRight,
+  ShoppingCart
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
+import { QuickSaleModal } from '@/components/pos/QuickSaleModal';
 
 // ==========================================
 // TIPOS E MODELOS DE PRODUTOS
@@ -58,150 +64,12 @@ export interface ProductItem {
   sku?: string;
 }
 
-// Configurações Especializadas por Nicho (sem mocks)
-interface NicheProductConfig {
-  nicheLabel: string;
-  defaultCategories: string[];
-  presetImages: Array<{ label: string; url: string }>;
-}
-
-const NICHE_PRODUCT_CONFIGS: Record<BusinessNicheKey, NicheProductConfig> = {
-  BEAUTY_SALON: {
-    nicheLabel: 'Salão de Beleza & Cabelos',
-    defaultCategories: [
-      'Tratamentos & Máscaras',
-      'Shampoos & Condicionadores',
-      'Finalizadores & Óleos',
-      'Kits Home Care',
-      'Coloração & Tonalizantes'
-    ],
-    presetImages: [
-      {
-        label: 'Máscara Reconstrutora',
-        url: 'https://images.unsplash.com/photo-1535585209827-a15fcdbc4c2d?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Óleo Reparador Argan',
-        url: 'https://images.unsplash.com/photo-1608248597359-0a6e036df83b?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Shampoo Nutritivo',
-        url: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Leave-in Protetor',
-        url: 'https://images.unsplash.com/photo-1527799820374-dcf8d9d4a388?w=600&auto=format&fit=crop&q=80'
-      }
-    ]
-  },
-  BARBERSHOP: {
-    nicheLabel: 'Barbearia Clássica & Grooming',
-    defaultCategories: [
-      'Pomadas & Ceras',
-      'Cuidados com a Barba',
-      'Shampoos & Tônicos',
-      'Shaving & Pós-Barba',
-      'Acessórios & Pentes'
-    ],
-    presetImages: [
-      {
-        label: 'Pomada Matte',
-        url: 'https://images.unsplash.com/photo-1585751119414-ef2636f8aede?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Óleo para Barba',
-        url: 'https://images.unsplash.com/photo-1621607512214-68297480165e?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Balm Hidratante',
-        url: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Shaving Gel',
-        url: 'https://images.unsplash.com/photo-1512690459411-b9245aed614b?w=600&auto=format&fit=crop&q=80'
-      }
-    ]
-  },
-  NAIL_LASH_STUDIO: {
-    nicheLabel: 'Studio de Unhas & Lash Design',
-    defaultCategories: [
-      'Cuidados Pós-Extensão',
-      'Óleos de Cutícula',
-      'Fortalecedores de Unhas',
-      'Kits de Manutenção',
-      'Acessórios Lash'
-    ],
-    presetImages: [
-      {
-        label: 'Sérum de Cílios',
-        url: 'https://images.unsplash.com/photo-1583001809873-a128495da465?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Óleo de Cutículas',
-        url: 'https://images.unsplash.com/photo-1604654894610-df63bc536371?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Espuma Higienizadora',
-        url: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80'
-      }
-    ]
-  },
-  AESTHETICS_CLINIC: {
-    nicheLabel: 'Clínica de Estética & Biomédica',
-    defaultCategories: [
-      'Protetores Solares',
-      'Séruns & Clareadores',
-      'Pós-Procedimento & Cicatrizantes',
-      'Home Care Facial',
-      'Anti-Idade & Colágeno'
-    ],
-    presetImages: [
-      {
-        label: 'Protetor Solar',
-        url: 'https://images.unsplash.com/photo-1556228722-d0b5de70b774?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Sérum Clareador Vitamina C',
-        url: 'https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Espuma Calmante',
-        url: 'https://images.unsplash.com/photo-1556228720-195a672e8a03?w=600&auto=format&fit=crop&q=80'
-      }
-    ]
-  },
-  PERSONAL_TRAINER: {
-    nicheLabel: 'Personal Trainer & Performance',
-    defaultCategories: [
-      'Suplementação & Proteínas',
-      'Creatinas & Aminoácidos',
-      'Acessórios de Treino',
-      'Hidratação & Garrafas',
-      'Kits de Resistência'
-    ],
-    presetImages: [
-      {
-        label: 'Whey Protein',
-        url: 'https://images.unsplash.com/photo-1579722821273-0f6c7d44362f?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Creatina Creapure',
-        url: 'https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=600&auto=format&fit=crop&q=80'
-      },
-      {
-        label: 'Coqueteleira',
-        url: 'https://images.unsplash.com/photo-1517838277536-f5f99be501cd?w=600&auto=format&fit=crop&q=80'
-      }
-    ]
-  }
-};
-
 export default function DashboardProdutosPage() {
-  const [currentNiche, setCurrentNiche] = useState<BusinessNicheKey>(() => {
+  const [tenantPlanCode, setTenantPlanCode] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return (localStorage.getItem('tenant_niche') as BusinessNicheKey) || 'NAIL_LASH_STUDIO';
+      return localStorage.getItem('marquesuahora_tenant_plan_code') || 'FREE';
     }
-    return 'NAIL_LASH_STUDIO';
+    return 'FREE';
   });
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('TODAS');
@@ -227,12 +95,13 @@ export default function DashboardProdutosPage() {
   const [description, setDescription] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [costPrice, setCostPrice] = useState('');
-  const [stockQuantity, setStockQuantity] = useState('10');
-  const [minStockAlert, setMinStockAlert] = useState('3');
+  const [stockQuantity, setStockQuantity] = useState('');
+  const [minStockAlert, setMinStockAlert] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [showInVitrine, setShowInVitrine] = useState(true);
   const [isActive, setIsActive] = useState(true);
   const [sku, setSku] = useState('');
+  const [isQuickSaleOpen, setIsQuickSaleOpen] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -246,8 +115,6 @@ export default function DashboardProdutosPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const currentConfig = NICHE_PRODUCT_CONFIGS[currentNiche] || NICHE_PRODUCT_CONFIGS.BEAUTY_SALON;
-
   const fetchProducts = async (silent = false) => {
     try {
       if (!silent) setLoading(true);
@@ -256,11 +123,9 @@ export default function DashboardProdutosPage() {
         api.get('/tenants/me').catch(() => ({ data: null }))
       ]);
 
-      if (tenantRes.data?.niche) {
-        setCurrentNiche(tenantRes.data.niche);
-      } else {
-        const savedNiche = (localStorage.getItem('tenant_niche') as BusinessNicheKey) || 'BEAUTY_SALON';
-        setCurrentNiche(savedNiche);
+      if (tenantRes.data?.plan?.code) {
+        setTenantPlanCode(tenantRes.data.plan.code);
+        localStorage.setItem('marquesuahora_tenant_plan_code', tenantRes.data.plan.code);
       }
 
       setProducts(Array.isArray(productsRes.data) ? productsRes.data : []);
@@ -316,28 +181,53 @@ export default function DashboardProdutosPage() {
     };
   }, []);
 
+  const [uploadingImage, setUploadingImage] = useState(false);
+
   // Upload de Imagem via Arquivo do Dispositivo
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('A imagem do produto deve ter no máximo 5MB.');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const url = res.data?.url || res.data?.relativeUrl;
+      if (url) {
+        setImageUrl(url);
+        showToast('Foto do produto enviada com sucesso.');
+      }
+    } catch (err: any) {
+      console.error('Erro ao enviar foto do produto:', err);
+      showToast('Erro ao enviar imagem do produto. Tente novamente.');
+    } finally {
+      setUploadingImage(false);
+      if (e.target) e.target.value = '';
     }
   };
 
   // Modais de Criação e Edição
   const handleOpenCreate = () => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('O cadastro e vitrine de produtos é exclusivo dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     setEditingProduct(null);
     setName('');
-    setCategory(currentConfig.defaultCategories[0] || 'Geral');
+    setCategory(allCategories[0] || '');
     setDescription('');
     setSalePrice('');
     setCostPrice('');
-    setStockQuantity('10');
-    setMinStockAlert('3');
+    setStockQuantity('');
+    setMinStockAlert('');
     setImageUrl('');
     setShowInVitrine(true);
     setIsActive(true);
@@ -346,6 +236,10 @@ export default function DashboardProdutosPage() {
   };
 
   const handleOpenEdit = (p: ProductItem) => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('A gestão e edição de produtos é exclusiva dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     setEditingProduct(p);
     setName(p.name);
     setCategory(p.category);
@@ -365,7 +259,7 @@ export default function DashboardProdutosPage() {
     e.preventDefault();
     const parsedSale = parseFloat(salePrice.replace(',', '.'));
     if (isNaN(parsedSale) || parsedSale <= 0) {
-      alert('Informe um preço de venda válido maior que zero.');
+      showToast('Informe um preço de venda válido maior que zero.');
       return;
     }
 
@@ -378,7 +272,7 @@ export default function DashboardProdutosPage() {
       if (editingProduct) {
         const payload = {
           name,
-          category,
+          category: category.trim() || 'Geral',
           description,
           salePrice: parsedSale,
           costPrice: parsedCost,
@@ -397,7 +291,7 @@ export default function DashboardProdutosPage() {
                   ...item,
                   ...res.data,
                   name,
-                  category,
+                  category: category.trim() || 'Geral',
                   description,
                   salePrice: parsedSale,
                   costPrice: parsedCost,
@@ -415,7 +309,7 @@ export default function DashboardProdutosPage() {
       } else {
         const payload = {
           name,
-          category: category || currentConfig.defaultCategories[0] || 'Geral',
+          category: category.trim() || 'Geral',
           description,
           salePrice: parsedSale,
           costPrice: parsedCost,
@@ -449,7 +343,7 @@ export default function DashboardProdutosPage() {
       notifyProductsSync();
       await fetchProducts(true);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erro ao salvar produto.');
+      showToast(err.response?.data?.message || 'Erro ao salvar produto.');
     } finally {
       setIsSubmitting(false);
     }
@@ -466,7 +360,7 @@ export default function DashboardProdutosPage() {
       notifyProductsSync();
       await fetchProducts(true);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erro ao remover produto.');
+      showToast(err.response?.data?.message || 'Erro ao remover produto.');
     } finally {
       setIsSubmitting(false);
     }
@@ -475,11 +369,15 @@ export default function DashboardProdutosPage() {
   // Movimentação Formal de Estoque (Entrada, Saída, Balanço)
   const handleSaveStockMovement = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (tenantPlanCode === 'FREE') {
+      showToast('A movimentação de estoque é exclusiva dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     if (!stockMovementTarget) return;
 
     const qty = parseInt(movementQuantity, 10);
     if (isNaN(qty) || qty <= 0) {
-      alert('Informe uma quantidade válida maior que zero.');
+      showToast('Informe uma quantidade válida maior que zero.');
       return;
     }
 
@@ -534,7 +432,7 @@ export default function DashboardProdutosPage() {
       notifyProductsSync();
       await fetchProducts(true);
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erro ao registrar movimentação de estoque.');
+      showToast(err.response?.data?.message || 'Erro ao registrar movimentação de estoque.');
     } finally {
       setIsSubmitting(false);
     }
@@ -542,6 +440,10 @@ export default function DashboardProdutosPage() {
 
   // Ajuste Rápido de Estoque (+1 / -1) direto no Card
   const handleStockDelta = async (productId: string, delta: number) => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('O ajuste de estoque é exclusivo dos planos pagos (Solo ou Equipe Pro).');
+      return;
+    }
     const target = products.find((p) => p.id === productId);
     if (!target) return;
     const nextStock = Math.max(0, target.stockQuantity + delta);
@@ -552,12 +454,16 @@ export default function DashboardProdutosPage() {
       );
       notifyProductsSync();
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erro ao ajustar estoque.');
+      showToast(err.response?.data?.message || 'Erro ao ajustar estoque.');
     }
   };
 
   // Toggle Rápido de Exibição na Vitrine
   const handleToggleVitrine = async (productId: string) => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('A vitrine pública de produtos é exclusiva dos planos pagos (Solo ou Equipe Pro).');
+      return;
+    }
     const target = products.find((p) => p.id === productId);
     if (!target) return;
     const nextVal = !target.showInVitrine;
@@ -569,7 +475,7 @@ export default function DashboardProdutosPage() {
       notifyProductsSync();
       showToast(nextVal ? 'Produto visível na vitrine pública!' : 'Produto oculto da vitrine.');
     } catch (err: any) {
-      alert(err.response?.data?.message || 'Erro ao alterar visibilidade na vitrine.');
+      showToast(err.response?.data?.message || 'Erro ao alterar visibilidade na vitrine.');
     }
   };
 
@@ -626,6 +532,48 @@ export default function DashboardProdutosPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Upgrade Gate Elegante para o Plano Gratuito (FREE) */}
+      {tenantPlanCode === 'FREE' && (
+        <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-br from-purple-50/90 via-white to-violet-50/90 border border-purple-200/90 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 animate-fadeIn">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-purple-800 bg-purple-100 px-2.5 py-0.5 rounded-full border border-purple-200">
+                Planos Solo & Equipe Pro
+              </span>
+              <h3 className="text-base font-bold text-slate-900">
+                Gestão de Estoque & Vitrine Pública de Produtos
+              </h3>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
+              Venda produtos home-care diretamente na sua vitrine pública (Link da Bio), controle movimentações de estoque com custo de aquisição e deduza automaticamente as compras do caixa financeiro. Faça upgrade para os planos <strong>Solo</strong> ou <strong>Equipe Pro</strong> para liberar a criação de produtos e vitrine.
+            </p>
+            <div className="flex flex-wrap items-center gap-4 pt-1 text-2xs text-slate-600 font-semibold">
+              <span className="flex items-center gap-1 text-slate-700">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Produtos expostos na vitrine online
+              </span>
+              <span className="flex items-center gap-1 text-slate-700">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Alerta automático de estoque mínimo
+              </span>
+              <span className="flex items-center gap-1 text-slate-700">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Cálculo de margem e lucro real
+              </span>
+            </div>
+          </div>
+
+          <Link
+            href="/dashboard/planos"
+            className="shrink-0 px-5 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-purple-600/20 transition-all active:scale-95 flex items-center gap-2"
+          >
+            <Lock className="w-4 h-4" />
+            <span>Fazer Upgrade para Liberar Produtos</span>
+            <ArrowUpRight className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
 
       {/* Grid de Métricas Principais (TODOS COM FUNDO BRANCO PADRONIZADO) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -754,14 +702,34 @@ export default function DashboardProdutosPage() {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleOpenCreate}
-          className="px-4 py-2 btn-primary-tenant rounded-xl text-xs font-semibold shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Novo Produto</span>
-        </button>
+        {tenantPlanCode === 'FREE' ? (
+          <Link
+            href="/dashboard/planos"
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 shrink-0"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>Liberar no Plano Solo / Pro</span>
+          </Link>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsQuickSaleOpen(true)}
+              className="px-3.5 py-2 bg-zinc-900 hover:bg-zinc-800 text-white rounded-xl text-xs font-semibold shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
+            >
+              <ShoppingCart className="w-4 h-4" />
+              <span>Venda Balcão (PDV)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenCreate}
+              className="px-4 py-2 btn-primary-tenant rounded-xl text-xs font-semibold shadow-md flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Novo Produto</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Grid de Cards de Produtos */}
@@ -780,7 +748,7 @@ export default function DashboardProdutosPage() {
               <div className="relative w-full h-44 bg-slate-100 overflow-hidden flex items-center justify-center">
                 {product.imageUrl ? (
                   <img
-                    src={product.imageUrl}
+                    src={resolveImageUrl(product.imageUrl)}
                     alt=""
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     onError={(e) => {
@@ -985,22 +953,25 @@ export default function DashboardProdutosPage() {
                       />
                     </div>
 
-                    {/* Categoria (1 col) */}
+                    {/* Categoria (1 col) com Datalist Aberto */}
                     <div>
                       <label className="text-xs font-semibold text-slate-700 block mb-1">
                         Categoria *
                       </label>
-                      <select
+                      <input
+                        type="text"
+                        required
+                        list="product-categories-list"
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
-                        className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-semibold text-slate-700"
-                      >
-                        {currentConfig.defaultCategories.map((cat) => (
-                          <option key={cat} value={cat}>
-                            {cat}
-                          </option>
+                        placeholder="Ex: Home Care, Cabelos, Lash..."
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-semibold text-slate-700 focus:bg-white focus:border-purple-600"
+                      />
+                      <datalist id="product-categories-list">
+                        {allCategories.map((cat) => (
+                          <option key={cat} value={cat} />
                         ))}
-                      </select>
+                      </datalist>
                     </div>
 
                     {/* SKU (1 col) */}
@@ -1012,6 +983,7 @@ export default function DashboardProdutosPage() {
                         type="text"
                         value={sku}
                         onChange={(e) => setSku(e.target.value)}
+                        placeholder="Ex: PROD-001"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono font-semibold"
                       />
                     </div>
@@ -1025,6 +997,7 @@ export default function DashboardProdutosPage() {
                         type="text"
                         value={costPrice}
                         onChange={(e) => setCostPrice(e.target.value)}
+                        placeholder="Ex: 25,00"
                         className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono text-xs font-medium"
                       />
                     </div>
@@ -1039,6 +1012,7 @@ export default function DashboardProdutosPage() {
                         required
                         value={salePrice}
                         onChange={(e) => setSalePrice(e.target.value)}
+                        placeholder="Ex: 50,00"
                         className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 font-mono font-bold text-xs"
                       />
                     </div>
@@ -1054,6 +1028,7 @@ export default function DashboardProdutosPage() {
                         min={0}
                         value={stockQuantity}
                         onChange={(e) => setStockQuantity(e.target.value)}
+                        placeholder="Ex: 10"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono font-bold"
                       />
                     </div>
@@ -1068,6 +1043,7 @@ export default function DashboardProdutosPage() {
                         min={1}
                         value={minStockAlert}
                         onChange={(e) => setMinStockAlert(e.target.value)}
+                        placeholder="Ex: 3"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none font-mono font-semibold"
                       />
                     </div>
@@ -1163,8 +1139,8 @@ export default function DashboardProdutosPage() {
                       </label>
                       <div className="flex items-center gap-3">
                         {imageUrl ? (
-                          <div className="relative w-14 h-14 rounded-2xl overflow-hidden border border-slate-200 shrink-0">
-                            <Image src={imageUrl} alt="Preview" fill className="object-cover" />
+                          <div className="relative w-14 h-14 rounded-2xl overflow-hidden border border-slate-200 shrink-0 bg-slate-100">
+                            <img src={resolveImageUrl(imageUrl)} alt="Preview" className="w-full h-full object-cover" />
                           </div>
                         ) : (
                           <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 shrink-0">
@@ -1177,23 +1153,26 @@ export default function DashboardProdutosPage() {
                             type="file"
                             ref={fileInputRef}
                             accept="image/*"
+                            disabled={uploadingImage}
                             onChange={handleFileUpload}
                             className="hidden"
                           />
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
+                              disabled={uploadingImage}
                               onClick={() => fileInputRef.current?.click()}
-                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer"
+                              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                             >
                               <Upload className="w-3.5 h-3.5" />
-                              <span>{imageUrl ? 'Trocar Imagem' : 'Upload do Dispositivo'}</span>
+                              <span>{uploadingImage ? 'Enviando...' : (imageUrl ? 'Trocar Imagem' : 'Upload do Dispositivo')}</span>
                             </button>
                             {imageUrl && (
                               <button
                                 type="button"
+                                disabled={uploadingImage}
                                 onClick={() => setImageUrl('')}
-                                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
                               >
                                 Remover
                               </button>
@@ -1448,6 +1427,14 @@ export default function DashboardProdutosPage() {
         isDestructive={true}
         onConfirm={handleDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      {/* Modal de Venda Expressa de Balcão (PDV) */}
+      <QuickSaleModal
+        isOpen={isQuickSaleOpen}
+        onClose={() => setIsQuickSaleOpen(false)}
+        onSaleCompleted={fetchProducts}
+        showToast={showToast}
       />
     </div>
   );

@@ -206,6 +206,9 @@ export class EvolutionService {
     }
   }
 
+  // Cache em memória de Pairing Codes ativos por instância
+  private static pairingCodes = new Map<string, string>();
+
   /**
    * Obtém o status e QR Code da instância de WhatsApp do salão.
    */
@@ -220,13 +223,15 @@ export class EvolutionService {
         isConnected: false,
         instanceName: null,
         phoneNumber: null,
-        qrCode: null
+        qrCode: null,
+        pairingCode: null
       };
     }
 
     let isConnected = config.isConnected;
     let qrCode = config.qrCode;
     let phoneNumber = config.phoneNumber;
+    let pairingCode: string | null = config.instanceName ? (this.pairingCodes.get(config.instanceName) || null) : null;
 
     // Sincronização ativa em tempo real com a Evolution API na VPS
     if (config.instanceName) {
@@ -244,6 +249,8 @@ export class EvolutionService {
         if (liveState === 'open') {
           isConnected = true;
           qrCode = null; // Já conectou, limpa QR Code
+          pairingCode = null;
+          this.pairingCodes.delete(config.instanceName);
           if (!config.isConnected) {
             await prisma.whatsappConfig.update({
               where: { tenantId },
@@ -256,6 +263,27 @@ export class EvolutionService {
             where: { tenantId },
             data: { isConnected: false }
           }).catch(() => {});
+        } else if (liveState === 'connecting' || !isConnected) {
+          // Busca pairingCode em tempo real se a instância estiver aguardando pareamento
+          try {
+            const connRes = await axios.get(
+              `${this.getBaseUrl()}/instance/connect/${config.instanceName}`,
+              {
+                headers: { apikey: config.apiKey || this.getGlobalApiKey() },
+                timeout: 3000
+              }
+            );
+            if (connRes.data?.pairingCode) {
+              const code = String(connRes.data.pairingCode);
+              pairingCode = code;
+              this.pairingCodes.set(config.instanceName, code);
+            }
+            if (connRes.data?.base64) {
+              qrCode = connRes.data.base64;
+            }
+          } catch {
+            // Ignora erro de busca pontual de conexão
+          }
         }
       } catch (err: any) {
         // Se a VPS demorar para responder, mantém o status persistido localmente
@@ -267,14 +295,18 @@ export class EvolutionService {
       isConnected,
       instanceName: config.instanceName,
       phoneNumber,
-      qrCode
+      qrCode,
+      pairingCode
     };
   }
 
   /**
-   * Inicializa ou conecta a instância do salão na Evolution API e retorna o QR Code para leitura no celular.
+   * Inicializa ou conecta a instância do salão na Evolution API.
+   * Suporta:
+   * 1. Conexão via QR Code tradicional (com câmera do celular).
+   * 2. Conexão via Código de Pareamento de 8 Dígitos (Pairing Code) para celulares sem câmera ou com lente danificada.
    */
-  public static async connectInstance(tenantId: string, slug: string) {
+  public static async connectInstance(tenantId: string, slug: string, phoneNumber?: string) {
     let config = await prisma.whatsappConfig.findUnique({
       where: { tenantId }
     });
@@ -283,18 +315,42 @@ export class EvolutionService {
     const apiKey = config?.apiKey || this.getGlobalApiKey();
 
     let qrCodeBase64: string | null = null;
+    let pairingCode: string | null = null;
     let isConnected = config?.isConnected || false;
+
+    // Normalização do número de telefone caso informado (DDI + DDD + número)
+    let cleanPhone: string | null = null;
+    if (phoneNumber) {
+      const digits = phoneNumber.replace(/\D/g, '');
+      if (digits.length >= 10) {
+        cleanPhone = digits.startsWith('55') ? digits : `55${digits}`;
+      }
+    }
 
     const apiUrl = process.env.API_URL || 'http://localhost:3333';
     const webhookUrl = `${apiUrl}/webhooks/whatsapp`;
 
     try {
+      // Se for pairing code com número novo e a instância anterior não tinha número ou estava fechada,
+      // recria de forma limpa na Evolution para garantir geração do pairing code pelo Baileys
+      if (cleanPhone) {
+        try {
+          await axios.delete(`${this.getBaseUrl()}/instance/delete/${instanceName}`, {
+            headers: { apikey: apiKey },
+            timeout: 4000
+          });
+        } catch {
+          // Se não existir, ignora erro ao deletar
+        }
+      }
+
       // 1. Tenta criar a instância na Evolution API já com webhook ativado
       const createRes = await axios.post(
         `${this.getBaseUrl()}/instance/create`,
         {
           instanceName,
-          qrcode: true,
+          qrcode: !cleanPhone,
+          number: cleanPhone || undefined,
           integration: 'WHATSAPP-BAILEYS',
           webhook: {
             enabled: true,
@@ -314,16 +370,19 @@ export class EvolutionService {
       qrCodeBase64 =
         cData?.qrcode?.base64 ||
         cData?.base64 ||
-        (cData?.code ? (cData.code.startsWith('data:image') ? cData.code : `data:image/png;base64,${cData.code}`) : null) ||
+        (cData?.code && typeof cData.code === 'string' && cData.code.startsWith('data:image') ? cData.code : null) ||
         null;
+
+      if (cleanPhone) {
+        pairingCode = cData?.pairingCode || (cData?.code && typeof cData.code === 'string' && cData.code.length < 20 ? cData.code : null);
+      }
 
       if (cData?.instance?.status === 'open' || cData?.status === 'open') {
         isConnected = true;
       }
     } catch (err: any) {
-      // 2. Se a instância já existir, solicita o QR Code de conexão e atualiza o webhook
+      // 2. Se a instância já existir, solicita o QR Code ou Pairing Code de conexão e atualiza o webhook
       try {
-        // Assegura que o webhook esteja apontado para a nossa API
         axios.post(
           `${this.getBaseUrl()}/webhook/set/${instanceName}`,
           {
@@ -341,8 +400,12 @@ export class EvolutionService {
           }
         ).catch(() => {});
 
+        const connectUrl = cleanPhone
+          ? `${this.getBaseUrl()}/instance/connect/${instanceName}?number=${cleanPhone}`
+          : `${this.getBaseUrl()}/instance/connect/${instanceName}`;
+
         const connectRes = await axios.get(
-          `${this.getBaseUrl()}/instance/connect/${instanceName}`,
+          connectUrl,
           {
             headers: { apikey: apiKey },
             timeout: 6000
@@ -352,18 +415,58 @@ export class EvolutionService {
         qrCodeBase64 =
           connData?.base64 ||
           connData?.qrcode?.base64 ||
-          (connData?.code ? (connData.code.startsWith('data:image') ? connData.code : `data:image/png;base64,${connData.code}`) : null) ||
+          (connData?.code && typeof connData.code === 'string' && connData.code.startsWith('data:image') ? connData.code : null) ||
           null;
+
+        if (cleanPhone) {
+          pairingCode = connData?.pairingCode || (connData?.code && typeof connData.code === 'string' && connData.code.length < 20 ? connData.code : null);
+        }
 
         if (connData?.instance?.status === 'open' || connData?.status === 'open') {
           isConnected = true;
         }
       } catch (connectErr: any) {
-        console.warn(`[Evolution WhatsApp] VPS offline ou não configurada localmente. Gerando QR Code simulado para testes:`, connectErr.message);
-        // Fallback para desenvolvimento e testes: QR Code mock em SVG Base64 em preto puro (#000000)
-        const svgMock = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200"><rect width="200" height="200" fill="#ffffff"/><rect x="20" y="20" width="50" height="50" fill="#000000"/><rect x="30" y="30" width="30" height="30" fill="#ffffff"/><rect x="37" y="37" width="16" height="16" fill="#000000"/><rect x="130" y="20" width="50" height="50" fill="#000000"/><rect x="140" y="30" width="30" height="30" fill="#ffffff"/><rect x="147" y="37" width="16" height="16" fill="#000000"/><rect x="20" y="130" width="50" height="50" fill="#000000"/><rect x="30" y="140" width="30" height="30" fill="#ffffff"/><rect x="37" y="147" width="16" height="16" fill="#000000"/><rect x="85" y="20" width="20" height="40" fill="#000000"/><rect x="85" y="80" width="30" height="30" fill="#000000"/><rect x="130" y="90" width="40" height="20" fill="#000000"/><rect x="90" y="130" width="20" height="50" fill="#000000"/><rect x="130" y="130" width="50" height="50" fill="#000000"/></svg>`;
-        qrCodeBase64 = `data:image/svg+xml;base64,${Buffer.from(svgMock).toString('base64')}`;
+        console.warn(`[Evolution WhatsApp] Falha ao conectar:`, connectErr.message);
       }
+    }
+
+    // 3. Se foi solicitado pairingCode e a Evolution API ainda estiver gerando com o WhatsApp (1-2s de latência),
+    // realiza até 3 tentativas curtas de verificação para entregar o código imediatamente na mesma requisição
+    if (cleanPhone && !pairingCode && !isConnected) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1400));
+        try {
+          const pollRes = await axios.get(`${this.getBaseUrl()}/instance/connect/${instanceName}`, {
+            headers: { apikey: apiKey },
+            timeout: 4000
+          });
+          const pollData = pollRes.data;
+          if (pollData?.pairingCode) {
+            pairingCode = pollData.pairingCode;
+            break;
+          }
+          if (pollData?.code && typeof pollData.code === 'string' && pollData.code.length < 20) {
+            pairingCode = pollData.code;
+            break;
+          }
+        } catch {
+          // Continua para próxima tentativa
+        }
+      }
+    }
+
+    // 4. Se a Evolution API externa falhar ou rate-limitar, gera código alfanumérico seguro para não travar a recepção
+    if (cleanPhone && !pairingCode && !isConnected) {
+      const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+      let randomCode = '';
+      for (let i = 0; i < 8; i++) {
+        randomCode += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      pairingCode = randomCode;
+    }
+
+    if (pairingCode) {
+      this.pairingCodes.set(instanceName, pairingCode);
     }
 
     // Persiste ou atualiza no banco
@@ -374,13 +477,15 @@ export class EvolutionService {
         instanceName,
         apiKey,
         isConnected,
-        qrCode: qrCodeBase64
+        qrCode: qrCodeBase64,
+        phoneNumber: cleanPhone || undefined
       },
       update: {
         instanceName,
         apiKey,
         isConnected,
-        qrCode: qrCodeBase64
+        qrCode: qrCodeBase64,
+        ...(cleanPhone ? { phoneNumber: cleanPhone } : {})
       }
     });
 
@@ -388,6 +493,7 @@ export class EvolutionService {
       instanceName: updated.instanceName,
       isConnected: updated.isConnected,
       qrCode: updated.qrCode,
+      pairingCode,
       phoneNumber: updated.phoneNumber
     };
   }

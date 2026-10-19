@@ -17,6 +17,9 @@ async function main() {
       monthlyFreeBookings: 30,
       extraBookingFee: 0.0,
       hasAiAssistant: false,
+      hasAutoWhatsapp: false,
+      hasCourses: false,
+      hasSupport: true,
       hasAnamnesis: false,
       hasCommissions: false,
       hasGoogleCalendar: false,
@@ -25,6 +28,7 @@ async function main() {
         '1 profissional cadastrado',
         'Link na bio personalizável',
         'Catálogo de serviços e preços',
+        'Central de Suporte Oficial com IA'
       ],
       active: true
     },
@@ -38,6 +42,9 @@ async function main() {
       monthlyFreeBookings: 30,
       extraBookingFee: 0.0,
       hasAiAssistant: false,
+      hasAutoWhatsapp: false,
+      hasCourses: false,
+      hasSupport: true,
       hasAnamnesis: false,
       hasCommissions: false,
       hasGoogleCalendar: false,
@@ -46,6 +53,7 @@ async function main() {
         '1 profissional cadastrado',
         'Link na bio personalizável',
         'Catálogo de serviços e preços',
+        'Central de Suporte Oficial com IA'
       ],
       active: true
     }
@@ -57,46 +65,54 @@ async function main() {
     where: { code: 'SOLO' },
     update: {
       name: 'Profissional Solo',
-      description: 'Para profissionais autônomas que vivem de hora marcada e não podem perder tempo.',
-      monthlyPrice: 39.0,
+      description: 'Para profissionais autônomas que vivem de hora marcada e precisam de agendamentos ilimitados.',
+      monthlyPrice: 49.99,
       maxProfessionals: 1,
       isUnlimitedBookings: true,
       monthlyFreeBookings: 999999,
       extraBookingFee: 0.0,
       hasAiAssistant: false,
+      hasAutoWhatsapp: true,
+      hasCourses: false,
+      hasSupport: true,
       hasAnamnesis: true,
       hasCommissions: false,
       hasGoogleCalendar: true,
       features: [
         'Agendamentos ilimitados',
         '1 profissional cadastrado',
-        'Lembretes automáticos no WhatsApp',
-        'Módulo de Cursos Online para alunas',
-        'Proteção No-Show anti-faltas',
+        'Automações de WhatsApp (Lembretes & Confirmações)',
+        'Proteção Anti-Falta (Sinal PIX Direto)',
+        'Central de Suporte Oficial com IA',
         'Galeria de fotos de procedimentos',
+        'Sem fidelidade (cancele quando quiser)'
       ],
       active: true
     },
     create: {
       code: 'SOLO',
       name: 'Profissional Solo',
-      description: 'Para profissionais autônomas que vivem de hora marcada e não podem perder tempo.',
-      monthlyPrice: 39.0,
+      description: 'Para profissionais autônomas que vivem de hora marcada e precisam de agendamentos ilimitados.',
+      monthlyPrice: 49.99,
       maxProfessionals: 1,
       isUnlimitedBookings: true,
       monthlyFreeBookings: 999999,
       extraBookingFee: 0.0,
       hasAiAssistant: false,
+      hasAutoWhatsapp: true,
+      hasCourses: false,
+      hasSupport: true,
       hasAnamnesis: true,
       hasCommissions: false,
       hasGoogleCalendar: true,
       features: [
         'Agendamentos ilimitados',
         '1 profissional cadastrado',
-        'Lembretes automáticos no WhatsApp',
-        'Módulo de Cursos Online para alunas',
-        'Proteção No-Show anti-faltas',
+        'Automações de WhatsApp (Lembretes & Confirmações)',
+        'Proteção Anti-Falta (Sinal PIX Direto)',
+        'Central de Suporte Oficial com IA',
         'Galeria de fotos de procedimentos',
+        'Sem fidelidade (cancele quando quiser)'
       ],
       active: true
     }
@@ -108,51 +124,59 @@ async function main() {
     where: { code: 'EQUIPE_PRO' },
     update: {
       name: 'Equipe Pro',
-      description: 'Para salões, barbearias e estúdios com múltiplos atendentes e cadeiras.',
-      monthlyPrice: 79.0,
+      description: 'Para salões, barbearias e clínicas com equipe, IA, WhatsApp e módulo de cursos.',
+      monthlyPrice: 99.99,
       maxProfessionals: 5,
       isUnlimitedBookings: true,
       monthlyFreeBookings: 999999,
       extraBookingFee: 0.0,
       hasAiAssistant: true,
+      hasAutoWhatsapp: true,
+      hasCourses: true,
+      hasSupport: true,
       hasAnamnesis: true,
       hasCommissions: true,
       hasGoogleCalendar: true,
       features: [
         'Agendamentos ilimitados',
         'Até 5 profissionais na equipe',
-        'Grades individuais de horários',
-        'Lembretes no WhatsApp para todos',
-        'Cursos e vídeos online',
-        'Cálculo de Comissões e Relatórios',
+        'Copiloto IA (Comandos de Voz & Texto)',
+        'Lembretes automáticos no WhatsApp',
+        'Módulo de Cursos Online para alunas',
+        'Central de Suporte Oficial com IA',
+        'Cálculo de Comissões e Relatórios'
       ],
       active: true
     },
     create: {
       code: 'EQUIPE_PRO',
       name: 'Equipe Pro',
-      description: 'Para salões, barbearias e estúdios com múltiplos atendentes e cadeiras.',
-      monthlyPrice: 79.0,
+      description: 'Para salões, barbearias e clínicas com equipe, IA, WhatsApp e módulo de cursos.',
+      monthlyPrice: 99.99,
       maxProfessionals: 5,
       isUnlimitedBookings: true,
       monthlyFreeBookings: 999999,
       extraBookingFee: 0.0,
       hasAiAssistant: true,
+      hasAutoWhatsapp: true,
+      hasCourses: true,
+      hasSupport: true,
       hasAnamnesis: true,
       hasCommissions: true,
       hasGoogleCalendar: true,
       features: [
         'Agendamentos ilimitados',
         'Até 5 profissionais na equipe',
-        'Grades individuais de horários',
-        'Lembretes no WhatsApp para todos',
-        'Cursos e vídeos online',
-        'Cálculo de Comissões e Relatórios',
+        'Copiloto IA (Comandos de Voz & Texto)',
+        'Lembretes automáticos no WhatsApp',
+        'Módulo de Cursos Online para alunas',
+        'Central de Suporte Oficial com IA',
+        'Cálculo de Comissões e Relatórios'
       ],
       active: true
     }
   });
-  console.log(`✓ Equipe Pro atualizado: R$ ${equipePlan.monthlyPrice} (Agendamentos ilimitados, até 5 profissionais)`);
+  console.log(`✓ Equipe Pro atualizado: R$ ${equipePlan.monthlyPrice} (Agendamentos ilimitados, até 5 profissionais, IA, WhatsApp e Cursos)`);
 
   // 4. Remover / desativar planos legados que não fazem parte da vitrine
   await prisma.plan.deleteMany({
@@ -169,47 +193,61 @@ async function main() {
     });
   });
 
-  // 5. Garantir que o plano da Emanuelle Telles é o VIP Pro Cortesia (R$ 0,00 sem mensalidade)
-  const vipCortesia = await prisma.plan.upsert({
+  // 5. Garantir o Plano VIP (100% dos recursos liberados sem mensalidade)
+  const vipPlan = await prisma.plan.upsert({
     where: { code: 'VIP_PRO' },
     update: {
-      name: 'VIP Equipe Pro (Cortesia Sem Mensalidade)',
-      description: 'Plano VIP vitalício cortesia para o estúdio Emanuelle Telles Nails.',
+      name: 'Plano VIP',
+      description: 'Plano VIP',
       monthlyPrice: 0.0,
       maxProfessionals: 99,
       isUnlimitedBookings: true,
       monthlyFreeBookings: 999999,
       extraBookingFee: 0.0,
       hasAiAssistant: true,
+      hasAutoWhatsapp: true,
+      hasCourses: true,
+      hasSupport: true,
       hasAnamnesis: true,
       hasCommissions: true,
       hasGoogleCalendar: true,
       features: [
+        'Acesso VIP sem mensalidade',
         'Agendamentos Ilimitados',
-        'Atendente IA no WhatsApp',
-        'Ficha de Anamnese Digital',
-        'Sem Mensalidade (Cliente VIP)'
+        'Equipe completa liberada (até 99 profissionais)',
+        'Copiloto IA na agenda (Voz & Texto)',
+        'Automações completas de WhatsApp',
+        'Módulo de Cursos & Vídeos para alunas',
+        'Fichas de Anamnese digitais',
+        'Cálculo de Comissões e Relatórios Financeiros'
       ],
-      active: false // Oculto na vitrine comercial pública
+      active: false // Exclusivo VIP, não aparece para contratação pública
     },
     create: {
       code: 'VIP_PRO',
-      name: 'VIP Equipe Pro (Cortesia Sem Mensalidade)',
-      description: 'Plano VIP vitalício cortesia para o estúdio Emanuelle Telles Nails.',
+      name: 'Plano VIP',
+      description: 'Plano VIP',
       monthlyPrice: 0.0,
       maxProfessionals: 99,
       isUnlimitedBookings: true,
       monthlyFreeBookings: 999999,
       extraBookingFee: 0.0,
       hasAiAssistant: true,
+      hasAutoWhatsapp: true,
+      hasCourses: true,
+      hasSupport: true,
       hasAnamnesis: true,
       hasCommissions: true,
       hasGoogleCalendar: true,
       features: [
+        'Acesso VIP sem mensalidade',
         'Agendamentos Ilimitados',
-        'Atendente IA no WhatsApp',
-        'Ficha de Anamnese Digital',
-        'Sem Mensalidade (Cliente VIP)'
+        'Equipe completa liberada (até 99 profissionais)',
+        'Copiloto IA na agenda (Voz & Texto)',
+        'Automações completas de WhatsApp',
+        'Módulo de Cursos & Vídeos para alunas',
+        'Fichas de Anamnese digitais',
+        'Cálculo de Comissões e Relatórios Financeiros'
       ],
       active: false
     }
@@ -218,12 +256,12 @@ async function main() {
   await prisma.tenant.updateMany({
     where: { slug: 'emanuelletelles' },
     data: {
-      planId: vipCortesia.id,
+      planId: vipPlan.id,
       billingStatus: 'ACTIVE'
     }
   });
 
-  console.log('✓ Salão Emanuelle Telles vinculado com sucesso ao plano VIP Cortesia sem mensalidade');
+  console.log('✓ Salão Emanuelle Telles vinculado com sucesso ao plano VIP Vitalício (tudo liberado sem mensalidade)');
   console.log('--- Planos Atualizados com Sucesso ---');
 }
 

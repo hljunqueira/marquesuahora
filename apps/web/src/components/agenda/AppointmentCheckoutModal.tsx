@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Plus,
@@ -62,6 +63,12 @@ export function AppointmentCheckoutModal({
   onClose,
   onSuccess
 }: AppointmentCheckoutModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // 1. Dados do estabelecimento e catálogo
   const [availableServices, setAvailableServices] = useState<AvailableService[]>([]);
   const [availableProducts, setAvailableProducts] = useState<AvailableProduct[]>([]);
@@ -339,9 +346,11 @@ export function AppointmentCheckoutModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-slate-900/80 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl border border-slate-100 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[92vh] overflow-hidden">
         {/* Cabeçalho */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/70">
           <div>
@@ -775,6 +784,7 @@ export function AppointmentCheckoutModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

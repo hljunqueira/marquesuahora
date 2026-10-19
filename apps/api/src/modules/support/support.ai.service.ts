@@ -12,6 +12,31 @@ export interface SupportAiProcessResult {
   slaHours?: number;
 }
 
+export interface TenantOperationalData {
+  tenantName: string;
+  legalName?: string | null;
+  slug: string;
+  niche: string;
+  phone: string;
+  address: string;
+  businessHours: string;
+  planName: string;
+  planCode: string;
+  planPrice: string;
+  planMaxProfessionals: number;
+  planUnlimitedBookings: boolean;
+  billingStatus: string;
+  antiNoShowStatus: string;
+  pixKeyInfo: string;
+  whatsappStatus: string;
+  servicesList: Array<{ name: string; price: string; duration: number; category: string; allowOnlineBooking: boolean }>;
+  professionalsList: Array<{ name: string; role?: string | null; commissionRate: string; isActive: boolean }>;
+  todaySchedules: Array<{ time: string; clientName: string; clientPhone?: string; professionalName: string; serviceName: string; price: string; status: string }>;
+  totalClients: number;
+  monthBookingsCount: number;
+  formattedSnapshot: string;
+}
+
 export class SupportAiService {
   private static getOpenRouterApiKey(): string | undefined {
     return process.env.OPENROUTER_API_KEY;
@@ -26,7 +51,7 @@ export class SupportAiService {
    */
   private static getSystemKnowledge(): string {
     return `Você é a inteligência artificial especialista e analista de suporte oficial da plataforma SaaS "MarqueSuaHora".
-Seu objetivo é ajudar donos de salões de beleza, barbearias, clínicas de estética, manicures e estúdios de lash/nail a tirarem qualquer dúvida operacional sobre a plataforma, guiando-os passo a passo pelo sistema.
+Seu objetivo é ajudar donos de salões de beleza, barbearias, clínicas de estética, manicures e estúdios de lash/nail a tirarem qualquer dúvida operacional sobre a plataforma e fornecer informações em tempo real sobre seu próprio estabelecimento.
 
 MAPEAMENTO DAS FUNCIONALIDADES DO MARQUESUAHORA:
 
@@ -39,7 +64,7 @@ MAPEAMENTO DAS FUNCIONALIDADES DO MARQUESUAHORA:
    - Onde configurar: Menu "Configurações" > aba "Proteção Anti-Falta".
    - Como funciona: O salão ativa o toggle "Exigir Sinal Antecipado no Agendamento", define se quer valor fixo em reais (ex: R$ 20,00) ou percentual (ex: 30% ou 50%), escolhe o tipo de chave PIX (CPF, CNPJ, Celular, E-mail ou Chave Aleatória), digita a chave e o nome do titular da conta.
    - Transparência total: O dinheiro do sinal vai 100% DIRETO da conta bancária do cliente para a conta do salão. A plataforma MarqueSuaHora NÃO retém nem desconta taxas desse sinal.
-   - Na vitrine, o cliente copia a chave PIX, paga no app do banco dele e clica no botão do WhatsApp que já abre com a mensagem pronta enviando o comprovante para o salão confirmar o agendamento.
+   - Regra para 1ª vez: Pode ser configurada com percentual ou valor diferente exclusivo para clientes novas que nunca foram ao salão.
 
 3. AGENDA & ATENDIMENTOS:
    - Menu "Agenda" e "Agendamentos".
@@ -94,17 +119,24 @@ MAPEAMENTO DAS FUNCIONALIDADES DO MARQUESUAHORA:
 DIRETRIZES CRÍTICAS PARA CLASSIFICAÇÃO E RESPOSTA:
 
 REGRA 1 - DÚVIDA DE USO OU CONFIGURAÇÃO DO SISTEMA:
-- Se a mensagem do usuário for uma dúvida de como usar o sistema (ex: "como coloco o PIX?", "como cadastro um serviço?", "onde vejo minha agenda?", "como dou desconto?", "como funciona o lembrete?"):
-- Responda de forma extremamente prestativa, clara, didática e calorosa.
+- Se a mensagem do usuário for uma dúvida de como usar o sistema:
+- Responda de forma extremamente prestativa, clara, didática e acolhedora.
 - Indique exatamente em qual menu clicar e quais passos seguir.
 - NÃO abra ticket de erro para o admin, pois a dúvida foi sanada na hora pela IA.
 
 REGRA 2 - RELATO DE ERRO, FALHA TÉCNICA, BUG OU INSTABILIDADE:
-- Se a mensagem relatar que algo deu erro, falhou, travou, tela branca, não consegue salvar, erro 500/400, falha de pagamento de fatura, não recebe código, ou qualquer problema técnico inesperado no sistema:
-- VOCÊ DEVE ACOLHER O CLIENTE E AVISAR QUE O TICKET FOI ABERTO PARA A EQUIPE TÉCNICA E PARA O ADMINISTRADOR DA PLATAFORMA.
+- Se a mensagem relatar erro, bug, falha, tela branca, não consegue salvar, erro 500/400, falha de pagamento ou instabilidade técnica:
+- VOCÊ DEVE ACOLHER O CLIENTE E AVISAR QUE O TICKET PRIORITÁRIO FOI ABERTO PARA A EQUIPE TÉCNICA E PARA O ADMINISTRADOR DA PLATAFORMA.
 - O prazo de análise e resposta do Administrador para esse ticket é de ATÉ 24 HORAS.
 - Forneça o número de protocolo do chamado.
-- Peça para o cliente detalhar se possível qual tela ou qual dispositivo estava usando enquanto o administrador analisa o caso.`;
+- Peça para o cliente detalhar se possível qual tela ou qual dispositivo estava usando enquanto o administrador analisa o caso.
+
+REGRA 3 - CONSULTA DE DADOS REAIS DO ESTABELECIMENTO:
+- Você tem acesso direto de leitura ao snapshot do banco de dados do estabelecimento sob a tag <DADOS_OPERACIONAIS_DO_ESTABELECIMENTO>.
+- Sempre que o assinante perguntar "quantos agendamentos tenho hoje?", "quais meus serviços?", "qual meu plano?", "meu whatsapp tá conectado?", "como tá meu pix?", "quantos clientes eu tenho?", responda com os dados precisos do estabelecimento.
+
+REGRA 4 - ZERO EMOJIS ORNAMENTAIS:
+- Não utilize emojis decorativos (como lâmpadas, foguetes, estrelas ou fogos) nas respostas. Mantenha tipografia sóbria, elegante e profissional.`;
   }
 
   /**
@@ -144,6 +176,264 @@ REGRA 2 - RELATO DE ERRO, FALHA TÉCNICA, BUG OU INSTABILIDADE:
   }
 
   /**
+   * Consulta o banco de dados PostgreSQL e extrai o snapshot operacional completo do estabelecimento
+   */
+  public static async getTenantOperationalData(tenantId: string): Promise<TenantOperationalData> {
+    const fallback: TenantOperationalData = {
+      tenantName: 'Estabelecimento',
+      slug: '',
+      niche: 'Beleza e Bem-Estar',
+      phone: '',
+      address: '',
+      businessHours: '09:00 às 19:00',
+      planName: 'Plano Padrão',
+      planCode: 'STANDARD',
+      planPrice: '0,00',
+      planMaxProfessionals: 1,
+      planUnlimitedBookings: true,
+      billingStatus: 'ACTIVE',
+      antiNoShowStatus: 'Desativada',
+      pixKeyInfo: 'Não configurada',
+      whatsappStatus: 'Desconectado',
+      servicesList: [],
+      professionalsList: [],
+      todaySchedules: [],
+      totalClients: 0,
+      monthBookingsCount: 0,
+      formattedSnapshot: 'Sem dados operacionais adicionais disponíveis no momento.'
+    };
+
+    if (!tenantId || tenantId === 'general') {
+      return fallback;
+    }
+
+    try {
+      // Data de hoje no fuso horário de Brasília (UTC-3)
+      const nowBrasilia = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+      const year = nowBrasilia.getFullYear();
+      const month = String(nowBrasilia.getMonth() + 1).padStart(2, '0');
+      const day = String(nowBrasilia.getDate()).padStart(2, '0');
+      const todayDateStr = `${year}-${month}-${day}`;
+      const startOfDay = new Date(`${todayDateStr}T00:00:00.000Z`);
+      const endOfDay = new Date(`${todayDateStr}T23:59:59.999Z`);
+      const startOfMonth = new Date(year, nowBrasilia.getMonth(), 1);
+
+      const [
+        tenant,
+        services,
+        professionals,
+        todaySchedules,
+        totalClients,
+        monthBookingsCount,
+        whatsapp
+      ] = await Promise.all([
+        prisma.tenant.findUnique({
+          where: { id: tenantId },
+          include: { plan: true }
+        }),
+        prisma.service.findMany({
+          where: { tenantId },
+          select: {
+            name: true,
+            price: true,
+            durationMinutes: true,
+            category: true,
+            allowOnlineBooking: true
+          },
+          orderBy: { name: 'asc' }
+        }),
+        prisma.professional.findMany({
+          where: { tenantId },
+          select: {
+            name: true,
+            role: true,
+            phone: true,
+            commissionRate: true,
+            isActive: true
+          },
+          orderBy: { name: 'asc' }
+        }),
+        prisma.schedule.findMany({
+          where: {
+            tenantId,
+            date: {
+              gte: startOfDay,
+              lte: endOfDay
+            }
+          },
+          include: {
+            client: { select: { name: true, phone: true } },
+            professional: { select: { name: true } },
+            service: { select: { name: true, price: true } }
+          },
+          orderBy: { startTime: 'asc' }
+        }),
+        prisma.client.count({ where: { tenantId } }),
+        prisma.schedule.count({
+          where: {
+            tenantId,
+            date: { gte: startOfMonth },
+            status: { not: 'CANCELLED' }
+          }
+        }),
+        prisma.whatsappConfig.findUnique({
+          where: { tenantId },
+          select: {
+            isConnected: true,
+            phoneNumber: true,
+            instanceName: true
+          }
+        })
+      ]);
+
+      if (!tenant) return fallback;
+
+      const servicesMapped = services.map((s) => ({
+        name: s.name,
+        price: Number(s.price).toFixed(2),
+        duration: s.durationMinutes,
+        category: s.category || 'Geral',
+        allowOnlineBooking: s.allowOnlineBooking
+      }));
+
+      const professionalsMapped = professionals.map((p) => ({
+        name: p.name,
+        role: p.role || 'Profissional',
+        commissionRate: `${Number(p.commissionRate)}%`,
+        isActive: p.isActive
+      }));
+
+      const todaySchedulesMapped = todaySchedules.map((s) => ({
+        time: `${s.startTime} às ${s.endTime}`,
+        clientName: s.client?.name || 'Cliente',
+        clientPhone: s.client?.phone,
+        professionalName: s.professional?.name || 'Profissional',
+        serviceName: s.service?.name || 'Serviço',
+        price: Number(s.totalPrice || s.service?.price || 0).toFixed(2),
+        status: s.status === 'CONFIRMED' ? 'Confirmado' : s.status === 'COMPLETED' ? 'Finalizado' : s.status === 'CANCELLED' ? 'Cancelado' : s.status
+      }));
+
+      const depositGeneralStr = tenant.depositRequired
+        ? `ATIVADA (${tenant.depositType === 'PERCENTAGE' ? `${Number(tenant.depositAmount)}% do serviço` : `R$ ${Number(tenant.depositAmount).toFixed(2)} fixo`})`
+        : 'DESATIVADA';
+
+      const depositFirstStr = tenant.depositOnFirstBooking
+        ? `ATIVADA para clientes novas (${tenant.depositFirstBookingType === 'PERCENTAGE' ? `${Number(tenant.depositFirstBookingPercent || tenant.depositFirstBookingValue)}%` : `R$ ${Number(tenant.depositFirstBookingValue).toFixed(2)}`})`
+        : 'DESATIVADA';
+
+      const pixKeyStr = tenant.pixKey
+        ? `${tenant.pixKey} (Tipo: ${tenant.pixKeyType || 'CPF'}, Favorecido: ${tenant.pixKeyHolder || 'Não informado'})`
+        : 'Não configurada';
+
+      const whatsappStr = whatsapp?.isConnected
+        ? `CONECTADO no número ${whatsapp.phoneNumber || 'Instância Ativa'}`
+        : 'DESCONECTADO (Pode ser conectado via QR Code ou Código de 8 Dígitos em Configurações > WhatsApp)';
+
+      const planNameStr = tenant.plan?.name || 'Plano Padrão';
+      const planCodeStr = tenant.plan?.code || 'STANDARD';
+      const planPriceStr = tenant.plan ? Number(tenant.plan.monthlyPrice).toFixed(2) : '0,00';
+      const planMaxProf = tenant.plan?.maxProfessionals || 1;
+      const planUnlimited = tenant.plan?.isUnlimitedBookings ?? true;
+
+      const addressStr = `${tenant.addressStreet}, ${tenant.addressNumber}${tenant.addressComplement ? ` - ${tenant.addressComplement}` : ''}, ${tenant.addressNeighborhood}, ${tenant.addressCity} - ${tenant.addressState}, CEP: ${tenant.addressZip}`;
+      const hoursStr = `${tenant.openingTime} às ${tenant.closingTime} (Intervalos de ${tenant.slotIntervalMinutes} min | Higienização: ${tenant.bufferMinutes} min)`;
+
+      // Monta o snapshot em Markdown formatado
+      const formattedDateBR = `${day}/${month}/${year}`;
+      let schedulesSection = `Nenhum agendamento agendado para hoje (${formattedDateBR}).`;
+      if (todaySchedulesMapped.length > 0) {
+        schedulesSection = todaySchedulesMapped
+          .map((s, idx) => `${idx + 1}. [${s.time}] - Cliente: ${s.clientName} (${s.clientPhone || 'Sem telefone'}) | Profissional: ${s.professionalName} | Serviço: ${s.serviceName} (R$ ${s.price}) | Status: ${s.status}`)
+          .join('\n');
+      }
+
+      let servicesSection = 'Nenhum serviço cadastrado no momento.';
+      if (servicesMapped.length > 0) {
+        servicesSection = servicesMapped
+          .map((srv, idx) => `${idx + 1}. ${srv.name} - R$ ${srv.price} (${srv.duration} min) [Categoria: ${srv.category}, Agendamento Online: ${srv.allowOnlineBooking ? 'Sim' : 'Apenas Balcão'}]`)
+          .join('\n');
+      }
+
+      let professionalsSection = 'Nenhum profissional da equipe cadastrado.';
+      if (professionalsMapped.length > 0) {
+        professionalsSection = professionalsMapped
+          .map((p, idx) => `${idx + 1}. ${p.name} - ${p.role} (Comissão: ${p.commissionRate}, Status: ${p.isActive ? 'Ativo' : 'Inativo'})`)
+          .join('\n');
+      }
+
+      const formattedSnapshot = `
+DADOS OPERACIONAIS EM TEMPO REAL DO ESTABELECIMENTO (POSTGRESQL):
+- Estabelecimento: ${tenant.name} (${tenant.legalName || tenant.name})
+- Slug da Vitrine Online: /${tenant.slug} (https://marquesuahora.com.br/${tenant.slug})
+- Nicho: ${tenant.niche}
+- Telefone / WhatsApp de Contato: ${tenant.phone || 'Não informado'}
+- Endereço Físico: ${addressStr}
+- Horário de Funcionamento: ${hoursStr}
+- Feriados Nacionais: ${tenant.blockNationalHolidays ? 'Bloqueados para agendamento' : 'Aberto para agendamentos'}
+
+PLANO & ASSINATURA DA PLATAFORMA:
+- Plano Atual: ${planNameStr} (${planCodeStr}) - R$ ${planPriceStr}/mês
+- Status da Assinatura: ${tenant.billingStatus}
+- Limite de Profissionais Simultâneos: ${planMaxProf}
+- Agendamentos: ${planUnlimited ? 'Ilimitados' : `${tenant.plan?.monthlyFreeBookings || 0}/mês`}
+
+PROTEÇÃO ANTI-FALTA (SINAL PIX DIRETO DO SALÃO):
+- Exigência de Sinal Geral: ${depositGeneralStr}
+- Regra Especial para 1ª Vez (Clientes Novas): ${depositFirstStr}
+- Chave PIX Cadastrada: ${pixKeyStr}
+- Tolerância de Faltas sem Justificativa: ${tenant.maxNoShowsAllowed} faltas
+
+WHATSAPP & COMUNICAÇÃO:
+- Integração WhatsApp: ${whatsappStr}
+- Lembretes Automáticos: Ativados (24 horas e 2 horas antes do atendimento)
+- Pesquisa de Satisfação NPS: ${tenant.npsFeedbackEnabled ? 'Ativada' : 'Desativada'}
+- Recuperação de Clientes Sumidos (Churn): ${tenant.churnRecoveryEnabled ? `Ativada (alerta aos ${tenant.churnAlertDays} dias)` : 'Desativada'}
+
+AGENDAMENTOS DE HOJE (${formattedDateBR}) - Total: ${todaySchedulesMapped.length}:
+${schedulesSection}
+
+CATÁLOGO DE SERVIÇOS CADASTRADOS - Total: ${servicesMapped.length}:
+${servicesSection}
+
+EQUIPE DE PROFISSIONAIS - Total: ${professionalsMapped.length}:
+${professionalsSection}
+
+MÉTRICAS DO SALÃO:
+- Total de Clientes Cadastrados no CRM: ${totalClients}
+- Total de Agendamentos Realizados no Mês: ${monthBookingsCount}
+`.trim();
+
+      return {
+        tenantName: tenant.name,
+        legalName: tenant.legalName,
+        slug: tenant.slug,
+        niche: String(tenant.niche),
+        phone: tenant.phone || '',
+        address: addressStr,
+        businessHours: hoursStr,
+        planName: planNameStr,
+        planCode: planCodeStr,
+        planPrice: planPriceStr,
+        planMaxProfessionals: planMaxProf,
+        planUnlimitedBookings: planUnlimited,
+        billingStatus: tenant.billingStatus,
+        antiNoShowStatus: depositGeneralStr,
+        pixKeyInfo: pixKeyStr,
+        whatsappStatus: whatsappStr,
+        servicesList: servicesMapped,
+        professionalsList: professionalsMapped,
+        todaySchedules: todaySchedulesMapped,
+        totalClients,
+        monthBookingsCount,
+        formattedSnapshot
+      };
+    } catch (err: any) {
+      console.warn('[Support AI] Erro ao buscar snapshot operacional do banco:', err?.message);
+      return fallback;
+    }
+  }
+
+  /**
    * Processa a mensagem do chat de suporte, respondendo via IA e abrindo ticket para o admin se for erro técnico.
    */
   public static async processMessage(params: {
@@ -151,6 +441,7 @@ REGRA 2 - RELATO DE ERRO, FALHA TÉCNICA, BUG OU INSTABILIDADE:
     userId: string;
     userEmail?: string;
     userName?: string;
+    attendantRole?: string;
     tenantName?: string;
     tenantSlug?: string;
     tenantNiche?: string;
@@ -161,14 +452,13 @@ REGRA 2 - RELATO DE ERRO, FALHA TÉCNICA, BUG OU INSTABILIDADE:
     const isErrorDetected = this.detectIsTechnicalError(params.messageText);
     const protocol = params.protocol || `#TK-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const nicheMap: Record<string, string> = {
-      BARBERSHOP: 'Barbearia / Estética Masculina (use termos nativos: barbeiro, barba, corte, estilo, produtos de barbearia)',
-      BEAUTY_SALON: 'Salão de Beleza / Cabeleireiro (use termos nativos: cabeleireira, mechas, escova, hidratação, procedimento)',
-      NAIL_LASH_STUDIO: 'Studio de Unhas & Cílios (use termos nativos: manicure, pedicure, alongamento em gel, extensão de cílios, lash, volume russo)',
-      AESTHETICS_CLINIC: 'Clínica de Estética & Bem-Estar (use termos nativos: esteticista, sessão, procedimento estético, avaliação facial/corporal)',
-      OTHER: 'Espaço de Beleza e Bem-Estar'
-    };
-    const nicheGuide = nicheMap[params.tenantNiche || ''] || 'Espaço de Beleza e Bem-Estar';
+    // Busca o snapshot operacional completo dos dados reais do estabelecimento no PostgreSQL
+    const operationalData = await this.getTenantOperationalData(params.tenantId);
+
+    const effectiveTenantName = operationalData.tenantName || params.tenantName || 'Espaço';
+    const effectiveNiche = operationalData.niche || params.tenantNiche || 'Beleza';
+    const effectiveAttendant = params.userName || 'Assinante';
+    const effectiveRole = params.attendantRole ? ` (${params.attendantRole})` : '';
 
     const apiKey = this.getOpenRouterApiKey();
     let replyContent = '';
@@ -177,27 +467,28 @@ REGRA 2 - RELATO DE ERRO, FALHA TÉCNICA, BUG OU INSTABILIDADE:
       try {
         const systemPrompt = `${this.getSystemKnowledge()}
 
-IDENTIFICAÇÃO DO ESTABELECIMENTO E NICHO:
-- Estabelecimento: ${params.tenantName || 'Espaço'}
-- Nicho de Atuação: ${nicheGuide}
-- Usuário em atendimento: ${params.userName || 'Assinante'} (${params.userEmail || ''})
-- Protocolo do atendimento: ${protocol}
-- Foi detectado erro técnico preliminar: ${isErrorDetected ? 'SIM (ERRO/BUG)' : 'NÃO (DÚVIDA DE USO)'}
+IDENTIFICAÇÃO DO ATENDIMENTO:
+- Estabelecimento: ${effectiveTenantName}
+- Nicho: ${effectiveNiche}
+- Atendente / Solicitante: ${effectiveAttendant}${effectiveRole}
+- E-mail: ${params.userEmail || 'Não informado'}
+- Protocolo: ${protocol}
+- Foi detectado erro técnico preliminar: ${isErrorDetected ? 'SIM (ERRO/BUG TÉCNICO)' : 'NÃO (DÚVIDA DE USO OU CONSULTA DE DADOS)'}
 
-TRAVAS DE SEGURANÇA E SIGILO ABSOLUTO:
-1. É ESTRITAMENTE PROIBIDO informar, divulgar, sugerir ou confirmar qualquer senha, chave de API (OpenRouter, Asaas, Resend, Evolution API, etc.), segredo de webhook, token de autenticação JWT, credenciais de banco de dados ou detalhes internos de infraestrutura/código.
-2. Responda EXCLUSIVAMENTE sobre como usar o sistema MarqueSuaHora (telas, botões, agendamentos, serviços, regras e configurações).
-3. Se alguém perguntar por senhas, credenciais ou tokens de API, responda de forma cordial e profissional que o suporte ao usuário não fornece dados de segurança ou infraestrutura técnica.
+<DADOS_OPERACIONAIS_DO_ESTABELECIMENTO>
+${operationalData.formattedSnapshot}
+</DADOS_OPERACIONAIS_DO_ESTABELECIMENTO>
 
-INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
-1. Responda em português claro, profissional, acolhedor e seguro, tratando o usuário pelo nome (${params.userName || 'parceiro'}) e usando termos do seu nicho (${params.tenantNiche || 'Beleza'}).
-2. Se for um ERRO TÉCNICO ou BUG:
-   - Confirme expressamente que um ticket prioritário com protocolo ${protocol} foi encaminhado para a equipe técnica e para o Administrador da plataforma.
-   - Deixe EXPLÍCITO que o Administrador analisará e dará o retorno técnico em até 24 HORAS.
-   - Peça, caso queira, para enviar um print ou detalhar a ação que causou o erro.
-3. Se for DÚVIDA DO SISTEMA:
-   - Responda objetivamente explicando onde clicar na plataforma (ex: "Acesse Configurações > Proteção Anti-Falta...") e tire 100% da dúvida.
-4. Mantenha as mensagens agradáveis, sem formatações quebradas ou excesso de jargões técnicos complexos.`;
+INSTRUÇÕES OBRIGATÓRIAS SOBRE OS DADOS E RESPOSTAS:
+1. Você TEM acesso direto aos dados operacionais do estabelecimento descritos acima no bloco <DADOS_OPERACIONAIS_DO_ESTABELECIMENTO>.
+2. Se o atendente perguntar sobre agendamentos de hoje, serviços cadastrados, equipe, plano, se o WhatsApp está conectado, chave PIX ou clientes, consulte o bloco e RESPONDA COM OS DADOS EXATOS DO BANCO.
+3. Se for uma dúvida de como usar o sistema, ensine o passo a passo indicando os menus exatos.
+4. Se for um ERRO TÉCNICO ou BUG:
+   - Confirme expressamente que o chamado prioritário com protocolo ${protocol} foi aberto e encaminhado para o Administrador da plataforma e equipe técnica.
+   - Deixe EXPLÍCITO que o Administrador analisará e dará retorno técnico em até 24 HORAS.
+   - Peça para detalhar a ação ou tela em que ocorreu.
+5. ZERO EMOJIS: Não utilize emojis ou ícones decorativos no texto. Mantenha tom polido, prestativo e profissional.
+6. TRAVAS DE SEGURANÇA: NUNCA revele senhas de usuários, chaves de API internas (OpenRouter, Asaas, Evolution API), tokens JWT ou dados bancários de outros estabelecimentos.`;
 
         const response = await axios.post(
           'https://openrouter.ai/api/v1/chat/completions',
@@ -208,7 +499,7 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
               { role: 'user', content: params.messageText }
             ],
             temperature: 0.3,
-            max_tokens: 500
+            max_tokens: 600
           },
           {
             headers: {
@@ -217,7 +508,7 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
               'X-Title': 'MarqueSuaHora Support AI',
               'Content-Type': 'application/json'
             },
-            timeout: 4500
+            timeout: 5000
           }
         );
 
@@ -226,23 +517,24 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
           replyContent = aiText;
         }
       } catch (err: any) {
-        console.warn('[Support AI] Falha ou timeout ao consultar OpenRouter, acionando motor inteligente local:', err?.message);
+        console.warn('[Support AI] Falha ou timeout no OpenRouter, acionando motor inteligente local:', err?.message);
       }
     }
 
-    // Se o OpenRouter não estiver configurado ou falhar, fallback inteligente com regras mapeadas
+    // Se o OpenRouter não estiver configurado ou falhar, fallback inteligente com conhecimento e dados operacionais reais
     if (!replyContent) {
       replyContent = this.generateLocalSmartReply({
         messageText: params.messageText,
         isErrorDetected,
         protocol,
-        userName: params.userName
+        userName: params.userName,
+        operationalData
       });
     }
 
     let ticketId: string | undefined;
 
-    // Se for um ERRO TÉCNICO ou BUG, registra o chamado no banco para o Administrador resolver em até 24h
+    // Se for erro técnico preliminar, garante o ticket prioritário registrado no banco
     if (isErrorDetected && params.tenantId && params.tenantId !== 'general') {
       try {
         const tenantExists = await prisma.tenant.findUnique({
@@ -303,27 +595,185 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
   }
 
   /**
-   * Motor de Resposta Local Inteligente Baseado na Base de Conhecimento do MarqueSuaHora
+   * Motor de Resposta Local Inteligente Baseado na Base de Conhecimento e Dados Reais do Estabelecimento
    */
   private static generateLocalSmartReply(params: {
     messageText: string;
     isErrorDetected: boolean;
     protocol: string;
     userName?: string;
+    operationalData?: TenantOperationalData;
   }): string {
     const text = params.messageText.toLowerCase();
     const name = params.userName ? `Olá, ${params.userName}! ` : 'Olá! ';
+    const op = params.operationalData;
 
     if (params.isErrorDetected) {
       return (
         `${name}Identifiquei que você está enfrentando uma instabilidade ou erro técnico no sistema.\n\n` +
-        `🚨 **Chamado Prioritário Registrado:** protocolo **${params.protocol}**.\n\n` +
+        `[Chamado Prioritário Registrado]: protocolo **${params.protocol}**.\n\n` +
         `Nosso time técnico e o Administrador da plataforma já foram notificados com prioridade alta. O chamado será analisado e respondido em **até 24 horas**.\n\n` +
         `Se puder, descreva qual tela você estava acessando ou o que estava tentando fazer para acelerar nossa investigação.`
       );
     }
 
-    // 1. Sinal PIX Direto
+    // 1. Agendamentos de Hoje / Agenda Atual
+    if (
+      text.includes('agendamento') ||
+      text.includes('agenda hoje') ||
+      text.includes('quantos agendamentos') ||
+      text.includes('tem agendamento') ||
+      text.includes('clientes hoje') ||
+      text.includes('horario hoje')
+    ) {
+      if (op && op.todaySchedules) {
+        if (op.todaySchedules.length === 0) {
+          return (
+            `${name}Consultei a sua agenda no banco de dados e você **não possui agendamentos marcados para hoje**.\n\n` +
+            `Você pode compartilhar o seu link da vitrine (**/${op.slug}**) para receber novos agendamentos online ou clicar no botão **"+ Novo Agendamento"** no menu **Agenda** para registrar um atendimento manual de balcão.`
+          );
+        }
+
+        const listText = op.todaySchedules
+          .map(
+            (s, idx) =>
+              `• **${s.time}** — ${s.clientName} com ${s.professionalName} (${s.serviceName}, R$ ${s.price}) [Status: ${s.status}]`
+          )
+          .join('\n');
+
+        return (
+          `${name}Consultei o sistema e você possui **${op.todaySchedules.length} agendamento(s) marcado(s) para hoje**:\n\n` +
+          `${listText}\n\n` +
+          `Para visualizar a grade completa com detalhes ou fazer bloqueios, acesse o menu **Agenda**.`
+        );
+      }
+    }
+
+    // 2. Serviços Cadastrados
+    if (
+      text.includes('quais serviços') ||
+      text.includes('meus serviços') ||
+      text.includes('serviços cadastrados') ||
+      text.includes('lista de serviços') ||
+      text.includes('quanto custa o serviço')
+    ) {
+      if (op && op.servicesList && op.servicesList.length > 0) {
+        const listText = op.servicesList
+          .map(
+            (srv, idx) =>
+              `• **${srv.name}**: R$ ${srv.price} (${srv.duration} min) — Categoria: ${srv.category} ${
+                srv.allowOnlineBooking ? '[Online]' : '[Apenas Balcão]'
+              }`
+          )
+          .join('\n');
+
+        return (
+          `${name}Você possui atualmente **${op.servicesList.length} serviço(s) cadastrado(s)** no seu estabelecimento:\n\n` +
+          `${listText}\n\n` +
+          `Para cadastrar novos serviços, alterar preços ou durações, acesse o menu lateral **Serviços**.`
+        );
+      }
+    }
+
+    // 3. Plano Atual e Assinatura
+    if (
+      text.includes('qual meu plano') ||
+      text.includes('meu plano') ||
+      text.includes('minha assinatura') ||
+      text.includes('quanto pago') ||
+      text.includes('limite de profissionais')
+    ) {
+      if (op) {
+        return (
+          `${name}Informações sobre a sua assinatura no MarqueSuaHora:\n\n` +
+          `• **Plano:** ${op.planName} (${op.planCode})\n` +
+          `• **Mensalidade:** R$ ${op.planPrice}/mês\n` +
+          `• **Status da Assinatura:** ${op.billingStatus}\n` +
+          `• **Limite de Profissionais:** até ${op.planMaxProfessionals} colaboradores simultâneos\n` +
+          `• **Agendamentos:** ${op.planUnlimitedBookings ? 'Ilimitados' : 'Conforme franquia do plano'}\n\n` +
+          `Para gerenciar faturas, formas de pagamento ou efetuar upgrade de plano, acesse o menu lateral **Planos**.`
+        );
+      }
+    }
+
+    // 4. WhatsApp Integrado
+    if (
+      text.includes('whatsapp conectado') ||
+      text.includes('meu whatsapp') ||
+      text.includes('status whatsapp') ||
+      text.includes('whatsapp ta conectado')
+    ) {
+      if (op) {
+        return (
+          `${name}Status da sua integração com o WhatsApp:\n\n` +
+          `• **Situação:** ${op.whatsappStatus}\n\n` +
+          `Quando o WhatsApp está conectado, o sistema envia automaticamente confirmações no ato da reserva, lembretes de 24h e 2h antes com confirmação de presença e pesquisa pós-atendimento.\n` +
+          `Para conectar ou gerenciar sua instância, acesse **Configurações > WhatsApp**.`
+        );
+      }
+    }
+
+    // 5. Chave PIX e Sinal Anti-Falta
+    if (
+      text.includes('minha chave pix') ||
+      text.includes('como tá meu pix') ||
+      text.includes('sinal anti-falta') ||
+      text.includes('proteção anti-falta') ||
+      text.includes('qual pix')
+    ) {
+      if (op) {
+        return (
+          `${name}Configuração atual da Proteção Anti-Falta do seu salão:\n\n` +
+          `• **Status do Sinal Geral:** ${op.antiNoShowStatus}\n` +
+          `• **Chave PIX Cadastrada:** ${op.pixKeyInfo}\n\n` +
+          `O valor do adiantamento cai 100% direto na sua conta bancária sem qualquer retenção ou taxa da plataforma.\n` +
+          `Para alterar o valor do sinal, tipo de cobrança (fixo ou percentual) ou a chave cadastrada, acesse **Configurações > Proteção Anti-Falta**.`
+        );
+      }
+    }
+
+    // 6. Equipe e Profissionais
+    if (
+      text.includes('minha equipe') ||
+      text.includes('quem trabalha') ||
+      text.includes('meus profissionais') ||
+      text.includes('comissão') ||
+      text.includes('colaboradores')
+    ) {
+      if (op && op.professionalsList && op.professionalsList.length > 0) {
+        const teamText = op.professionalsList
+          .map(
+            (p, idx) =>
+              `• **${p.name}** (${p.role || 'Profissional'}) — Comissão: ${p.commissionRate} [Status: ${
+                p.isActive ? 'Ativo' : 'Inativo'
+              }]`
+          )
+          .join('\n');
+
+        return (
+          `${name}Sua equipe possui atualmente **${op.professionalsList.length} colaborador(es) cadastrado(s)**:\n\n` +
+          `${teamText}\n\n` +
+          `Para adicionar colaboradores, definir horários individuais de trabalho ou ajustar percentuais de comissão, acesse o menu **Equipe**.`
+        );
+      }
+    }
+
+    // 7. Total de Clientes / CRM
+    if (
+      text.includes('quantos clientes') ||
+      text.includes('meus clientes') ||
+      text.includes('total de clientes')
+    ) {
+      if (op) {
+        return (
+          `${name}Você possui atualmente **${op.totalClients} cliente(s) cadastrado(s)** no seu CRM.\n\n` +
+          `Neste mês, o seu estabelecimento já realizou **${op.monthBookingsCount} agendamento(s)**.\n` +
+          `Para consultar o histórico de visitas, aniversariantes e clientes sumidos há mais de 45 dias, acesse o menu **Clientes & CRM**.`
+        );
+      }
+    }
+
+    // 8. Como configurar Sinal PIX
     if (text.includes('sinal') || text.includes('pix') || text.includes('anti-falta') || text.includes('falta')) {
       return (
         `${name}Para configurar o **Sinal Antecipado (PIX Direto)** e combater faltas:\n\n` +
@@ -332,11 +782,11 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
         `3. Escolha o tipo de cobrança: **Valor Fixo em R$** ou **Percentual (%)**.\n` +
         `4. Preencha o seu **Tipo de Chave PIX** (CPF, CNPJ, Celular, etc.), sua **Chave PIX** e o **Nome do Titular da Conta**.\n` +
         `5. Clique em **Salvar Configurações**.\n\n` +
-        `💡 *Lembre-se: O dinheiro cai 100% direto na sua conta bancária sem qualquer desconto ou intermediação da plataforma!*`
+        `O dinheiro cai 100% direto na sua conta bancária sem qualquer desconto ou intermediação da plataforma.`
       );
     }
 
-    // 2. Agenda e Bloqueios
+    // 9. Agenda e Bloqueios
     if (text.includes('agenda') || text.includes('bloquear') || text.includes('almoço') || text.includes('folga') || text.includes('horario')) {
       return (
         `${name}Sobre o funcionamento da **Agenda**:\n\n` +
@@ -346,8 +796,8 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
       );
     }
 
-    // 3. Serviços
-    if (text.includes('serviço') || text.includes('servico') || text.includes('preço') || text.includes('preco') || text.includes('categoria')) {
+    // 10. Cadastro de Serviços
+    if (text.includes('serviço') || text.includes('servico') || text.includes('categoria')) {
       return (
         `${name}Para cadastrar ou editar **Serviços**:\n\n` +
         `1. Acesse o menu lateral **Serviços**.\n` +
@@ -357,18 +807,7 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
       );
     }
 
-    // 4. Equipe e Comissões
-    if (text.includes('equipe') || text.includes('comiss') || text.includes('colaborador') || text.includes('profissional')) {
-      return (
-        `${name}Para gerenciar sua **Equipe e Comissões**:\n\n` +
-        `1. Acesse o menu lateral **Equipe**.\n` +
-        `2. Adicione os colaboradores com nome, telefone e foto.\n` +
-        `3. Defina a **taxa de comissão (%)** de cada um. O sistema calcula automaticamente os valores a pagar em cada atendimento no menu **Financeiro**.\n` +
-        `4. Configure os dias e horários de expediente de cada colaborador para que a vitrine só abra vagas nos dias em que eles realmente trabalham.`
-      );
-    }
-
-    // 5. Vitrine e Link na Bio
+    // 11. Vitrine e Link na Bio
     if (text.includes('vitrine') || text.includes('link') || text.includes('bio') || text.includes('instagram') || text.includes('site')) {
       return (
         `${name}O seu **Link Oficial de Agendamentos (Link da Bio)**:\n\n` +
@@ -378,18 +817,18 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
       );
     }
 
-    // 6. WhatsApp e Notificações
+    // 12. WhatsApp e Notificações em geral
     if (text.includes('whatsapp') || text.includes('notific') || text.includes('lembrete') || text.includes('mensagem')) {
       return (
         `${name}As **Notificações Automáticas no WhatsApp** funcionam assim:\n\n` +
         `• O sistema envia a confirmação imediata assim que a cliente marca o horário.\n` +
         `• Dispara lembretes automáticos com 24 horas e 2 horas de antecedência.\n` +
         `• O cliente pode responder com "1" para confirmar presença ou solicitar reagendamento.\n` +
-        `• Após o atendimento, o sistema envia automaticamente a pesquisa de satisfação NPS com avaliação por estrelas!`
+        `• Após o atendimento, o sistema envia automaticamente a pesquisa de satisfação NPS com avaliação por estrelas.`
       );
     }
 
-    // 7. Planos e Assinatura
+    // 13. Planos e Assinatura em geral
     if (text.includes('plano') || text.includes('assinatura') || text.includes('mensalidade') || text.includes('pagar plano') || text.includes('upgrade')) {
       return (
         `${name}Sobre os **Planos do MarqueSuaHora**:\n\n` +
@@ -399,15 +838,16 @@ INSTRUÇÕES OBRIGATÓRIAS DE RESPOSTA:
       );
     }
 
-    // 8. Resposta acolhedora padrão para outras dúvidas
+    // 14. Resposta padrão
     return (
-      `${name}Sou o assistente de inteligência artificial do MarqueSuaHora!\n\n` +
-      `Estou aqui para tirar qualquer dúvida sobre o uso da plataforma:\n` +
-      `• Como configurar sua **Chave PIX direta** para sinal anti-falta;\n` +
-      `• Como cadastrar **Serviços**, **Profissionais** e **Comissões**;\n` +
-      `• Como gerenciar a **Agenda** e fazer **Bloqueios de Horário**;\n` +
-      `• Como usar seu **Link da Vitrine** para receber agendamentos online.\n\n` +
-      `Como posso te ajudar especificamente hoje?`
+      `${name}Sou a inteligência artificial de suporte do MarqueSuaHora!\n\n` +
+      `Estou conectada ao seu estabelecimento e posso tirar qualquer dúvida sobre a plataforma ou passar informações em tempo real sobre seus dados:\n` +
+      `• Seus **Agendamentos de Hoje**;\n` +
+      `• Como configurar seu **Sinal PIX Direto**;\n` +
+      `• Seus **Serviços** e **Profissionais** cadastrados;\n` +
+      `• Como gerenciar a **Agenda** e fazer **Bloqueios**;\n` +
+      `• Status do seu **Plano** e do seu **WhatsApp**.\n\n` +
+      `Como posso te orientar agora?`
     );
   }
 }

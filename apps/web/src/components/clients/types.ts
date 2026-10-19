@@ -27,6 +27,9 @@ export interface ClientScheduleItem {
       price: number;
     };
   }>;
+  arrivalPhotoUrl?: string | null;
+  resultPhotoUrl?: string | null;
+  notes?: string | null;
 }
 
 export interface ClientItem {
@@ -44,6 +47,8 @@ export interface ClientItem {
   avgVisitDays?: number | null;
   lastVisitAt?: string | null;
   isBlockedOnline: boolean;
+  anamnesis?: any;
+  anamnesisToken?: string;
   createdAt: string;
   _count?: {
     schedules: number;

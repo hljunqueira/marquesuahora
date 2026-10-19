@@ -58,8 +58,12 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
 
     await pipeline(data.file, fs.createWriteStream(filePath));
 
+    const baseUrl = (process.env.API_URL || 'https://api.marquesuahora.com.br').replace(/\/+$/, '');
+    const absoluteUrl = `${baseUrl}/uploads/${uniqueName}`;
+
     return reply.send({
-      url: `/uploads/${uniqueName}`,
+      url: absoluteUrl,
+      relativeUrl: `/uploads/${uniqueName}`,
       filename: data.filename,
       mimetype: data.mimetype
     });

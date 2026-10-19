@@ -13,7 +13,7 @@ const professionalInputSchema = z.object({
     .refine((val) => val.length === 10 || val.length === 11, {
       message: 'Telefone/WhatsApp deve ter 10 ou 11 dígitos com DDD.'
     }),
-  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).default('#7C3AED'),
+  color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
   commissionRate: z.number().min(0).max(100).default(50),
   scheduleConfig: z.record(z.any()).optional().default({
     mon: { start: '09:00', end: '19:00', lunchStart: '12:00', lunchEnd: '13:00' },
@@ -90,7 +90,7 @@ export const professionalsRoutes: FastifyPluginAsync = async (app) => {
         role: data.role || null,
         phone: data.phone,
         avatarUrl: data.avatarUrl || null,
-        color: data.color,
+        color: data.color || null,
         commissionRate: data.commissionRate,
         scheduleConfig: data.scheduleConfig,
         isActive: data.isActive

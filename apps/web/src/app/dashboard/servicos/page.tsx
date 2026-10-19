@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { api } from '@/lib/api';
 import { resolveImageUrl } from '@/lib/imageUrl';
+import { ColorTonePicker } from '@/components/ui/ColorTonePicker';
 
 interface ServiceItem {
   id: string;
@@ -91,9 +92,9 @@ export default function DashboardServicosPage() {
   const [depositAmount, setDepositAmount] = useState('');
   const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
     }
-    return '#7C3AED';
+    return '#5c0701';
   });
 
   useEffect(() => {
@@ -102,6 +103,14 @@ export default function DashboardServicosPage() {
       if (saved) setTenantPrimaryColor(saved);
     };
     syncColor();
+
+    api.get('/tenants/me').then((res) => {
+      if (res.data?.primaryColor) {
+        setTenantPrimaryColor(res.data.primaryColor);
+        localStorage.setItem('tenant_primary_color', res.data.primaryColor);
+      }
+    }).catch(() => {});
+
     const handleTenantSync = (e: any) => {
       if (e?.detail?.primaryColor) {
         setTenantPrimaryColor(e.detail.primaryColor);
@@ -119,9 +128,9 @@ export default function DashboardServicosPage() {
 
   const [color, setColor] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
     }
-    return '#7C3AED';
+    return '#5c0701';
   });
   const [uploadingServiceImage, setUploadingServiceImage] = useState(false);
 
@@ -254,7 +263,8 @@ export default function DashboardServicosPage() {
     setRequiresDeposit(false);
     setDepositType('PERCENTAGE');
     setDepositAmount('');
-    setColor(tenantPrimaryColor || '#7C3AED');
+    const SYSTEM_DEFAULTS = ['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'];
+    setColor(tenantPrimaryColor || '#5c0701');
     setIsModalOpen(true);
   };
 
@@ -273,7 +283,8 @@ export default function DashboardServicosPage() {
     setRequiresDeposit(svc.requiresDeposit ?? false);
     setDepositType(svc.depositType || 'PERCENTAGE');
     setDepositAmount(svc.depositAmount ? String(svc.depositAmount) : '');
-    const initialColor = (svc.color && svc.color.toUpperCase() !== '#3B82F6') ? svc.color : (tenantPrimaryColor || '#7C3AED');
+    const SYSTEM_DEFAULTS = ['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'];
+    const initialColor = (svc.color && !SYSTEM_DEFAULTS.includes(svc.color.toUpperCase())) ? svc.color : (tenantPrimaryColor || '#5c0701');
     setColor(initialColor);
     setIsModalOpen(true);
   };
@@ -347,6 +358,13 @@ export default function DashboardServicosPage() {
       (c) => c.name.toLowerCase() === category.trim().toLowerCase()
     );
 
+    let finalDeposit = Number(depositAmount);
+    if (isNaN(finalDeposit) || finalDeposit <= 0) {
+      finalDeposit = depositType === 'PERCENTAGE' ? 50 : 30;
+    } else if (depositType === 'PERCENTAGE' && finalDeposit > 100) {
+      finalDeposit = 100;
+    }
+
     const payload = {
       name: name.trim(),
       category: category.trim() || 'Geral',
@@ -361,7 +379,7 @@ export default function DashboardServicosPage() {
       allowOnlineBooking,
       requiresDeposit,
       depositType,
-      depositAmount: Number(depositAmount) || 50,
+      depositAmount: finalDeposit,
       color: color || '#3B82F6',
       serviceType: 'STANDARD'
     };
@@ -728,11 +746,11 @@ export default function DashboardServicosPage() {
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 shadow-2xs"
                       style={{
-                        backgroundColor: (svc.color && svc.color.toUpperCase() !== '#3B82F6')
+                        backgroundColor: (svc.color && !['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'].includes(svc.color.toUpperCase()))
                           ? svc.color
-                          : (tenantPrimaryColor || '#7C3AED')
+                          : (tenantPrimaryColor || '#5c0701')
                       }}
-                      title={`Cor na agenda: ${svc.color || tenantPrimaryColor || '#7C3AED'}`}
+                      title={`Cor na agenda: ${svc.color || tenantPrimaryColor || '#5c0701'}`}
                     />
                     <h3
                       title={svc.name}
@@ -867,7 +885,7 @@ export default function DashboardServicosPage() {
                 </p>
               </div>
 
-              <form onSubmit={handleSave} className="mt-6 space-y-5">
+              <form onSubmit={handleSave} noValidate className="mt-6 space-y-5">
                 {/* SEÇÃO 1: FOTO DO PROCEDIMENTO (UPLOAD REAL VIA MULTIPART) */}
                 <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -1035,32 +1053,17 @@ export default function DashboardServicosPage() {
                     />
                   </div>
 
-                  {/* Seletor Sóbrio de Cores do Procedimento na Agenda */}
+                  {/* Seletor com Caixinha de Tons de Cores (Mais Claro vs. Mais Forte) */}
                   <div className="pt-1">
                     <label className="text-xs font-semibold text-slate-700 block mb-2">
                       Cor de Identificação na Agenda
                     </label>
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      {availableProcedureColors.map((c: { hex: string; label: string }) => {
-                        const isSelected = color === c.hex;
-                        return (
-                          <button
-                            key={c.hex}
-                            type="button"
-                            onClick={() => setColor(c.hex)}
-                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer relative shadow-2xs ${
-                              isSelected ? 'scale-115 ring-2 ring-slate-800 ring-offset-2' : 'hover:scale-105'
-                            }`}
-                            style={{ backgroundColor: c.hex }}
-                            title={c.label}
-                          >
-                            {isSelected && (
-                              <span className="w-2 h-2 rounded-full bg-white shadow-xs" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <ColorTonePicker
+                      color={color}
+                      onChangeColor={(newHex) => setColor(newHex)}
+                      baseSwatches={availableProcedureColors}
+                      showPreview={true}
+                    />
                   </div>
                 </div>
 

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import Image from 'next/image';
 import { ShoppingBag, Package, MessageCircle, Check } from 'lucide-react';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { ProductItem, TenantShowcase } from './types';
 
 interface ShowcaseProductsProps {
@@ -90,9 +91,10 @@ export function ShowcaseProducts({ tenant }: ShowcaseProductsProps) {
                 <div className="relative w-full h-36 rounded-xl overflow-hidden bg-slate-100 mb-3 flex items-center justify-center border border-slate-200/60">
                   {product.imageUrl ? (
                     <Image
-                      src={product.imageUrl}
+                      src={resolveImageUrl(product.imageUrl)}
                       alt={product.name}
                       fill
+                      unoptimized
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   ) : (

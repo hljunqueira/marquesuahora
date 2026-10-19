@@ -5,6 +5,7 @@ import { AvailabilityService } from '../schedules/availability.service';
 import { ScheduleStatus } from '@prisma/client';
 import { whatsappQueue } from '../automation/queues';
 import { z } from 'zod';
+import { checkBrazilianHoliday } from '../../utils/brazilian-holidays';
 
 // Rotas públicas do tenant: vitrine, agendamento online e cursos livres
 
@@ -14,6 +15,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     const tenant = await prisma.tenant.findUnique({
       where: { slug: slug.toLowerCase() },
       include: {
+        plan: true,
+        availabilityRules: {
+          where: { professionalId: null }
+        },
         categories: {
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' }
@@ -71,14 +76,72 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
-    const now = new Date();
-    const currentHours = now.getHours();
-    const currentMins = now.getMinutes();
-    const currentTimeStr = `${String(currentHours).padStart(2, '0')}:${String(currentMins).padStart(2, '0')}`;
+    // Horário e dia da semana precisos no fuso horário do Brasil (America/Sao_Paulo)
+    const nowBRFormatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    const parts = nowBRFormatter.formatToParts(new Date());
+    const partMap: Record<string, string> = {};
+    for (const p of parts) {
+      partMap[p.type] = p.value;
+    }
+    const todayIso = `${partMap.year}-${partMap.month}-${partMap.day}`;
+    const currentTimeStr = `${partMap.hour}:${partMap.minute}`;
 
-    const isOpenNow =
-      currentTimeStr >= (tenant.openingTime || '09:00') &&
-      currentTimeStr < (tenant.closingTime || '19:00');
+    // Dia da semana de 0 (Domingo) a 6 (Sábado) na data do Brasil
+    const todayBRDate = new Date(`${todayIso}T12:00:00Z`);
+    const currentDayOfWeek = todayBRDate.getUTCDay();
+
+    // 1. Verifica se hoje é feriado nacional bloqueado pelo tenant
+    let isHolidayBlocked = false;
+    if (tenant.blockNationalHolidays) {
+      const exceptions: string[] = Array.isArray(tenant.holidayExceptions)
+        ? (tenant.holidayExceptions as string[])
+        : [];
+      if (!exceptions.includes(todayIso)) {
+        const holiday = checkBrazilianHoliday(todayIso);
+        if (holiday) {
+          isHolidayBlocked = true;
+        }
+      }
+    }
+
+    // 2. Regra da Grade Semanal de Atendimento (AvailabilityRule global do salão)
+    const todayRule = tenant.availabilityRules?.find((r) => r.dayOfWeek === currentDayOfWeek);
+
+    let isOpenNow = false;
+    let todayOpeningTime = tenant.openingTime || '09:00';
+    let todayClosingTime = tenant.closingTime || '19:00';
+
+    if (isHolidayBlocked) {
+      isOpenNow = false;
+    } else if (todayRule) {
+      todayOpeningTime = todayRule.startTime;
+      todayClosingTime = todayRule.endTime;
+      if (todayRule.isActive) {
+        isOpenNow = currentTimeStr >= todayRule.startTime && currentTimeStr < todayRule.endTime;
+      } else {
+        // Marcado como Fechado na grade semanal (ex: Domingo)
+        isOpenNow = false;
+      }
+    } else {
+      // Se não há regra cadastrada explicitamente para o dia, Domingo é fechado por padrão
+      if (currentDayOfWeek === 0) {
+        isOpenNow = false;
+      } else {
+        isOpenNow = currentTimeStr >= todayOpeningTime && currentTimeStr < todayClosingTime;
+      }
+    }
+
+    const allGalleryPhotos = (tenant.galleryPhotos && tenant.galleryPhotos.length > 0)
+      ? tenant.galleryPhotos
+      : Array.from(new Set(tenant.services.flatMap((s) => s.photos || []))).filter(Boolean);
 
     return reply.send({
       id: tenant.id,
@@ -96,13 +159,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       secondaryColor: tenant.secondaryColor,
       accentColor: tenant.accentColor,
       logoUrl: tenant.logoUrl,
+      coverUrl: tenant.coverUrl,
       googleReviewUrl: tenant.googleReviewUrl,
       instagramUrl: tenant.instagramUrl,
       description: tenant.description,
       terminology: tenant.terminology,
-      openingTime: tenant.openingTime,
-      closingTime: tenant.closingTime,
+      openingTime: todayOpeningTime,
+      closingTime: todayClosingTime,
       isOpenNow,
+      galleryPhotos: allGalleryPhotos,
       depositRequired: tenant.depositRequired,
       depositType: tenant.depositType,
       depositAmount: Number(tenant.depositAmount),
@@ -114,6 +179,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       pixKey: tenant.pixKey,
       pixKeyType: tenant.pixKeyType,
       pixKeyHolder: tenant.pixKeyHolder,
+      aftercareGuides: tenant.aftercareGuides || [],
       categories: tenant.categories.map((c) => ({
         id: c.id,
         name: c.name,
@@ -128,6 +194,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         description: s.description,
         price: Number(s.price),
         durationMinutes: s.durationMinutes,
+        photos: s.photos || [],
         serviceType: s.serviceType,
         requiresRemovalCheck: s.requiresRemovalCheck,
         requiresDeposit: s.requiresDeposit,
@@ -149,15 +216,18 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         price: c.price ? Number(c.price) : null,
         coverUrl: c.coverUrl
       })),
-      products: tenant.products.map((p) => ({
-        id: p.id,
-        name: p.name,
-        category: p.category,
-        description: p.description,
-        salePrice: Number(p.salePrice),
-        stockQuantity: p.stockQuantity,
-        imageUrl: p.imageUrl
-      }))
+      products:
+        tenant.plan?.code === 'FREE' && Number(tenant.plan?.monthlyPrice || 0) === 0
+          ? []
+          : tenant.products.map((p) => ({
+              id: p.id,
+              name: p.name,
+              category: p.category,
+              description: p.description,
+              salePrice: Number(p.salePrice),
+              stockQuantity: p.stockQuantity,
+              imageUrl: p.imageUrl
+            }))
     });
   };
 
@@ -756,6 +826,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           pixKeyType: tenant.pixKeyType,
           pixKeyHolder: tenant.pixKeyHolder,
           googleReviewUrl: tenant.googleReviewUrl,
+          aftercareGuides: tenant.aftercareGuides || [],
           courses: tenant.courses.map((c) => ({
             id: c.id,
             title: c.title,
@@ -811,6 +882,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         pixKeyType: tenant.pixKeyType,
         pixKeyHolder: tenant.pixKeyHolder,
         googleReviewUrl: tenant.googleReviewUrl,
+        aftercareGuides: tenant.aftercareGuides || [],
         courses: tenant.courses.map((c) => ({
           id: c.id,
           title: c.title,
@@ -843,6 +915,67 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         arrivalPhotoUrl: s.arrivalPhotoUrl,
         resultPhotoUrl: s.resultPhotoUrl
       }))
+    });
+  });
+
+  // =========================================================================
+  // VALIDAÇÃO PÚBLICA DE CERTIFICADOS ANTI-FRAUDE (QR CODE)
+  // =========================================================================
+
+  // GET /public/certificates/:code - Validação pública anti-fraude de certificado
+  app.get('/certificates/:code', async (request, reply) => {
+    const { code } = request.params as { code: string };
+
+    const access = await prisma.courseAccess.findUnique({
+      where: { certificateCode: code.toUpperCase() },
+      include: {
+        course: {
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                phone: true,
+                addressCity: true,
+                addressState: true
+              }
+            }
+          }
+        },
+        client: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      }
+    });
+
+    if (!access || !access.completedAt) {
+      return reply.status(404).send({
+        valid: false,
+        error: 'Certificado Não Localizado',
+        message: 'Código de autenticação inválido ou não registrado em nossa base oficial.'
+      });
+    }
+
+    const certConfig = (access.course.certificateConfig as any) || {};
+
+    return reply.send({
+      valid: true,
+      code: access.certificateCode,
+      studentName: access.client?.name || 'Aluna',
+      courseTitle: access.course.title,
+      tenantName: access.course.tenant.name,
+      tenantCity: access.course.tenant.addressCity,
+      tenantState: access.course.tenant.addressState,
+      completedAt: access.completedAt,
+      instructorName: certConfig.instructorName || access.course.tenant.name,
+      instructorTitle: certConfig.instructorTitle || 'Instrutora Responsável',
+      hours: certConfig.hours || 16,
+      borderStyle: certConfig.borderStyle || 'GOLD',
+      programmaticContent: certConfig.programmaticContent || null
     });
   });
 };

@@ -1,6 +1,6 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { NotificationCategory, NotificationPriority } from '@prisma/client';
+import { NotificationCategory, NotificationPriority, TransactionType, PaymentMethod } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -19,6 +19,15 @@ const productInputSchema = z.object({
   showInVitrine: z.boolean().default(true),
   isActive: z.boolean().default(true)
 });
+
+async function verifyPlanAllowsProducts(tenantId: string): Promise<boolean> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    include: { plan: true }
+  });
+  if (!tenant || !tenant.plan) return false;
+  return tenant.plan.code !== 'FREE' || Number(tenant.plan.monthlyPrice) > 0;
+}
 
 export const productsRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', app.authenticate);
@@ -61,6 +70,14 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = request.user.tenantId;
     if (!tenantId) {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const allowsProducts = await verifyPlanAllowsProducts(tenantId);
+    if (!allowsProducts) {
+      return reply.status(403).send({
+        error: 'Recurso Bloqueado',
+        message: 'O módulo de Produtos e Estoque está disponível nos planos pagos (Solo ou Equipe Pro). Faça upgrade para desbloquear.'
+      });
     }
 
     const data = productInputSchema.parse(request.body);
@@ -111,6 +128,14 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = request.user.tenantId;
     if (!tenantId) {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const allowsProducts = await verifyPlanAllowsProducts(tenantId);
+    if (!allowsProducts) {
+      return reply.status(403).send({
+        error: 'Recurso Bloqueado',
+        message: 'O módulo de Produtos e Estoque está disponível nos planos pagos (Solo ou Equipe Pro). Faça upgrade para desbloquear.'
+      });
     }
 
     const { id } = request.params as { id: string };
@@ -194,6 +219,14 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
     }
 
+    const allowsProducts = await verifyPlanAllowsProducts(tenantId);
+    if (!allowsProducts) {
+      return reply.status(403).send({
+        error: 'Recurso Bloqueado',
+        message: 'O módulo de Produtos e Estoque está disponível nos planos pagos (Solo ou Equipe Pro). Faça upgrade para desbloquear.'
+      });
+    }
+
     const { id } = request.params as { id: string };
 
     const product = await db.product.findFirst({
@@ -220,5 +253,143 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     }).catch(() => null);
 
     return reply.send({ message: 'Produto excluído do estoque com sucesso.' });
+  });
+
+  // POST /products/sell - Venda expressa de balcão (PDV sem agendamento)
+  app.post('/sell', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const sellSchema = z.object({
+      items: z.array(z.object({
+        productId: z.string().uuid(),
+        quantity: z.number().int().positive('Quantidade deve ser pelo menos 1.'),
+        unitPrice: z.number().min(0)
+      })).min(1, 'Selecione pelo menos um produto para venda.'),
+      paymentMethod: z.enum(['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'CASH']).default('PIX'),
+      clientId: z.string().uuid().optional().nullable(),
+      clientName: z.string().optional().nullable(),
+      discount: z.number().min(0).default(0),
+      notes: z.string().optional().nullable()
+    });
+
+    const data = sellSchema.parse(request.body);
+
+    const productIds = data.items.map((i) => i.productId);
+    const products = await db.product.findMany({
+      where: { id: { in: productIds }, tenantId }
+    });
+
+    if (products.length !== productIds.length) {
+      return reply.status(400).send({
+        error: 'Produtos Inválidos',
+        message: 'Um ou mais produtos selecionados não pertencem ao catálogo deste estabelecimento.'
+      });
+    }
+
+    // Valida estoque de cada produto
+    for (const item of data.items) {
+      const p = products.find((prod: any) => prod.id === item.productId);
+      if (!p) continue;
+      if (p.stockQuantity < item.quantity) {
+        return reply.status(400).send({
+          error: 'Estoque Insuficiente',
+          message: `Estoque insuficiente para o produto "${p.name}". Disponível: ${p.stockQuantity}, Solicitado: ${item.quantity}.`
+        });
+      }
+    }
+
+    let grossTotal = 0;
+    let totalCmv = 0;
+    const soldProductNames: string[] = [];
+
+    for (const item of data.items) {
+      const p = products.find((prod: any) => prod.id === item.productId);
+      grossTotal += item.unitPrice * item.quantity;
+      if (p) {
+        totalCmv += Number(p.costPrice || 0) * item.quantity;
+        soldProductNames.push(`${item.quantity}x ${p.name}`);
+      }
+    }
+
+    const netTotal = Math.max(0, grossTotal - (data.discount || 0));
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Dá baixa de estoque
+      for (const item of data.items) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            stockQuantity: { decrement: item.quantity }
+          }
+        });
+      }
+
+      // 2. Lança receita no fluxo financeiro
+      const clientLabel = data.clientName ? ` (${data.clientName})` : '';
+      const summaryText = soldProductNames.join(', ');
+      const entry = await tx.financialEntry.create({
+        data: {
+          tenantId,
+          type: TransactionType.INCOME,
+          amount: netTotal,
+          description: `Venda Balcão (PDV): ${summaryText}${clientLabel}`,
+          paymentMethod: data.paymentMethod as PaymentMethod,
+          paidAt: new Date()
+        }
+      });
+
+      return { entry, netTotal, grossTotal, totalCmv };
+    });
+
+    // 3. Dispara alerta para produtos cujo estoque ficou baixo
+    try {
+      for (const item of data.items) {
+        const p = products.find((prod: any) => prod.id === item.productId);
+        if (p && p.stockQuantity - item.quantity <= p.minStock) {
+          await NotificationsService.create({
+            tenantId,
+            category: NotificationCategory.PRODUCT,
+            priority: NotificationPriority.HIGH,
+            title: 'Alerta de Estoque Baixo',
+            message: `O produto "${p.name}" atingiu nível crítico (${p.stockQuantity - item.quantity} un restantes). Reponha seu estoque.`,
+            link: '/dashboard/produtos',
+            metadata: { productId: p.id }
+          });
+        }
+      }
+    } catch (notifErr) {
+      console.error('Erro ao emitir alerta de estoque pós-venda:', notifErr);
+    }
+
+    // 4. Log de auditoria
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'PRODUCT_POS_SALE',
+        entityType: 'FinancialEntry',
+        entityId: result.entry.id,
+        details: {
+          itemsCount: data.items.length,
+          netTotal: result.netTotal,
+          totalCmv: result.totalCmv,
+          paymentMethod: data.paymentMethod
+        },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
+
+    return reply.status(201).send({
+      success: true,
+      financialEntryId: result.entry.id,
+      netTotal: result.netTotal,
+      grossTotal: result.grossTotal,
+      totalCmv: result.totalCmv,
+      message: 'Venda de balcão concluída com sucesso!'
+    });
   });
 };

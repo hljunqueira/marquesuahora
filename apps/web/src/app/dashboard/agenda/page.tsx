@@ -20,6 +20,7 @@ import {
   ServiceOption,
   BlockItem
 } from '@/components/agenda/types';
+import { StatusColors, getDefaultStatusColors } from '@/components/agenda/AgendaStatusColorPicker';
 
 function getContrastColor(hexColor: string) {
   if (!hexColor || !hexColor.startsWith('#')) return '#FFFFFF';
@@ -35,9 +36,9 @@ function getContrastColor(hexColor: string) {
 export default function AgendaCompletaPage() {
   const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
     }
-    return '#7C3AED';
+    return '#5c0701';
   });
 
   useEffect(() => {
@@ -46,6 +47,13 @@ export default function AgendaCompletaPage() {
       if (saved) setTenantPrimaryColor(saved);
     };
     syncColor();
+
+    api.get('/tenants/me').then((res) => {
+      if (res.data?.primaryColor) {
+        setTenantPrimaryColor(res.data.primaryColor);
+        localStorage.setItem('tenant_primary_color', res.data.primaryColor);
+      }
+    }).catch(() => {});
     const handleTenantSync = (e: any) => {
       if (e?.detail?.primaryColor) {
         setTenantPrimaryColor(e.detail.primaryColor);
@@ -59,6 +67,33 @@ export default function AgendaCompletaPage() {
       window.removeEventListener('storage', syncColor);
       window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
     };
+  }, []);
+
+  // Cores personalizadas por status (Pendente, Confirmado, Em Atendimento, Concluído, No-Show, Cancelado)
+  const [statusColors, setStatusColors] = useState<StatusColors>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('marquesuahora_agenda_status_colors');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return getDefaultStatusColors(tenantPrimaryColor);
+  });
+
+  const handleUpdateStatusColors = (newColors: StatusColors) => {
+    setStatusColors(newColors);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('marquesuahora_agenda_status_colors', JSON.stringify(newColors));
+      window.dispatchEvent(new CustomEvent('marquesuahora_status_colors_sync', { detail: newColors }));
+    }
+  };
+
+  useEffect(() => {
+    const handleStatusSync = (e: any) => {
+      if (e?.detail) setStatusColors(e.detail);
+    };
+    window.addEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+    return () => window.removeEventListener('marquesuahora_status_colors_sync', handleStatusSync);
   }, []);
 
   // ==========================================
@@ -136,7 +171,7 @@ export default function AgendaCompletaPage() {
 
     try {
       const [schedulesRes, blocksRes] = await Promise.all([
-        api.get('/schedules', {
+        api.get('/schedules/calendar', {
           params: {
             startDate,
             endDate,
@@ -152,8 +187,12 @@ export default function AgendaCompletaPage() {
         })
       ]);
 
-      const rawAppointments = schedulesRes.data?.data || schedulesRes.data?.schedules || (Array.isArray(schedulesRes.data) ? schedulesRes.data : []);
-      const rawBlocks = blocksRes.data?.blocks || blocksRes.data?.data || (Array.isArray(blocksRes.data) ? blocksRes.data : []);
+      const rawAppointments = Array.isArray(schedulesRes.data)
+        ? schedulesRes.data
+        : (schedulesRes.data?.data || schedulesRes.data?.schedules || []);
+      const rawBlocks = Array.isArray(blocksRes.data)
+        ? blocksRes.data
+        : (blocksRes.data?.blocks || blocksRes.data?.data || []);
 
       setAppointments(Array.isArray(rawAppointments) ? rawAppointments : []);
       setBlocks(Array.isArray(rawBlocks) ? rawBlocks : []);
@@ -220,6 +259,44 @@ export default function AgendaCompletaPage() {
     setCurrentDate(new Date());
   };
 
+  // Previsão Financeira e Total de Agendamentos do Período Visível (Mês, Semana ou Dia)
+  const stats = useMemo(() => {
+    const targetDates = visibleDates.map((d) => formatLocalDateToYMD(d));
+    const targetSet = new Set(targetDates);
+
+    const valid = appointments.filter((a) => {
+      if (a.status === 'CANCELLED') return false;
+      const aDateStr = formatLocalDateToYMD(a.date);
+
+      if (viewMode === 'day') {
+        const selectedDayStr = formatLocalDateToYMD(currentDate);
+        return aDateStr === selectedDayStr;
+      }
+
+      if (viewMode === 'month') {
+        const d = new Date(a.date);
+        return d.getMonth() === currentDate.getMonth() && d.getFullYear() === currentDate.getFullYear();
+      }
+
+      // Semana: apenas agendamentos da semana ativa
+      return targetSet.has(aDateStr);
+    });
+
+    const totalAppointments = valid.length;
+    const totalRevenue = valid.reduce((acc, a) => acc + (Number(a.totalPrice) || 0), 0);
+
+    return {
+      totalAppointments,
+      totalRevenue,
+      periodLabel:
+        viewMode === 'day'
+          ? 'Previsão do dia'
+          : viewMode === 'month'
+          ? 'Previsão do mês'
+          : 'Previsão da semana'
+    };
+  }, [appointments, viewMode, currentDate, visibleDates]);
+
   return (
     <div className="w-full space-y-6 animate-in fade-in duration-200">
       {/* 1. Grade Semanal da Agenda */}
@@ -235,6 +312,10 @@ export default function AgendaCompletaPage() {
           professionals={professionals}
           selectedProfessionalId={selectedProfessionalId}
           setSelectedProfessionalId={setSelectedProfessionalId}
+          stats={stats}
+          statusColors={statusColors}
+          onUpdateStatusColors={handleUpdateStatusColors}
+          tenantPrimaryColor={tenantPrimaryColor}
           onNewBookingClick={() => {
             setActiveSlot(null);
             setIsNewBookingModalOpen(true);
@@ -270,6 +351,7 @@ export default function AgendaCompletaPage() {
             selectedProfessionalId={selectedProfessionalId}
             appointments={appointments}
             blocks={blocks}
+            statusColors={statusColors}
             onDayClick={(day) => {
               setCurrentDate(day);
               setViewMode('day');
@@ -290,6 +372,7 @@ export default function AgendaCompletaPage() {
             viewMode={viewMode}
             appointments={appointments}
             blocks={blocks}
+            statusColors={statusColors}
             professionals={professionals}
             selectedProfessionalId={selectedProfessionalId}
             onDayClick={(day) => {
@@ -310,27 +393,35 @@ export default function AgendaCompletaPage() {
         )}
       </section>
 
-      {/* 2. Legenda de Status Sóbria (Padrão GuruAgenda) */}
+      {/* 2. Legenda de Status Sóbria (Padrão GuruAgenda com todas as cores dinâmicas) */}
       <div className="bg-white rounded-2xl border border-slate-200/80 p-3 sm:p-4 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
         <div className="flex items-center gap-1 font-bold text-slate-700 tracking-wide uppercase text-[10px]">
           <span>STATUS:</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-[11px] font-semibold">
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-2xs" style={{ backgroundColor: statusColors.PENDING }} />
             <span>Pendente</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: tenantPrimaryColor }} />
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-2xs" style={{ backgroundColor: statusColors.CONFIRMED }} />
             <span>Confirmado</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-purple-600" />
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-2xs" style={{ backgroundColor: statusColors.IN_SERVICE }} />
             <span>Em Atendimento</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-600" />
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-2xs" style={{ backgroundColor: statusColors.COMPLETED }} />
             <span>Concluído</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-2xs" style={{ backgroundColor: statusColors.NO_SHOW }} />
+            <span>Não Compareceu</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full border border-white shadow-2xs" style={{ backgroundColor: statusColors.CANCELLED }} />
+            <span>Cancelado</span>
           </div>
         </div>
       </div>
@@ -355,6 +446,7 @@ export default function AgendaCompletaPage() {
           initialDate={activeSlot?.date}
           initialTime={activeSlot?.time}
           initialProfessionalId={activeSlot?.professionalId}
+          existingAppointments={appointments}
           professionals={professionals}
           services={services}
           onClose={() => setIsNewBookingModalOpen(false)}

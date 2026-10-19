@@ -81,6 +81,21 @@ export const SettingsNotificationsTab: React.FC = () => {
   const [savingModal, setSavingModal] = useState(false);
   const [resettingModal, setResettingModal] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [hasAutoWhatsapp, setHasAutoWhatsapp] = useState<boolean>(true);
+
+  useEffect(() => {
+    try {
+      const savedTenant = localStorage.getItem('tenant_data');
+      if (savedTenant) {
+        const parsed = JSON.parse(savedTenant);
+        if (parsed?.plan && parsed.plan.hasAutoWhatsapp !== undefined) {
+          setHasAutoWhatsapp(Boolean(parsed.plan.hasAutoWhatsapp));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -110,6 +125,10 @@ export const SettingsNotificationsTab: React.FC = () => {
     field: 'whatsappEnabled' | 'emailEnabled' | 'notifyProfessional' | 'notifyOwner',
     currentValue: boolean
   ) => {
+    if (field === 'whatsappEnabled' && !hasAutoWhatsapp && !currentValue) {
+      showToast('Automações de WhatsApp estão disponíveis a partir do plano Profissional Solo. Faça upgrade para ativar.', 'error');
+      return;
+    }
     const newValue = !currentValue;
     // Atualiza estado otimisticamente
     setRules((prev) =>
@@ -282,6 +301,24 @@ export const SettingsNotificationsTab: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {!hasAutoWhatsapp && (
+        <div className="bg-amber-50 border border-amber-200/90 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <WhatsAppIcon size={18} color="#d97706" />
+            <div>
+              <p className="font-bold text-amber-950">Automações de WhatsApp não liberadas no plano atual</p>
+              <p className="text-amber-700">Lembretes e confirmações automáticas por WhatsApp estão disponíveis a partir do plano Profissional Solo.</p>
+            </div>
+          </div>
+          <a
+            href="/dashboard/planos"
+            className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold shrink-0 transition-colors shadow-xs"
+          >
+            Ver Planos
+          </a>
+        </div>
+      )}
 
       {/* Categorias e Tabela de Regras */}
       <div className="space-y-6">

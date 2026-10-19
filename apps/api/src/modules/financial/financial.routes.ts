@@ -28,6 +28,15 @@ const creditPaymentSchema = z.object({
   paymentMethod: z.enum(['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'CASH']).default('PIX')
 });
 
+async function verifyPlanAllowsCredit(tenantId: string): Promise<boolean> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    include: { plan: true }
+  });
+  if (!tenant || !tenant.plan) return false;
+  return tenant.plan.code !== 'FREE' || Number(tenant.plan.monthlyPrice) > 0;
+}
+
 export const financialRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', app.authenticate);
 
@@ -36,6 +45,43 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = request.user.tenantId;
     if (!tenantId) {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    // Auto-sincroniza agendamentos concluídos que ainda não possuem lançamento no caixa
+    try {
+      const completedUnsynced = await prisma.schedule.findMany({
+        where: {
+          tenantId,
+          status: ScheduleStatus.COMPLETED,
+          totalPrice: { gt: 0 },
+          financialEntry: null
+        },
+        include: {
+          client: true,
+          service: true,
+          professional: true
+        }
+      });
+
+      if (completedUnsynced.length > 0) {
+        for (const sch of completedUnsynced) {
+          await prisma.financialEntry.create({
+            data: {
+              tenantId,
+              scheduleId: sch.id,
+              professionalId: sch.professionalId,
+              type: TransactionType.INCOME,
+              amount: sch.totalPrice,
+              depositDeducted: sch.depositPaid ? sch.depositAmount : 0,
+              description: `Atendimento: ${sch.service?.name || 'Serviço'} - ${sch.client?.name || 'Cliente'}`,
+              paymentMethod: sch.depositPaid ? PaymentMethod.PIX : PaymentMethod.CREDIT_CARD,
+              paidAt: sch.date || new Date()
+            }
+          }).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error('[FINANCIAL AUTO-SYNC ERROR]', err);
     }
 
     const entries = await prisma.financialEntry.findMany({
@@ -177,6 +223,54 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ message: 'Registro financeiro excluído com sucesso.' });
   });
 
+  // POST /financial/sync-schedules - Sincronizar todos os agendamentos concluídos no caixa
+  app.post('/sync-schedules', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const completedSchedules = await prisma.schedule.findMany({
+      where: {
+        tenantId,
+        status: ScheduleStatus.COMPLETED,
+        totalPrice: { gt: 0 }
+      },
+      include: {
+        client: true,
+        service: true,
+        professional: true,
+        financialEntry: true
+      }
+    });
+
+    let syncedCount = 0;
+    for (const sch of completedSchedules) {
+      if (!sch.financialEntry) {
+        await prisma.financialEntry.create({
+          data: {
+            tenantId,
+            scheduleId: sch.id,
+            professionalId: sch.professionalId,
+            type: TransactionType.INCOME,
+            amount: sch.totalPrice,
+            depositDeducted: sch.depositPaid ? sch.depositAmount : 0,
+            description: `Atendimento: ${sch.service?.name || 'Serviço'} - ${sch.client?.name || 'Cliente'}`,
+            paymentMethod: sch.depositPaid ? PaymentMethod.PIX : PaymentMethod.CREDIT_CARD,
+            paidAt: sch.date || new Date()
+          }
+        }).catch(() => {});
+        syncedCount++;
+      }
+    }
+
+    return reply.send({
+      message: `${syncedCount} agendamento(s) sincronizado(s) no fluxo de caixa com sucesso.`,
+      syncedCount,
+      totalCompleted: completedSchedules.length
+    });
+  });
+
   // GET /financial/commissions - Cálculo real de repasses comissionados por profissional
   app.get('/commissions', async (request, reply) => {
     const tenantId = request.user.tenantId;
@@ -184,9 +278,19 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
     }
 
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      include: {
+        users: { where: { role: 'ADMIN' }, select: { id: true, name: true, email: true } }
+      }
+    });
+
+    const adminUserIds = new Set((tenant?.users || []).map((u) => u.id));
+
     const professionals = await prisma.professional.findMany({
       where: { tenantId, isActive: true },
       include: {
+        user: true,
         schedules: {
           where: {
             status: ScheduleStatus.COMPLETED
@@ -201,26 +305,199 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const commissions = professionals.map((prof) => {
+      // Como a dona do negócio não tem repasse (100% entra no caixa/lucro da empresa),
+      // repasse só existe se for cadastrado outro profissional parceiro/comissionado
+      const isOwner =
+        Boolean(prof.role && /dona|propriet[aá]ri[ao]|owner|s[oó]ci[ao]/i.test(prof.role)) ||
+        Boolean(prof.userId && adminUserIds.has(prof.userId)) ||
+        professionals.length === 1;
+
       const salesTotal = prof.schedules.reduce(
         (acc, curr) => acc + Number(curr.totalPrice),
         0
       );
-      const rate = Number(prof.commissionRate);
-      const payoutAmount = (salesTotal * rate) / 100;
+
+      const rate = isOwner ? 0 : Number(prof.commissionRate);
+      const payoutAmount = isOwner ? 0 : (salesTotal * rate) / 100;
 
       return {
         id: `comm-${prof.id}`,
         professionalId: prof.id,
         professionalName: prof.name,
+        professionalRole: prof.role || (isOwner ? 'Dona do Salão' : 'Profissional'),
+        isOwner,
         percentage: rate,
         salesTotal,
         payoutAmount,
         servicesCount: prof.schedules.length,
-        status: 'PENDING'
+        status: isOwner ? 'SETTLED' : 'PENDING',
+        notes: isOwner
+          ? 'Proprietária do Negócio (100% Faturamento da Empresa / Sem Repasse)'
+          : undefined
       };
     });
 
     return reply.send(commissions);
+  });
+
+  // POST /financial/commissions/:professionalId/payout - Liquidar repasse de comissão
+  app.post('/commissions/:professionalId/payout', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+    const { professionalId } = request.params as { professionalId: string };
+    const schema = z.object({
+      amount: z.number().positive('O valor deve ser maior que zero.'),
+      paymentMethod: z.enum(['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'CASH']).default('PIX'),
+      notes: z.string().optional()
+    });
+    const body = schema.parse(request.body);
+
+    const professional = await prisma.professional.findFirst({
+      where: { id: professionalId, tenantId }
+    });
+
+    if (!professional) {
+      return reply.status(404).send({ error: 'Não encontrado', message: 'Profissional não encontrado.' });
+    }
+
+    // Registra despesa de repasse de comissão no caixa financeiro
+    const entry = await prisma.financialEntry.create({
+      data: {
+        tenantId,
+        type: TransactionType.EXPENSE,
+        amount: body.amount,
+        description: `Repasse de Comissão: ${professional.name}${body.notes ? ` (${body.notes})` : ''}`,
+        paymentMethod: body.paymentMethod as PaymentMethod,
+        professionalId: professional.id,
+        paidAt: new Date()
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: request.user.sub,
+        tenantId,
+        action: 'COMMISSION_PAYOUT',
+        entityType: 'FinancialEntry',
+        entityId: entry.id,
+        details: { professionalId, amount: body.amount, paymentMethod: body.paymentMethod },
+        ipAddress: request.ip,
+        userAgent: request.headers['user-agent']
+      }
+    }).catch(() => null);
+
+    return reply.status(201).send({
+      success: true,
+      entry,
+      message: `Repasse de R$ ${body.amount.toFixed(2)} liquidado para ${professional.name}.`
+    });
+  });
+
+  // GET /financial/reports/dre - Demonstrativo de Resultado do Exercício Executivo (DRE)
+  app.get('/reports/dre', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const { startDate, endDate } = request.query as { startDate?: string; endDate?: string };
+
+    const dateFilter: any = {};
+    if (startDate) {
+      dateFilter.gte = new Date(`${startDate}T00:00:00`);
+    }
+    if (endDate) {
+      dateFilter.lte = new Date(`${endDate}T23:59:59`);
+    }
+
+    const entries = await prisma.financialEntry.findMany({
+      where: {
+        tenantId,
+        ...(startDate || endDate ? { paidAt: dateFilter } : {})
+      },
+      include: {
+        schedule: {
+          select: {
+            id: true,
+            totalPrice: true
+          }
+        }
+      }
+    });
+
+    // 1. Receitas
+    let serviceRevenue = 0;
+    let productRevenue = 0;
+    let courseRevenue = 0;
+    let otherRevenue = 0;
+
+    // 2. Despesas
+    let commissionExpenses = 0;
+    let fixedExpenses = 0;
+    let variableExpenses = 0;
+
+    for (const entry of entries) {
+      const val = Number(entry.amount);
+      const desc = entry.description.toLowerCase();
+
+      if (entry.type === TransactionType.INCOME) {
+        if (entry.scheduleId || desc.includes('agendamento') || desc.includes('sinal') || desc.includes('serviço')) {
+          serviceRevenue += val;
+        } else if (desc.includes('pdv') || desc.includes('venda balcão') || desc.includes('produto')) {
+          productRevenue += val;
+        } else if (desc.includes('curso') || desc.includes('matrícula')) {
+          courseRevenue += val;
+        } else {
+          otherRevenue += val;
+        }
+      } else if (entry.type === TransactionType.EXPENSE) {
+        if (entry.professionalId || desc.includes('repasse') || desc.includes('comissão')) {
+          commissionExpenses += val;
+        } else if (desc.includes('aluguel') || desc.includes('luz') || desc.includes('água') || desc.includes('internet') || desc.includes('sistema') || desc.includes('fix')) {
+          fixedExpenses += val;
+        } else {
+          variableExpenses += val;
+        }
+      }
+    }
+
+    const estimatedCmv = productRevenue * 0.35;
+    const grossRevenue = serviceRevenue + productRevenue + courseRevenue + otherRevenue;
+    const contributionMargin = grossRevenue - estimatedCmv;
+    const totalExpenses = commissionExpenses + fixedExpenses + variableExpenses;
+    const netProfit = contributionMargin - totalExpenses;
+    const netMarginPercentage = grossRevenue > 0 ? (netProfit / grossRevenue) * 100 : 0;
+
+    return reply.send({
+      period: {
+        startDate: startDate || 'Início',
+        endDate: endDate || 'Hoje'
+      },
+      revenue: {
+        serviceRevenue,
+        productRevenue,
+        courseRevenue,
+        otherRevenue,
+        grossRevenue
+      },
+      deductions: {
+        cmv: estimatedCmv,
+        contributionMargin
+      },
+      expenses: {
+        commissionExpenses,
+        fixedExpenses,
+        variableExpenses,
+        totalExpenses
+      },
+      result: {
+        netProfit,
+        netMarginPercentage: Number(netMarginPercentage.toFixed(1)),
+        isPositive: netProfit >= 0
+      }
+    });
   });
 
   // ==============================================================================
@@ -285,6 +562,14 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = request.user.tenantId;
     if (!tenantId) {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const allowsCredit = await verifyPlanAllowsCredit(tenantId);
+    if (!allowsCredit) {
+      return reply.status(403).send({
+        error: 'Recurso Bloqueado',
+        message: 'O controle de Crediário e Fiado é exclusivo dos planos pagos e VIP. Faça o upgrade para desbloquear.'
+      });
     }
 
     const data = creditAccountInputSchema.parse(request.body);
@@ -377,6 +662,14 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = request.user.tenantId;
     if (!tenantId) {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const allowsCredit = await verifyPlanAllowsCredit(tenantId);
+    if (!allowsCredit) {
+      return reply.status(403).send({
+        error: 'Recurso Bloqueado',
+        message: 'O controle de Crediário e Fiado é exclusivo dos planos pagos e VIP. Faça o upgrade para desbloquear.'
+      });
     }
 
     const { id } = request.params as { id: string };

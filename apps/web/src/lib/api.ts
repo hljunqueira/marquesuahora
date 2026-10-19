@@ -87,6 +87,7 @@ api.interceptors.response.use(
 
           if (newToken) {
             localStorage.setItem('auth_token', newToken);
+            localStorage.setItem('@marcatuahora:token', newToken);
             if (newRefreshToken) {
               localStorage.setItem('refresh_token', newRefreshToken);
             }
@@ -97,21 +98,36 @@ api.interceptors.response.use(
             originalRequest.headers.Authorization = `Bearer ${newToken}`;
             return api(originalRequest);
           }
-        } catch (refreshErr) {
+        } catch (refreshErr: any) {
           processQueue(refreshErr, null);
+          // Só desloga se o servidor explicitamente rejeitou o refresh token com 401
+          if (refreshErr.response?.status === 401) {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('@marcatuahora:token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('user_data');
+            localStorage.removeItem('tenant_data');
+
+            window.location.href = '/login?expired=true';
+            return Promise.reject(refreshErr);
+          }
+          // Se for erro de rede/timeout, não expira a sessão
+          return Promise.reject(refreshErr);
         } finally {
           isRefreshing = false;
         }
       }
 
-      // Se não há refresh token ou a renovação falhou, limpa sessão e redireciona
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('@marcatuahora:token');
-      localStorage.removeItem('refresh_token');
-      localStorage.removeItem('user_data');
-      localStorage.removeItem('tenant_data');
+      // Se não há refresh token E recebemos 401 definitivo
+      if (!storedRefreshToken) {
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('@marcatuahora:token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user_data');
+        localStorage.removeItem('tenant_data');
 
-      window.location.href = '/login?expired=true';
+        window.location.href = '/login?expired=true';
+      }
     }
 
     return Promise.reject(error);

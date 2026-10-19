@@ -48,7 +48,7 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(tickets);
   });
 
-  // POST /support/ai-chat - Atendimento interativo com IA e escalação para ticket do admin em até 24h se houver erro
+  // POST /support/ai-chat - Atendimento interativo com IA, acesso ao banco e persistência total de histórico
   app.post('/ai-chat', async (request, reply) => {
     try {
       let tenantId = request.user?.tenantId;
@@ -57,6 +57,8 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
         message: string;
         category?: string;
         protocol?: string;
+        attendantName?: string;
+        attendantRole?: string;
       };
 
       if (!body?.message || typeof body.message !== 'string' || !body.message.trim()) {
@@ -120,25 +122,126 @@ export const supportRoutes: FastifyPluginAsync = async (app) => {
         console.warn('[Support Routes] Aviso: Banco inacessível ao buscar dados de tenant/usuário, continuando com atendimento IA:', dbErr);
       }
 
+      // Identificação prioritária de quem está falando (atendente/recepção ou dono)
+      const effectiveUserName = (body.attendantName && body.attendantName.trim()) || userName || 'Assinante';
+      const effectiveProtocol = body.protocol || `#TK-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      // 1. Localiza ou cria o SupportTicket no PostgreSQL para registrar a conversa
+      let activeTicket: any = null;
+      if (tenantId && tenantId !== 'general') {
+        try {
+          if (body.protocol) {
+            activeTicket = await prisma.supportTicket.findFirst({
+              where: { tenantId, protocol: body.protocol }
+            });
+          }
+
+          if (!activeTicket) {
+            activeTicket = await prisma.supportTicket.findFirst({
+              where: {
+                tenantId,
+                status: { in: [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.WAITING_CLIENT] }
+              },
+              orderBy: { updatedAt: 'desc' }
+            });
+          }
+
+          if (!activeTicket) {
+            activeTicket = await prisma.supportTicket.create({
+              data: {
+                protocol: effectiveProtocol,
+                tenantId,
+                userId: request.user?.sub || 'user-anonymous',
+                subject: `[ATENDIMENTO SUPORTE] ${effectiveUserName}: ${body.message.slice(0, 60)}`,
+                category: mappedCategory,
+                priority: TicketPriority.LOW,
+                status: TicketStatus.OPEN
+              }
+            });
+          }
+
+          // 2. Registra a mensagem do assinante / atendente
+          await prisma.ticketMessage.create({
+            data: {
+              ticketId: activeTicket.id,
+              senderId: request.user?.sub || 'user-anonymous',
+              senderType: TicketSenderType.TENANT,
+              content: `[${effectiveUserName}${body.attendantRole ? ` - ${body.attendantRole}` : ''}]: ${body.message.trim()}`
+            }
+          });
+        } catch (ticketErr: any) {
+          console.warn('[Support Routes] Aviso: Não foi possível registrar mensagem preliminar no ticket:', ticketErr?.message);
+        }
+      }
+
+      // 3. Processa a resposta com IA inteligente e snapshot operacional completo do PostgreSQL
       const result = await SupportAiService.processMessage({
         tenantId: tenantId || 'general',
         userId: request.user?.sub || 'user-anonymous',
-        userName,
+        userName: effectiveUserName,
+        attendantRole: body.attendantRole,
         userEmail,
         tenantName,
         tenantSlug,
         tenantNiche,
         messageText: body.message.trim(),
         category: mappedCategory,
-        protocol: body.protocol
+        protocol: activeTicket?.protocol || effectiveProtocol
       });
 
-      return reply.send(result);
+      // 4. Registra a resposta da IA no banco de dados e eleva prioridade se for erro técnico
+      if (activeTicket) {
+        try {
+          await prisma.ticketMessage.create({
+            data: {
+              ticketId: activeTicket.id,
+              senderId: 'support-ai',
+              senderType: TicketSenderType.SUPER_ADMIN,
+              content: result.replyText
+            }
+          });
+
+          if (result.isTechnicalError) {
+            await prisma.supportTicket.update({
+              where: { id: activeTicket.id },
+              data: {
+                priority: TicketPriority.HIGH,
+                category: TicketCategory.TECHNICAL_ISSUE,
+                subject: `[SUPORTE IA - ERRO TÉCNICO] ${body.message.slice(0, 70)}`
+              }
+            });
+
+            const existingTasks = await prisma.ticketTask.count({ where: { ticketId: activeTicket.id } });
+            if (existingTasks === 0) {
+              await prisma.ticketTask.createMany({
+                data: [
+                  { ticketId: activeTicket.id, title: 'Analisar relato de erro técnico e reproduzir', completed: false, position: 0 },
+                  { ticketId: activeTicket.id, title: 'Verificar logs da API e banco de dados do salão', completed: false, position: 1 },
+                  { ticketId: activeTicket.id, title: 'Aplicar correção e validar estabilidade', completed: false, position: 2 },
+                  { ticketId: activeTicket.id, title: 'Retornar ao cliente em até 24 horas', completed: false, position: 3 }
+                ]
+              });
+            }
+          }
+        } catch (saveErr: any) {
+          console.warn('[Support Routes] Falha ao gravar resposta da IA no banco:', saveErr?.message);
+        }
+      }
+
+      return reply.send({
+        replyText: result.replyText,
+        isTechnicalError: result.isTechnicalError,
+        category: result.category,
+        priority: result.priority,
+        ticketId: activeTicket?.id || result.ticketId,
+        protocol: activeTicket?.protocol || result.protocol,
+        slaHours: result.slaHours
+      });
     } catch (routeErr: any) {
       console.error('[Support Routes] Erro inesperado na rota /ai-chat, aplicando resposta de contingência:', routeErr);
       const protocol = (request.body as any)?.protocol || `#TK-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
       return reply.send({
-        replyText: 'Olá! Sou o assistente de inteligência artificial do MarqueSuaHora. Estou pronto para te orientar sobre agendamentos, serviços, vitrine ou sinal anti-falta. Como posso te ajudar agora?',
+        replyText: 'Olá! Sou a inteligência artificial de suporte do MarqueSuaHora. Estou pronta para te orientar sobre agendamentos, serviços, vitrine ou sinal anti-falta. Como posso te ajudar agora?',
         isTechnicalError: false,
         category: TicketCategory.DOUBT,
         priority: TicketPriority.LOW,

@@ -11,6 +11,7 @@ export interface ScheduleAppointment {
     id: string;
     name: string;
     color?: string | null;
+    avatarUrl?: string | null;
   };
   serviceId: string;
   service: {
@@ -18,6 +19,7 @@ export interface ScheduleAppointment {
     name: string;
     price: number | string;
     durationMinutes: number;
+    color?: string | null;
   };
   date: string; // YYYY-MM-DD
   startTime: string; // "14:00"
@@ -31,12 +33,23 @@ export interface ScheduleAppointment {
   arrivalPhotoUrl?: string | null;
   resultPhotoUrl?: string | null;
   source?: string | null;
+  additionalServices?: any;
+  items?: Array<{
+    service?: {
+      id: string;
+      name: string;
+      price: number | string;
+      durationMinutes: number;
+      color?: string | null;
+    };
+  }>;
 }
 
 export interface ProfessionalItem {
   id: string;
   name: string;
   color?: string | null;
+  avatarUrl?: string | null;
   phone?: string | null;
 }
 
@@ -45,6 +58,7 @@ export interface ServiceOption {
   name: string;
   price: number;
   durationMinutes: number;
+  color?: string | null;
 }
 
 export interface BlockItem {

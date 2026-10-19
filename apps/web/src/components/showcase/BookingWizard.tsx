@@ -20,13 +20,15 @@ import {
   Sun,
   SunMedium,
   Moon,
-  Sparkles,
   MapPin,
   X,
   Tag,
-  Copy
+  Copy,
+  Ban
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
+import { formatLocalDateToYMD } from '@/lib/dateUtils';
 import { InputMask } from '@/components/ui/InputMask';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import {
@@ -42,19 +44,27 @@ interface BookingWizardProps {
   brandColor?: string;
 }
 
-export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardProps) {
+export function BookingWizard({ tenant, brandColor = '#5c0701' }: BookingWizardProps) {
   // Passos: 1 = Motivo/Serviços, 2 = Data/Horário, 3 = Dados da Cliente, 4 = Confirmado
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   // Passo 1: Seleções
   const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([]);
-  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>('');
+  const isSoloProfessional = (tenant.professionals || []).length === 1;
+  const soloProfessional = isSoloProfessional ? tenant.professionals[0] : null;
+
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>(() => {
+    if (tenant.professionals?.length === 1) {
+      return tenant.professionals[0].id;
+    }
+    return '';
+  });
+  const [professionalError, setProfessionalError] = useState<string | null>(null);
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
   // Passo 2: Data e Horário
   const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
+    return formatLocalDateToYMD(new Date());
   });
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [loadingSlots, setLoadingSlots] = useState<boolean>(false);
@@ -64,6 +74,8 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
     night: []
   });
   const [slotsError, setSlotsError] = useState<string | null>(null);
+  const [isDayOpen, setIsDayOpen] = useState<boolean>(true);
+  const [dayClosedReason, setDayClosedReason] = useState<string | null>(null);
 
   // Passo 3: Dados da Cliente & Cupons
   const [clientName, setClientName] = useState<string>('');
@@ -150,6 +162,42 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
     );
   };
 
+  // Garante seleção do profissional quando solo
+  useEffect(() => {
+    if (tenant.professionals?.length === 1 && !selectedProfessionalId) {
+      setSelectedProfessionalId(tenant.professionals[0].id);
+    }
+  }, [tenant.professionals, selectedProfessionalId]);
+
+  // Nome amigável do profissional selecionado para os resumos
+  const selectedProfessionalName = useMemo(() => {
+    if (isSoloProfessional && soloProfessional) {
+      return soloProfessional.name;
+    }
+    if (!selectedProfessionalId || selectedProfessionalId === 'ANY') {
+      return 'Sem preferência (qualquer profissional)';
+    }
+    const found = tenant.professionals?.find((p) => p.id === selectedProfessionalId);
+    return found ? found.name : 'Sem preferência';
+  }, [selectedProfessionalId, tenant.professionals, isSoloProfessional, soloProfessional]);
+
+  // Avançar para o Passo 2 com validação de seleção de profissional
+  const handleProceedToStep2 = () => {
+    if (selectedServices.length === 0) return;
+
+    if (tenant.professionals && tenant.professionals.length > 1 && !selectedProfessionalId) {
+      setProfessionalError('Por favor, selecione um profissional ou escolha "Sem preferência".');
+      const el = document.getElementById('seletor-profissional');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
+    setProfessionalError(null);
+    setStep(2);
+  };
+
   // Carrega horários livres do backend quando a data ou serviços mudam no Passo 2
   useEffect(() => {
     if (step !== 2 || selectedServiceIds.length === 0) return;
@@ -160,7 +208,7 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
 
     const params = new URLSearchParams();
     selectedServiceIds.forEach((id) => params.append('serviceIds', id));
-    if (selectedProfessionalId) {
+    if (selectedProfessionalId && selectedProfessionalId !== 'ANY') {
       params.set('professionalId', selectedProfessionalId);
     }
     params.set('date', selectedDate);
@@ -169,6 +217,8 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
       .get(`/public/${tenant.slug}/slots?${params.toString()}`)
       .then((res) => {
         if (!isMounted) return;
+        setIsDayOpen(res.data?.isOpen ?? true);
+        setDayClosedReason(res.data?.reason || null);
         if (res.data?.slots) {
           setSlotsData(res.data.slots);
         } else {
@@ -272,7 +322,10 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
     try {
       const payload = {
         serviceIds: selectedServiceIds,
-        professionalId: selectedProfessionalId || undefined,
+        professionalId:
+          selectedProfessionalId && selectedProfessionalId !== 'ANY'
+            ? selectedProfessionalId
+            : undefined,
         dateStr: selectedDate,
         startTime: selectedTime,
         clientName: clientName.trim(),
@@ -295,14 +348,15 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
     }
   };
 
-  // Próximos 7 dias para a barra de datas
+  // Próximos 14 dias para a barra de datas (blindados contra drift de fuso horário UTC-3)
   const nextDays = useMemo(() => {
     const days = [];
     const today = new Date();
+    today.setHours(12, 0, 0, 0); // Fixo ao meio-dia local impedindo saltos noturnos de fuso
     for (let i = 0; i < 14; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
-      const iso = d.toISOString().split('T')[0];
+      const iso = formatLocalDateToYMD(d);
       const weekday = d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '');
       const dayNum = d.getDate();
       const month = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
@@ -310,6 +364,13 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
     }
     return days;
   }, []);
+
+  // Garante sincronia da data selecionada com os dias disponíveis na barra
+  useEffect(() => {
+    if (nextDays.length > 0 && (!selectedDate || !nextDays.some((d) => d.iso === selectedDate))) {
+      setSelectedDate(nextDays[0].iso);
+    }
+  }, [nextDays, selectedDate]);
 
   return (
     <div
@@ -351,7 +412,7 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
         {/* PASSO 1: ESPECIALIDADE, SERVIÇOS & PROFISSIONAL */}
         {/* ========================================================================= */}
         {step === 1 && (
-          <div className="space-y-6">
+          <div className={`space-y-6 ${selectedServices.length > 0 ? 'pb-20 sm:pb-0' : ''}`}>
             <div>
               <h2 className="text-xl font-extrabold text-slate-900 tracking-tight">
                 Como podemos te ajudar?
@@ -361,69 +422,130 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
               </p>
             </div>
 
-            {/* Seletor de Profissional (Opcional) */}
+            {/* Seletor de Profissional */}
             {tenant.professionals && tenant.professionals.length > 0 && (
-              <div className="space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                  Profissional Preferido
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedProfessionalId('')}
-                    className={`p-3 rounded-xl border text-left text-xs font-semibold flex items-center justify-between transition-all ${
-                      !selectedProfessionalId
-                        ? 'border-brand-purple bg-purple-50/50 text-slate-900 ring-1 ring-brand-purple'
-                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-700 text-xs font-bold">
-                        QP
+              <div id="seletor-profissional" className="space-y-2">
+                {isSoloProfessional && soloProfessional ? (
+                  // Caso 1: Apenas 1 profissional no estabelecimento (Solo Professional)
+                  <div className="p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-9 h-9 rounded-full text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-2xs"
+                        style={{
+                          backgroundColor: soloProfessional.color || brandColor
+                        }}
+                      >
+                        {soloProfessional.name.substring(0, 1).toUpperCase()}
                       </div>
-                      <div>
-                        <p className="font-bold">Qualquer Profissional</p>
-                        <p className="text-[11px] font-normal text-slate-500">
-                          Horários mais rápidos
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-extrabold text-slate-900 truncate">
+                            {soloProfessional.name}
+                          </p>
+                          <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
+                            Profissional Responsável
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 font-medium">
+                          Atendimento exclusivo e personalizado
                         </p>
                       </div>
                     </div>
-                    {!selectedProfessionalId && (
-                      <Check className="w-4 h-4 text-brand-purple" />
-                    )}
-                  </button>
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/80 flex-shrink-0">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span className="hidden xs:inline">Confirmado</span>
+                    </div>
+                  </div>
+                ) : (
+                  // Caso 2: Múltiplos profissionais (Não pré-definir nenhum por padrão)
+                  <>
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Selecione o Profissional
+                      </label>
+                      {!selectedProfessionalId && (
+                        <span className="text-[11px] font-semibold text-amber-600">
+                          Escolha quem vai te atender
+                        </span>
+                      )}
+                    </div>
 
-                  {tenant.professionals.map((prof) => {
-                    const isSelected = selectedProfessionalId === prof.id;
-                    return (
+                    {professionalError && (
+                      <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs font-medium flex items-center gap-2 animate-in fade-in duration-200">
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                        <span>{professionalError}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <button
-                        key={prof.id}
                         type="button"
-                        onClick={() => setSelectedProfessionalId(prof.id)}
-                        className={`p-3 rounded-xl border text-left text-xs font-semibold flex items-center justify-between transition-all ${
-                          isSelected
+                        onClick={() => {
+                          setSelectedProfessionalId('ANY');
+                          setProfessionalError(null);
+                        }}
+                        className={`p-3 rounded-xl border text-left text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                          selectedProfessionalId === 'ANY'
                             ? 'border-brand-purple bg-purple-50/50 text-slate-900 ring-1 ring-brand-purple'
+                            : professionalError
+                            ? 'border-amber-300 bg-white hover:bg-slate-50 text-slate-700'
                             : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
                         }`}
                       >
                         <div className="flex items-center gap-2.5">
-                          <div
-                            className="w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold flex-shrink-0"
-                            style={{
-                              backgroundColor: prof.color || brandColor
-                            }}
-                          >
-                            {prof.name.substring(0, 1).toUpperCase()}
+                          <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-700 text-xs font-bold">
+                            SP
                           </div>
-                          <p className="font-bold truncate">{prof.name}</p>
+                          <div>
+                            <p className="font-bold">Sem preferência</p>
+                            <p className="text-[11px] font-normal text-slate-500">
+                              Qualquer profissional disponível
+                            </p>
+                          </div>
                         </div>
-                        {isSelected && (
+                        {selectedProfessionalId === 'ANY' && (
                           <Check className="w-4 h-4 text-brand-purple" />
                         )}
                       </button>
-                    );
-                  })}
-                </div>
+
+                      {tenant.professionals.map((prof) => {
+                        const isSelected = selectedProfessionalId === prof.id;
+                        return (
+                          <button
+                            key={prof.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedProfessionalId(prof.id);
+                              setProfessionalError(null);
+                            }}
+                            className={`p-3 rounded-xl border text-left text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+                              isSelected
+                                ? 'border-brand-purple bg-purple-50/50 text-slate-900 ring-1 ring-brand-purple'
+                                : professionalError
+                                ? 'border-amber-300 bg-white hover:bg-slate-50 text-slate-700'
+                                : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div
+                                className="w-7 h-7 rounded-full text-white flex items-center justify-center text-xs font-bold flex-shrink-0"
+                                style={{
+                                  backgroundColor: prof.color || brandColor
+                                }}
+                              >
+                                {prof.name.substring(0, 1).toUpperCase()}
+                              </div>
+                              <p className="font-bold truncate">{prof.name}</p>
+                            </div>
+                            {isSelected && (
+                              <Check className="w-4 h-4 text-brand-purple" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -481,6 +603,7 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                         <div className="p-3 bg-white divide-y divide-slate-100">
                           {data.services.map((service) => {
                             const isSelected = selectedServiceIds.includes(service.id);
+                            const servicePhoto = (service as any).photos?.[0];
                             return (
                               <div
                                 key={service.id}
@@ -491,10 +614,23 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                                     : 'hover:bg-slate-50'
                                 }`}
                               >
-                                <div className="flex-1 min-w-0">
-                                  <h4 className="text-sm font-bold text-slate-900">
-                                    {service.name}
-                                  </h4>
+                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                  {servicePhoto && (
+                                    <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0 relative border border-slate-200/80">
+                                      <img
+                                        src={resolveImageUrl(servicePhoto)}
+                                        alt={service.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                          (e.currentTarget as HTMLElement).style.display = 'none';
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0">
+                                    <h4 className="text-sm font-bold text-slate-900">
+                                      {service.name}
+                                    </h4>
                                   {service.description && (
                                     <p className="mt-0.5 text-xs text-slate-500 leading-relaxed line-clamp-2">
                                       {service.description}
@@ -518,6 +654,7 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                                     )}
                                   </div>
                                 </div>
+                              </div>
 
                                 <button
                                   type="button"
@@ -547,7 +684,7 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
               )}
             </div>
 
-            {/* Resumo do Combo e Botão Avançar */}
+            {/* Resumo do Combo e Botão Avançar no Desktop */}
             {selectedServices.length > 0 && (
               <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="text-center sm:text-left">
@@ -561,8 +698,8 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
 
                 <button
                   type="button"
-                  onClick={() => setStep(2)}
-                  className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm text-white shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98"
+                  onClick={handleProceedToStep2}
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm text-white shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
                   style={{ backgroundColor: brandColor }}
                 >
                   <span>Escolher Data & Horário</span>
@@ -570,6 +707,29 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                 </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Barra Flutuante Mobile no Passo 1 (Sticky Bottom Bar) */}
+        {step === 1 && selectedServices.length > 0 && (
+          <div className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 p-3.5 shadow-2xl sm:hidden flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-200">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-semibold text-slate-500 truncate">
+                {selectedServices.length} {selectedServices.length === 1 ? 'item' : 'itens'} · {totalDurationMinutes} min
+              </p>
+              <p className="text-base font-black text-slate-900">
+                R$ {totalPrice.toFixed(2).replace('.', ',')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleProceedToStep2}
+              className="px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md active:scale-95 flex items-center gap-1.5 flex-shrink-0 cursor-pointer"
+              style={{ backgroundColor: brandColor }}
+            >
+              <span>Escolher Data</span>
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
         )}
 
@@ -760,12 +920,19 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                   {slotsData.morning.length === 0 &&
                     slotsData.afternoon.length === 0 &&
                     slotsData.night.length === 0 && (
-                      <div className="py-10 text-center text-slate-400 text-xs">
-                        <p className="font-semibold text-slate-600">
-                          Nenhum horário livre nesta data
+                      <div className="py-12 px-4 text-center rounded-2xl bg-slate-50/80 border border-slate-200/80">
+                        <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3 text-slate-500">
+                          <Ban className="w-6 h-6" />
+                        </div>
+                        <p className="font-bold text-slate-900 text-sm">
+                          {!isDayOpen && dayClosedReason
+                            ? dayClosedReason
+                            : 'Nenhum horário livre nesta data'}
                         </p>
-                        <p className="mt-1">
-                          Por favor, selecione outro dia na barra acima.
+                        <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto leading-relaxed">
+                          {!isDayOpen
+                            ? 'O estabelecimento não realiza atendimentos nesta data. Por favor, escolha outro dia na barra acima.'
+                            : 'Todos os horários para esta data já foram preenchidos ou o limite foi atingido. Por favor, selecione outro dia na barra acima.'}
                         </p>
                       </div>
                     )}
@@ -847,6 +1014,12 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                 <span>Duração total:</span>
                 <span>{totalDurationMinutes} min</span>
               </div>
+              {tenant.professionals && tenant.professionals.length > 0 && (
+                <div className="flex justify-between text-slate-600">
+                  <span>Profissional:</span>
+                  <span className="font-semibold text-slate-800">{selectedProfessionalName}</span>
+                </div>
+              )}
               {appliedCoupon && (
                 <div className="flex justify-between font-bold text-emerald-700 pt-1 border-t border-slate-200">
                   <span>Desconto ({appliedCoupon.code}):</span>
@@ -1102,6 +1275,12 @@ export function BookingWizard({ tenant, brandColor = '#7C3AED' }: BookingWizardP
                   {selectedServices.map((s) => s.name).join(', ')}
                 </span>
               </div>
+              {tenant.professionals && tenant.professionals.length > 0 && (
+                <div className="flex justify-between border-b border-slate-200/80 pb-2">
+                  <span className="text-slate-500">Profissional:</span>
+                  <span className="font-bold text-slate-900">{selectedProfessionalName}</span>
+                </div>
+              )}
               <div className="flex justify-between font-bold text-slate-900">
                 <span>Valor Total:</span>
                 <span className="text-sm font-black" style={{ color: brandColor }}>

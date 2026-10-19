@@ -27,8 +27,8 @@ export class AiAssistantService {
   public static async processMessage(params: ProcessAssistantMessageParams): Promise<string> {
     const { tenantId, clientPhone, messageText } = params;
 
-    // 1. Carrega dados do estabelecimento e configurações de IA
-    const [tenant, aiSettings, activeServices, professionals] = await Promise.all([
+    // 1. Carrega dados do estabelecimento, configurações de IA, serviços, produtos e cursos
+    const [tenant, aiSettings, activeServices, professionals, activeProducts, activeCourses] = await Promise.all([
       prisma.tenant.findUnique({
         where: { id: tenantId }
       }),
@@ -42,6 +42,14 @@ export class AiAssistantService {
       prisma.professional.findMany({
         where: { tenantId, isActive: true },
         select: { id: true, name: true }
+      }),
+      prisma.product.findMany({
+        where: { tenantId, isActive: true, showInVitrine: true },
+        select: { id: true, name: true, salePrice: true, category: true, description: true }
+      }),
+      prisma.course.findMany({
+        where: { tenantId, isActive: true },
+        select: { id: true, title: true, price: true, description: true }
       })
     ]);
 
@@ -85,7 +93,13 @@ export class AiAssistantService {
       rawLower.includes('hoje') ||
       rawLower.includes('sexta') ||
       rawLower.includes('sabado') ||
-      rawLower.includes('sábado');
+      rawLower.includes('sábado') ||
+      rawLower.includes('segunda') ||
+      rawLower.includes('terça') ||
+      rawLower.includes('terca') ||
+      rawLower.includes('quarta') ||
+      rawLower.includes('quinta') ||
+      rawLower.includes('semana que vem');
 
     let availabilityContext = '';
 
@@ -93,40 +107,57 @@ export class AiAssistantService {
       // Extrai data aproximada da mensagem
       const targetDate = this.extractDateFromMessage(rawLower);
       const dateStr = targetDate.toISOString().slice(0, 10);
+      const [y, m, d] = dateStr.split('-');
+      const formattedDate = `${d}/${m}/${y}`;
 
-      // Tenta associar serviço mencionado
-      const matchedService = activeServices.find(s =>
-        rawLower.includes(s.name.toLowerCase()) ||
-        (s.name.toLowerCase().includes('corte') && rawLower.includes('corte')) ||
-        (s.name.toLowerCase().includes('unha') && (rawLower.includes('unha') || rawLower.includes('manicure') || rawLower.includes('pedicure'))) ||
-        (s.name.toLowerCase().includes('barba') && rawLower.includes('barba')) ||
-        (s.name.toLowerCase().includes('escova') && rawLower.includes('escova'))
-      ) || activeServices[0];
+      // Histórico recente + mensagem atual para identificar se um serviço foi explicitado
+      const combinedContext = [...history.map(h => h.content), rawLower].join(' ').toLowerCase();
 
-      try {
-        const slotsData = await AvailabilityService.getAvailableSlots({
-          tenantId,
-          serviceIds: [matchedService.id],
-          dateStr
-        });
+      const matchedService = activeServices.find(s => {
+        const sName = s.name.toLowerCase();
+        if (combinedContext.includes(sName)) return true;
+        if (sName.includes('alongamento') && combinedContext.includes('alongamento')) return true;
+        if (sName.includes('fibra') && combinedContext.includes('fibra')) return true;
+        if (sName.includes('gel') && combinedContext.includes('gel')) return true;
+        if (sName.includes('cutilagem') && combinedContext.includes('cutilagem')) return true;
+        if (sName.includes('manicure') && (combinedContext.includes('manicure') || combinedContext.includes('unha') || combinedContext.includes('mão') || combinedContext.includes('mao'))) return true;
+        if (sName.includes('pedicure') && (combinedContext.includes('pedicure') || combinedContext.includes('pé') || combinedContext.includes('pe'))) return true;
+        if ((sName.includes('esmalte') || sName.includes('esmaltação')) && (combinedContext.includes('esmalte') || combinedContext.includes('esmaltacao') || combinedContext.includes('esmaltação'))) return true;
+        if (sName.includes('corte') && combinedContext.includes('corte')) return true;
+        if (sName.includes('barba') && combinedContext.includes('barba')) return true;
+        if (sName.includes('escova') && combinedContext.includes('escova')) return true;
+        if (sName.includes('lash') && (combinedContext.includes('lash') || combinedContext.includes('cilios') || combinedContext.includes('cílios'))) return true;
+        if (sName.includes('sobrancelha') && combinedContext.includes('sobrancelha')) return true;
+        return false;
+      });
 
-        const allAvailable = [
-          ...slotsData.slots.morning.filter(s => s.available).map(s => s.time),
-          ...slotsData.slots.afternoon.filter(s => s.available).map(s => s.time),
-          ...slotsData.slots.night.filter(s => s.available).map(s => s.time)
-        ];
+      if (matchedService) {
+        try {
+          const slotsData = await AvailabilityService.getAvailableSlots({
+            tenantId,
+            serviceIds: [matchedService.id],
+            dateStr
+          });
 
-        const [y, m, d] = dateStr.split('-');
-        const formattedDate = `${d}/${m}/${y}`;
+          const allAvailable = [
+            ...slotsData.slots.morning.filter(s => s.available).map(s => s.time),
+            ...slotsData.slots.afternoon.filter(s => s.available).map(s => s.time),
+            ...slotsData.slots.night.filter(s => s.available).map(s => s.time)
+          ];
 
-        if (allAvailable.length > 0) {
-          const sampleSlots = allAvailable.slice(0, 5).join(', ');
-          availabilityContext = `Para ${formattedDate} (${matchedService.name}), temos horários livres como: ${sampleSlots}.`;
-        } else {
-          availabilityContext = `Para ${formattedDate}, a agenda está completa para esse serviço. Sugira outro dia ou o link oficial.`;
+          if (allAvailable.length > 0) {
+            const sampleSlots = allAvailable.slice(0, 5).join(', ');
+            availabilityContext = `Para ${formattedDate} (${matchedService.name}), temos horários livres como: ${sampleSlots}.`;
+          } else {
+            availabilityContext = `Para ${formattedDate}, a agenda está completa para o serviço de "${matchedService.name}". Sugira outro dia ou o link oficial.`;
+          }
+        } catch (err: any) {
+          console.warn('[AiAssistant] Erro ao consultar disponibilidade:', err.message);
         }
-      } catch (err: any) {
-        console.warn('[AiAssistant] Erro ao consultar disponibilidade:', err.message);
+      } else {
+        // Cliente perguntou de data/horário mas NÃO indicou qual serviço quer fazer
+        const sampleServices = activeServices.slice(0, 4).map(s => s.name).join(', ');
+        availabilityContext = `O cliente perguntou sobre horários para ${formattedDate}, mas NÃO informou qual serviço ou procedimento deseja realizar. NUNCA assuma nem adivinhe o serviço. Responda confirmando que temos horários disponíveis para essa data e PERGUNTE com carinho qual serviço ela gostaria de fazer (dê como exemplo opções como: ${sampleServices}), para que você possa checar os horários ideais com a duração exata.`;
       }
     }
 
@@ -170,6 +201,18 @@ export class AiAssistantService {
       .map(s => `• ${s.name}: R$ ${Number(s.price).toFixed(2)} (${s.durationMinutes} min)`)
       .join('\n');
 
+    const productsList = activeProducts.length > 0
+      ? activeProducts
+          .map(p => `• ${p.name} (${p.category}): R$ ${Number(p.salePrice).toFixed(2)}${p.description ? ` - ${p.description}` : ''}`)
+          .join('\n')
+      : 'Nenhum produto cadastrado no momento.';
+
+    const coursesList = activeCourses.length > 0
+      ? activeCourses
+          .map(c => `• ${c.title}: ${c.price ? `R$ ${Number(c.price).toFixed(2)}` : 'Consulte valores'}${c.description ? ` - ${c.description}` : ''}`)
+          .join('\n')
+      : 'Nenhum curso cadastrado no momento.';
+
     const professionalsList = professionals.map(p => p.name).join(', ') || 'Nossa equipe';
 
     const fullAddress = [tenant.addressStreet, tenant.addressNumber, tenant.addressNeighborhood, tenant.addressCity]
@@ -178,29 +221,41 @@ export class AiAssistantService {
 
     const openingHours = `${tenant.openingTime || '09:00'} às ${tenant.closingTime || '20:00'}`;
 
-    const systemPrompt = `Você é a recepcionista atenciosa e educada do estabelecimento "${tenant.name}".
-Seu objetivo é acolher o cliente, responder perguntas com clareza e facilitar o agendamento de horários.
+    const systemPrompt = `Você é a recepcionista atenciosa, educada e prestativa do estabelecimento "${tenant.name}".
+Seu objetivo é acolher a cliente com carinho e naturalidade, esclarecer dúvidas com segurança e conduzir com elegância para agendamento, compra de produtos ou cursos.
 
 DADOS DO ESTABELECIMENTO:
 - Estabelecimento: ${tenant.name}
 - Endereço: ${fullAddress || 'Consulte nosso endereço no link'}
 - Horário de Atendimento: ${openingHours}
 - Profissionais: ${professionalsList}
-- Link Oficial de Agendamento: https://marquesuahora.com.br/${tenant.slug}
+- Link Oficial: https://marquesuahora.com.br/${tenant.slug}
 ${depositInfo ? `\nPOLÍTICA DE SINAL ANTI-FALTA:\n${depositInfo}\n` : ''}
-${availabilityContext ? `\nDISPONIBILIDADE EM TEMPO REAL:\n${availabilityContext}\n` : ''}
+${availabilityContext ? `\nDISPONIBILIDADE / SITUAÇÃO DE HORÁRIOS:\n${availabilityContext}\n` : ''}
 SERVIÇOS OFERECIDOS:
 ${servicesList}
+
+PRODUTOS À VENDA:
+${productsList}
+Link da Vitrine de Produtos: https://marquesuahora.com.br/${tenant.slug}#produtos
+
+CURSOS E TREINAMENTOS:
+${coursesList}
+Link da Vitrine de Cursos: https://marquesuahora.com.br/${tenant.slug}#cursos
 ${aiSettings?.customInstructions ? `\nINSTRUÇÕES ADICIONAIS DO SALÃO:\n${aiSettings.customInstructions}\n` : ''}
 
-REGRAS ESTRITAS DE COMUNICAÇÃO:
-1. Responda em tom natural e caloroso de salão de beleza, como uma pessoa real conversando no WhatsApp.
-2. Seja conciso: use 1 a 2 parágrafos curtos.
-3. Se o cliente perguntou sobre horários e você tem a disponibilidade acima, informe os horários e pergunte qual prefere.
-4. Finalize com gentileza convidando para confirmar o horário ou enviar o link oficial.
-5. NUNCA use frases prontas de robô como "Certamente!", "Com certeza!", "Como uma inteligência artificial...", "Espero ter ajudado!".
-6. NUNCA use travessões longos como em dashes (—). Use vírgulas ou pontos.
-7. Evite emojis decorativos excessivos.`;
+REGRAS DE ABORDAGEM E COMUNICAÇÃO:
+1. Responda em tom humano, caloroso e simpático, como uma excelente recepcionista conversando no WhatsApp.
+2. SE O CLIENTE PERGUNTAR POR HORÁRIOS/VAGAS (ex: "tem horário para amanhã?"):
+   - Se ela NÃO disse qual procedimento quer fazer: confirme que temos horários disponíveis sim e PERGUNTE com gentileza qual serviço ela gostaria de agendar (cite 2 a 3 opções de exemplo), explicando que precisa saber para checar a duração exata do atendimento.
+   - Se ela JÁ disse qual procedimento quer e você tem os horários livres acima: informe os horários disponíveis e pergunte qual fica melhor para ela.
+3. SE O CLIENTE PERGUNTAR SOBRE PRODUTOS (cosméticos, cuidados, itens para levar):
+   - Apresente os produtos da lista acima com seus respectivos valores e convide-a a ver mais detalhes ou adquirir na vitrine online: https://marquesuahora.com.br/${tenant.slug}#produtos.
+4. SE O CLIENTE PERGUNTAR SOBRE CURSOS (aulas, aprender a técnica, formação):
+   - Apresente os cursos disponíveis e oriente que ela pode conferir a grade completa e detalhes na aba de cursos: https://marquesuahora.com.br/${tenant.slug}#cursos.
+5. Sempre que oportuno, forneça o link oficial para agendamento online: https://marquesuahora.com.br/${tenant.slug}.
+6. Seja concisa: responda em 1 a 2 parágrafos curtos.
+7. NUNCA use frases robóticas ("Como uma IA...", "Certamente!", "Com certeza!"). Não use travessões longos. Não use emojis em excesso.`;
 
     try {
       const conversationMessages = history.map(turn => ({
@@ -303,6 +358,16 @@ REGRAS ESTRITAS DE COMUNICAÇÃO:
   ): string {
     const greeting = clientName ? `Olá, ${clientName}!` : 'Olá!';
 
+    if (availabilityContext && availabilityContext.includes('NÃO informou qual serviço')) {
+      const sample = services.slice(0, 3).map(s => s.name).join(', ');
+      return (
+        `${greeting} Temos horários disponíveis sim!\n\n` +
+        `Para eu te passar as opções com a duração certinha, qual procedimento você gostaria de realizar? (Por exemplo: ${sample}, entre outros).\n\n` +
+        `Se preferir ver todos os serviços, produtos, cursos e agendar online agora mesmo:\n` +
+        `👉 https://marquesuahora.com.br/${tenant.slug}`
+      );
+    }
+
     if (availabilityContext) {
       return (
         `${greeting} ${availabilityContext}\n\n` +
@@ -312,10 +377,13 @@ REGRAS ESTRITAS DE COMUNICAÇÃO:
     }
 
     return (
-      `${greeting} Obrigado pela sua mensagem no *${tenant.name}*!\n\n` +
-      `Para consultar nossos serviços, valores e agendar seu horário com facilidade pelo celular, acesse:\n` +
-      `👉 https://marquesuahora.com.br/${tenant.slug}\n\n` +
-      `Nossa equipe da recepção também está à disposição por aqui se precisar de algo especial!`
+      `${greeting} Que prazer ter você em contato com o *${tenant.name}*!\n\n` +
+      `Como posso te ajudar hoje?\n` +
+      `• Agendamento de horários (qual procedimento você procura?)\n` +
+      `• Conhecer nossos serviços, produtos e cursos\n` +
+      `• Dúvidas gerais\n\n` +
+      `Você também pode conferir tudo e agendar diretamente pelo nosso link oficial:\n` +
+      `👉 https://marquesuahora.com.br/${tenant.slug}`
     );
   }
 }

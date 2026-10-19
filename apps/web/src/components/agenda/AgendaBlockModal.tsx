@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Loader2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { formatLocalDateToYMD } from '@/lib/dateUtils';
 import { ProfessionalItem } from './types';
 
 interface AgendaBlockModalProps {
@@ -22,9 +24,15 @@ export function AgendaBlockModal({
   onClose,
   onSuccess
 }: AgendaBlockModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const [professionalId, setProfessionalId] = useState<string>('');
   const [dateStr, setDateStr] = useState<string>(
-    initialDate || new Date().toISOString().slice(0, 10)
+    initialDate || formatLocalDateToYMD(new Date())
   );
   const [isRecurrent, setIsRecurrent] = useState(false);
   const [dayOfWeek, setDayOfWeek] = useState<number>(1); // 1 = Segunda
@@ -72,11 +80,13 @@ export function AgendaBlockModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative max-w-md w-full bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200"
+        className="relative max-w-md w-full bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl border border-slate-200"
       >
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
           <div>
@@ -256,6 +266,7 @@ export function AgendaBlockModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

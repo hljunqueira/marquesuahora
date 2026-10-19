@@ -17,7 +17,8 @@ vi.mock('../src/lib/prisma', () => ({
       findMany: vi.fn()
     },
     availabilityRule: {
-      findMany: vi.fn()
+      findMany: vi.fn(),
+      count: vi.fn().mockResolvedValue(1)
     },
     scheduleBlock: {
       findMany: vi.fn()

@@ -7,6 +7,7 @@ import { OpenRouterService } from './openrouter.service';
 import { AudioTranscriptionService } from './audio-transcription.service';
 import { VisionService } from './vision.service';
 import { AiAssistantService } from './ai-assistant.service';
+import { ConversationMemoryService } from './conversation-memory.service';
 import { waitlistQueue } from './queues';
 import { BookingService } from '../schedules/booking.service';
 import {
@@ -20,6 +21,53 @@ import {
 } from '@prisma/client';
 import { NotificationDispatcherService } from '../notifications/dispatcher.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { redis } from '../../lib/redis';
+
+// Cache em memória para idempotência e controle de debounce (fallback caso Redis oscile)
+const localProcessedMsgIds = new Map<string, number>();
+const localWelcomeLocks = new Map<string, number>();
+const localGreetingDebounces = new Map<string, number>();
+
+function checkAndMarkProcessedMsg(msgId: string, ttlMs: number = 3600 * 1000): boolean {
+  const now = Date.now();
+  if (localProcessedMsgIds.size > 2000) {
+    for (const [id, exp] of localProcessedMsgIds.entries()) {
+      if (exp < now) localProcessedMsgIds.delete(id);
+    }
+  }
+  const exp = localProcessedMsgIds.get(msgId);
+  if (exp && exp > now) return false;
+  localProcessedMsgIds.set(msgId, now + ttlMs);
+  return true;
+}
+
+function checkAndMarkWelcomeMemory(tenantId: string, phone: string, ttlMs: number = 86400 * 1000): boolean {
+  const key = `${tenantId}:${phone}`;
+  const now = Date.now();
+  if (localWelcomeLocks.size > 2000) {
+    for (const [k, exp] of localWelcomeLocks.entries()) {
+      if (exp < now) localWelcomeLocks.delete(k);
+    }
+  }
+  const exp = localWelcomeLocks.get(key);
+  if (exp && exp > now) return false;
+  localWelcomeLocks.set(key, now + ttlMs);
+  return true;
+}
+
+function checkAndMarkGreetingDebounceMemory(tenantId: string, phone: string, ttlMs: number = 30 * 1000): boolean {
+  const key = `${tenantId}:${phone}`;
+  const now = Date.now();
+  if (localGreetingDebounces.size > 2000) {
+    for (const [k, exp] of localGreetingDebounces.entries()) {
+      if (exp < now) localGreetingDebounces.delete(k);
+    }
+  }
+  const exp = localGreetingDebounces.get(key);
+  if (exp && exp > now) return false;
+  localGreetingDebounces.set(key, now + ttlMs);
+  return true;
+}
 
 export const webhookRoutes: FastifyPluginAsync = async (app) => {
   // POST /webhooks/whatsapp - Webhook da Evolution API v2
@@ -48,6 +96,23 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
               ...(phone ? { phoneNumber: phone } : {})
             }
           });
+
+          // Envia mensagem automática de boas-vindas confirmando a conexão no próprio WhatsApp
+          const connectedConfig = await prisma.whatsappConfig.findFirst({
+            where: { instanceName },
+            include: { tenant: true }
+          });
+          const targetPhone = phone || connectedConfig?.phoneNumber;
+          if (connectedConfig && targetPhone) {
+            EvolutionService.sendTextMessage(
+              connectedConfig.tenantId,
+              targetPhone,
+              `Ola! O WhatsApp da recepcao do estabelecimento *${connectedConfig.tenant.name}* foi conectado com sucesso ao MarqueSuaHora.\n\nA sua Atendente IA e as confirmacoes automaticas de agendamento ja estao ativas no seu numero.`
+            ).catch((err) => {
+              console.warn('[WhatsApp Webhook] Falha ao enviar mensagem de boas-vindas:', err.message);
+            });
+          }
+
           return reply.status(200).send({ handled: true, event: 'connected' });
         } else if (state === 'close') {
           await prisma.whatsappConfig.updateMany({
@@ -77,16 +142,39 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(200).send({ status: 'ignored_no_data' });
     }
 
-    const messageData = body.data;
+    // Normalização defensiva: body.data pode ser um objeto, um array de mensagens, ou conter messages[]
+    const messageData = Array.isArray(body.data) 
+      ? body.data[0] 
+      : (body.data?.messages?.[0] || body.data || {});
+
     const key = messageData.key || {};
 
-    // Ignora mensagens enviadas pelo próprio bot (fromMe: true)
-    if (key.fromMe) {
-      return reply.status(200).send({ status: 'ignored_from_me' });
+    // Extrai os possíveis identificadores de telefone (suporte a JID tradicional, LID do WhatsApp Web e participantes)
+    const jidCandidates = [
+      key.remoteJidAlt,
+      key.remoteJid,
+      key.participant,
+      messageData.sender,
+      body.sender,
+      body.data?.sender
+    ].filter(Boolean) as string[];
+
+    // Prioriza o JID que contenha o número real de telefone (@s.whatsapp.net ou formato numérico)
+    let phoneJid = jidCandidates.find(j => j.includes('@s.whatsapp.net')) || jidCandidates[0] || '';
+    let cleanJid = phoneJid.split('@')[0].split(':')[0];
+    let rawPhone = cleanJid.replace(/\D/g, '');
+
+    // Se ainda parecer um LID (>14 dígitos numéricos não começando com DDI 55), tenta encontrar outro candidato válido
+    if (rawPhone.length > 14 && !rawPhone.startsWith('55')) {
+      const realPhoneCandidate = jidCandidates.find(j => {
+        const d = j.split('@')[0].split(':')[0].replace(/\D/g, '');
+        return d.startsWith('55') && (d.length === 12 || d.length === 13);
+      });
+      if (realPhoneCandidate) {
+        rawPhone = realPhoneCandidate.split('@')[0].split(':')[0].replace(/\D/g, '');
+      }
     }
 
-    const remoteJid = key.remoteJid || '';
-    const rawPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '');
     const clientPhone = rawPhone.startsWith('55') ? rawPhone.slice(2) : rawPhone;
 
     // Identifica o salão associado à instância
@@ -96,19 +184,58 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
     });
 
     if (!config || !config.tenant) {
+      console.warn(`[WhatsApp Webhook] Estabelecimento não localizado para a instância: ${instanceName}`);
       return reply.status(200).send({ status: 'tenant_not_found' });
+    }
+
+    // Se for mensagem originada do próprio aparelho conectado (fromMe = true)
+    if (key.fromMe) {
+      const salonDigits = (config.phoneNumber || '').replace(/\D/g, '');
+      const isSelfChat = salonDigits && (rawPhone.includes(salonDigits.slice(-8)) || salonDigits.includes(rawPhone.slice(-8)));
+      if (!isSelfChat) {
+        return reply.status(200).send({ status: 'ignored_from_me' });
+      }
+      console.log(`[WhatsApp Webhook] Auto-conversa de teste detectada (fromMe = true): ${clientPhone}`);
     }
 
     const tenant = config.tenant;
 
+    // Deduplicação de Mensagem (Idempotência por key.id para evitar processar a mesma mensagem duas vezes)
+    if (key.id) {
+      const msgDedupKey = `msh:msg_processed:${key.id}`;
+      let isDuplicate = false;
+      try {
+        if (redis.status === 'ready') {
+          const lock = await redis.set(msgDedupKey, '1', 'EX', 3600, 'NX');
+          isDuplicate = (lock === null);
+        } else {
+          isDuplicate = !checkAndMarkProcessedMsg(key.id);
+        }
+      } catch {
+        isDuplicate = !checkAndMarkProcessedMsg(key.id);
+      }
+
+      if (isDuplicate) {
+        console.log(`[WhatsApp Webhook] Mensagem ${key.id} já processada recentemente. Ignorando duplicata.`);
+        return reply.status(200).send({ status: 'ignored_duplicate_message' });
+      }
+    }
+
     const messageContent = messageData.message || {};
-    const isAudio = Boolean(messageContent.audioMessage || body.data.messageType === 'audioMessage');
-    const isImage = Boolean(messageContent.imageMessage || body.data.messageType === 'imageMessage');
+    const isAudio = Boolean(messageContent.audioMessage || messageData.messageType === 'audioMessage');
+    const isImage = Boolean(messageContent.imageMessage || messageData.messageType === 'imageMessage');
 
     let messageText =
+      (typeof messageData.body === 'string' ? messageData.body : '') ||
       messageContent.conversation ||
       messageContent.extendedTextMessage?.text ||
       messageContent.buttonsResponseMessage?.selectedDisplayText ||
+      messageContent.templateButtonReplyMessage?.selectedDisplayText ||
+      messageContent.listResponseMessage?.title ||
+      messageContent.ephemeralMessage?.message?.conversation ||
+      messageContent.ephemeralMessage?.message?.extendedTextMessage?.text ||
+      messageContent.viewOnceMessage?.message?.conversation ||
+      messageContent.viewOnceMessage?.message?.extendedTextMessage?.text ||
       '';
 
     // 1. Processamento de Áudio com Whisper via OpenRouter
@@ -164,6 +291,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(200).send({ status: 'ignored_no_text' });
     }
 
+    console.log(`[WhatsApp Inbound] Instância: ${instanceName} | Salão: ${tenant.name} | De: ${clientPhone} | Texto: "${messageText}"`);
 
     // Busca o cliente pelo telefone
     const client = await prisma.client.findFirst({
@@ -172,6 +300,80 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
         phone: { endsWith: clientPhone.slice(-8) } // Tolerância para 8 ou 9 dígitos com/sem DDD
       }
     });
+
+    // 0. AÇÃO: Mensagem de Boas-Vindas para Saudações Iniciais ("Olá", "oi", "bom dia", etc)
+    const cleanLowerText = messageText.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const isPureGreeting = /^(oi|ola|oie|opa|bom dia|boa tarde|boa noite|ola tudo bem|oi tudo bem|hello|hey)[\s!.,?]*$/i.test(cleanLowerText);
+
+    if (isPureGreeting && tenant.welcomeMessageEnabled !== false) {
+      const cleanPhone = clientPhone.replace(/\D/g, '');
+      const welcomeLockKey = `msh:welcome_sent:${tenant.id}:${cleanPhone}`;
+      const recentGreetingKey = `msh:greeting_debounced:${tenant.id}:${cleanPhone}`;
+
+      // 1. Verifica se já enviou boas-vindas nas últimas 24 horas (86400s)
+      let alreadyWelcomed = false;
+      try {
+        if (redis.status === 'ready') {
+          // SET com NX garante lock atômico: retorna 'OK' se foi definido agora (primeira vez), ou null se já existia
+          const lockResult = await redis.set(welcomeLockKey, '1', 'EX', 86400, 'NX');
+          alreadyWelcomed = (lockResult === null);
+        } else {
+          alreadyWelcomed = !checkAndMarkWelcomeMemory(tenant.id, cleanPhone, 86400 * 1000);
+        }
+      } catch {
+        alreadyWelcomed = !checkAndMarkWelcomeMemory(tenant.id, cleanPhone, 86400 * 1000);
+      }
+
+      if (alreadyWelcomed) {
+        // O cliente já recebeu as boas-vindas completas nas últimas 24h.
+        // Debounce de 30 segundos para saudações consecutivas ("oi", "olá" em sequência):
+        let isDebounced = false;
+        try {
+          if (redis.status === 'ready') {
+            const deb = await redis.set(recentGreetingKey, '1', 'EX', 30, 'NX');
+            isDebounced = (deb === null);
+          } else {
+            isDebounced = !checkAndMarkGreetingDebounceMemory(tenant.id, cleanPhone, 30 * 1000);
+          }
+        } catch {
+          isDebounced = !checkAndMarkGreetingDebounceMemory(tenant.id, cleanPhone, 30 * 1000);
+        }
+
+        if (isDebounced) {
+          console.log(`[WhatsApp Boas-Vindas] Saudação de ${clientPhone} ignorada por debounce de 30s.`);
+          return reply.status(200).send({ handled: true, action: 'greeting_debounced' });
+        }
+
+        // Se já passaram mais de 30 segundos, responde de forma natural, calorosa e concisa:
+        const clientDisplayName = client?.name ? `, ${client.name}` : '';
+        const shortGreeting = `Olá${clientDisplayName}! Como posso te ajudar hoje? Se quiser agendar ou consultar nossos serviços, produtos e cursos, é só acessar: https://marquesuahora.com.br/${tenant.slug}`;
+
+        console.log(`[WhatsApp Boas-Vindas] Cliente ${clientPhone} já recebeu boas-vindas nas últimas 24h. Enviando saudação curta.`);
+        await EvolutionService.sendTextMessage(tenant.id, clientPhone, shortGreeting);
+        await ConversationMemoryService.addMessage(tenant.id, clientPhone, 'user', messageText);
+        await ConversationMemoryService.addMessage(tenant.id, clientPhone, 'assistant', shortGreeting);
+
+        return reply.status(200).send({ handled: true, action: 'greeting_short_replied' });
+      }
+
+      // Dispara o template de boas-vindas configurado (1ª vez nas 24h):
+      let welcomeText = (tenant.welcomeMessageCustom?.trim()) ||
+        'Olá, {cliente}! Seja muito bem-vinda(o) ao *{salão}*!\n\nComo posso te ajudar hoje?\n• Agendar um horário (qual procedimento você gostaria de realizar?)\n• Conhecer nossos serviços, produtos e cursos\n• Tirar dúvidas\n\nSe preferir escolher o seu profissional e agendar online com facilidade, acesse nosso link oficial:\n👉 {link}';
+
+      const clientDisplayName = client?.name || 'cliente';
+      welcomeText = welcomeText
+        .replace(/{cliente}/gi, clientDisplayName)
+        .replace(/{salão}|{salao}/gi, tenant.name)
+        .replace(/{link}/gi, `https://marquesuahora.com.br/${tenant.slug}`);
+
+      console.log(`[WhatsApp Boas-Vindas] Enviando mensagem de boas-vindas inicial para ${clientPhone} (${tenant.name})`);
+
+      await EvolutionService.sendTextMessage(tenant.id, clientPhone, welcomeText);
+      await ConversationMemoryService.addMessage(tenant.id, clientPhone, 'user', messageText);
+      await ConversationMemoryService.addMessage(tenant.id, clientPhone, 'assistant', welcomeText);
+
+      return reply.status(200).send({ handled: true, action: 'welcome_message_sent' });
+    }
 
     // Classificação de intenção com TypeSafe Jev (Local + System One API)
     const decision = await JevDecisionEngine.classifyAsync(messageText);
@@ -196,7 +398,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
         await EvolutionService.sendTextMessage(
           tenant.id,
           client.phone,
-          `Obrigado por confirmar, ${client.name}! ✨ Sua presença está garantida para ${upcomingSchedule.startTime}. Estamos te esperando com tudo pronto!`
+          `Obrigado por confirmar, ${client.name}! Sua presença está garantida para ${upcomingSchedule.startTime}. Estamos te esperando com tudo pronto!`
         );
 
         return reply.status(200).send({ handled: true, action: 'confirmed' });
@@ -290,7 +492,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
         await EvolutionService.sendTextMessage(
           tenant.id,
           rawPhone,
-          `Excelente, ${client.name}! 🎉 Vaga garantida! Seu horário foi reservado com sucesso no *${tenant.name}*. Estamos preparando tudo para te atender!`
+          `Excelente, ${client.name}! Vaga garantida! Seu horário foi reservado com sucesso no *${tenant.name}*. Estamos preparando tudo para te atender!`
         );
 
         return reply.status(200).send({ handled: true, action: 'waitlist_converted' });
@@ -321,7 +523,7 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
           await EvolutionService.sendTextMessage(
             tenant.id,
             client.phone,
-            `Ficamos muito felizes que você tenha amado a experiência, ${client.name}! ⭐️✨\n\nVocê nos ajudaria com 30 segundinhos deixando essa mesma avaliação no nosso perfil do Google? Isso ajuda muito o nosso negócio a crescer:\n\n👉 ${tenant.googleReviewUrl}\n\nMuito obrigado pelo carinho!`
+            `Ficamos muito felizes que você tenha amado a experiência, ${client.name}!\n\nVocê nos ajudaria com 30 segundinhos deixando essa mesma avaliação no nosso perfil do Google? Isso ajuda muito o nosso negócio a crescer:\n\n👉 ${tenant.googleReviewUrl}\n\nMuito obrigado pelo carinho!`
           );
         } else {
           await EvolutionService.sendTextMessage(
@@ -601,12 +803,40 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
 
       // 1. Confirmação / Recebimento de Mensalidade
       if (eventName === 'PAYMENT_CONFIRMED' || eventName === 'PAYMENT_RECEIVED' || eventName === 'PAYMENT_RESTORED') {
+        const isVip = Boolean(
+          tenant.plan?.code === 'VIP_PRO' ||
+          tenant.plan?.code === 'VIP_AI' ||
+          (tenant.plan?.name && tenant.plan.name.toUpperCase().includes('VIP')) ||
+          tenant.billingStatus === 'GRATUITY'
+        );
+
+        let matchedPlanId = tenant.planId;
+        if (!isVip) {
+          const desc = (payment?.description || subscription?.description || '').toUpperCase();
+          if (desc.includes('EQUIPE') || desc.includes('PRO')) {
+            const eqPlan = await prisma.plan.findUnique({ where: { code: 'EQUIPE_PRO' } });
+            if (eqPlan) matchedPlanId = eqPlan.id;
+          } else if (desc.includes('SOLO')) {
+            const soloPlan = await prisma.plan.findUnique({ where: { code: 'SOLO' } });
+            if (soloPlan) matchedPlanId = soloPlan.id;
+          } else if (payment?.value) {
+            const planByPrice = await prisma.plan.findFirst({
+              where: {
+                monthlyPrice: Number(payment.value),
+                active: true
+              }
+            });
+            if (planByPrice) matchedPlanId = planByPrice.id;
+          }
+        }
+
         await prisma.tenant.update({
           where: { id: tenant.id },
           data: {
             billingStatus: 'ACTIVE',
             blockedReason: null,
             blockedAt: null,
+            ...(matchedPlanId && !isVip ? { planId: matchedPlanId } : {}),
             ...(subId && !tenant.asaasSubscriptionId ? { asaasSubscriptionId: subId } : {}),
             ...(custId && !tenant.asaasCustomerId ? { asaasCustomerId: custId } : {})
           }
@@ -623,7 +853,8 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
               subscriptionId: subId,
               amount: payment?.value,
               billingType: payment?.billingType,
-              event: eventName
+              event: eventName,
+              isVipPreserved: isVip
             }
           }
         });

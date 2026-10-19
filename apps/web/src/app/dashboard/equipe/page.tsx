@@ -26,8 +26,10 @@ import {
   Loader2
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { InputMask } from '@/components/ui/InputMask';
+import { SpecialtiesModal } from '@/components/equipe/SpecialtiesModal';
 
 export interface ProfessionalMember {
   id: string;
@@ -44,11 +46,7 @@ export interface ProfessionalMember {
   isActive: boolean;
 }
 
-interface NicheConfig {
-  nicheLabel: string;
-  roleSuggestions: string[];
-  specialtySuggestions: string[];
-}
+
 
 const WEEK_DAYS = [
   { id: 'Seg', label: 'Seg' },
@@ -70,102 +68,6 @@ const PRESET_COLORS = [
   '#0D9488', // Teal
   '#1E293B'  // Dark Obsidian
 ];
-
-const NICHE_CONFIGS: Record<string, NicheConfig> = {
-  BEAUTY_SALON: {
-    nicheLabel: 'Salão de Beleza',
-    roleSuggestions: [
-      'Master Colorista & Terapeuta Capilar',
-      'Visagista & Especialista em Cortes',
-      'Especialista em Escovas & Tratamentos',
-      'Colorista Assistente',
-      'Terapeuta Capilar & Tricologia'
-    ],
-    specialtySuggestions: [
-      'Mechas & Luzes',
-      'Coloração Global',
-      'Corte Feminino',
-      'Escova Modelada',
-      'Terapia Capilar',
-      'Cronograma Capilar',
-      'Penteado de Noiva',
-      'Botox Capilar'
-    ]
-  },
-
-  BARBERSHOP: {
-    nicheLabel: 'Barbearia',
-    roleSuggestions: [
-      'Master Barber & Visagista',
-      'Especialista em Degradê & Navalhado',
-      'Barbeiro Clássico & Barboterapia',
-      'Barbeiro Especialista em Barba Terapia'
-    ],
-    specialtySuggestions: [
-      'Degradê / Fade',
-      'Corte Clássico na Tesoura',
-      'Barboterapia com Toalha Quente',
-      'Platinado / Nevou',
-      'Pigmentação de Barba',
-      'Alinhamento de Fios'
-    ]
-  },
-
-  NAIL_LASH_STUDIO: {
-    nicheLabel: 'Unhas & Cílios',
-    roleSuggestions: [
-      'Master Lash Designer',
-      'Nail Designer Especialista em Gel & Fibra',
-      'Designer de Sobrancelhas & Micropigmentação',
-      'Manicure & Pedicure Spa'
-    ],
-    specialtySuggestions: [
-      'Volume Russo',
-      'Lash Lifting',
-      'Volume Brasileiro',
-      'Alongamento em Gel',
-      'Fibra de Vidro',
-      'Blindagem de Unhas',
-      'Spa dos Pés',
-      'Nail Art'
-    ]
-  },
-
-  AESTHETICS_CLINIC: {
-    nicheLabel: 'Clínica de Estética',
-    roleSuggestions: [
-      'Biomédica Esteta',
-      'Esteticista Facial & Corporal',
-      'Massoterapeuta & Drenagem',
-      'Fisioterapeuta Dermato-Funcional'
-    ],
-    specialtySuggestions: [
-      'Harmonização Facial',
-      'Limpeza de Pele Profunda',
-      'Drenagem Linfática Pós-Operatório',
-      'Massagem Modeladora',
-      'Peeling de Diamante',
-      'Microagulhamento'
-    ]
-  },
-
-  PERSONAL_TRAINER: {
-    nicheLabel: 'Personal Trainer',
-    roleSuggestions: [
-      'Personal Trainer & Fisiologista',
-      'Treinadora & Especialista em Mobilidade',
-      'Treinador de Hipertrofia & Força',
-      'Coach de Reabilitação Postural'
-    ],
-    specialtySuggestions: [
-      'Hipertrofia & Ganho de Massa',
-      'Emagrecimento & Definição',
-      'Treinamento Funcional VIP',
-      'Pilates Solo & Mobilidade',
-      'Reabilitação Postural'
-    ]
-  }
-};
 
 const DAY_MAP_TO_KEY: Record<string, string> = {
   Seg: 'mon',
@@ -221,13 +123,8 @@ function parseScheduleConfig(cfg: any) {
 }
 
 export default function DashboardEquipePage() {
-  const [currentNiche, setCurrentNiche] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_niche') || 'NAIL_LASH_STUDIO';
-    }
-    return 'NAIL_LASH_STUDIO';
-  });
   const [team, setTeam] = useState<ProfessionalMember[]>([]);
+  const [availableServices, setAvailableServices] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -237,60 +134,85 @@ export default function DashboardEquipePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<ProfessionalMember | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ProfessionalMember | null>(null);
+  const [specialtiesModalMember, setSpecialtiesModalMember] = useState<ProfessionalMember | null>(null);
 
   // Limites do Plano Ativo
   const [tenantPlanCode, setTenantPlanCode] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('marquesuahora_tenant_plan_code') || 'VIP_PRO';
+      return localStorage.getItem('marquesuahora_tenant_plan_code') || 'FREE';
     }
-    return 'VIP_PRO';
+    return 'FREE';
   });
   const [tenantPlanName, setTenantPlanName] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('marquesuahora_tenant_plan_name') || 'Império VIP & IA';
+      return localStorage.getItem('marquesuahora_tenant_plan_name') || 'Plano Gratuito';
     }
-    return 'Império VIP & IA';
+    return 'Plano Gratuito';
   });
   const [maxProfessionals, setMaxProfessionals] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('marquesuahora_tenant_max_prof');
       if (saved) return Number(saved);
     }
-    return 10;
+    return 1;
   });
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+
+  // Toast State (Zero Ícones)
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
+    }
+    return '#5c0701';
+  });
 
   // Form State
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [phone, setPhone] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
-  const [color, setColor] = useState('#7C3AED');
-  const [commission, setCommission] = useState('50');
+  const [color, setColor] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
+    }
+    return '#5c0701';
+  });
+  const [commission, setCommission] = useState('');
   const [selectedSpecialties, setSelectedSpecialties] = useState<string[]>([]);
   const [customSpecialtyInput, setCustomSpecialtyInput] = useState('');
   const [selectedWorkDays, setSelectedWorkDays] = useState<string[]>(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']);
   const [workHoursStart, setWorkHoursStart] = useState('09:00');
   const [workHoursEnd, setWorkHoursEnd] = useState('19:00');
   const [isActiveForm, setIsActiveForm] = useState(true);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Carrega profissionais e dados do tenant diretamente do PostgreSQL
+  // Carrega profissionais, dados do tenant e serviços diretamente do PostgreSQL
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) {
       setLoading(true);
     }
     try {
-      const [tenantRes, profRes] = await Promise.all([
+      const [tenantRes, profRes, servRes] = await Promise.all([
         api.get('/tenants/me').catch(() => null),
-        api.get('/professionals').catch(() => ({ data: [] }))
+        api.get('/professionals').catch(() => ({ data: [] })),
+        api.get('/services').catch(() => ({ data: [] }))
       ]);
 
+      let tColor = tenantPrimaryColor;
       if (tenantRes?.data) {
         const t = tenantRes.data;
-        if (t.niche && NICHE_CONFIGS[t.niche]) {
-          setCurrentNiche(t.niche);
+        if (t.primaryColor) {
+          tColor = t.primaryColor;
+          setTenantPrimaryColor(t.primaryColor);
+          localStorage.setItem('tenant_primary_color', t.primaryColor);
         }
         if (t.plan) {
           setTenantPlanCode(t.plan.code);
@@ -304,6 +226,11 @@ export default function DashboardEquipePage() {
         }
       }
 
+      if (Array.isArray(servRes.data)) {
+        const serviceNames = servRes.data.map((s: any) => s.name).filter(Boolean);
+        setAvailableServices(Array.from(new Set(serviceNames)));
+      }
+
       const rawList = profRes.data || [];
       const formatted: ProfessionalMember[] = rawList.map((p: any) => {
         const schedule = parseScheduleConfig(p.scheduleConfig);
@@ -311,14 +238,19 @@ export default function DashboardEquipePage() {
           .map((sp: any) => sp.service?.name)
           .filter(Boolean);
 
+        const SYSTEM_DEFAULTS = ['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'];
+        const pColor = p.color?.trim();
+        const isDefault = !pColor || SYSTEM_DEFAULTS.includes(pColor.toUpperCase());
+        const effectiveColor = isDefault ? (tColor || '#5c0701') : pColor;
+
         return {
           id: p.id,
           name: p.name,
           role: p.role || '',
           phone: p.phone || '',
           avatarUrl: p.avatarUrl || '',
-          color: p.color || '#7C3AED',
-          commissionPercentage: Number(p.commissionRate) || 50,
+          color: effectiveColor,
+          commissionPercentage: Number(p.commissionRate) || 0,
           specialties,
           workDays: schedule.days,
           workHoursStart: schedule.start,
@@ -362,8 +294,6 @@ export default function DashboardEquipePage() {
     };
   }, [fetchData]);
 
-  const currentConfig = NICHE_CONFIGS[currentNiche] || NICHE_CONFIGS.BEAUTY_SALON;
-
   const handleOpenCreate = () => {
     // Bloqueia caso atinja o limite do plano contratado
     if (team.length >= maxProfessionals) {
@@ -373,12 +303,12 @@ export default function DashboardEquipePage() {
 
     setEditingMember(null);
     setName('');
-    setRole(currentConfig.roleSuggestions[0] || '');
+    setRole('');
     setPhone('');
     setAvatarUrl('');
     setColor(PRESET_COLORS[0]);
-    setCommission('50');
-    setSelectedSpecialties(currentConfig.specialtySuggestions.slice(0, 3));
+    setCommission('');
+    setSelectedSpecialties([]);
     setCustomSpecialtyInput('');
     setSelectedWorkDays(['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']);
     setWorkHoursStart('09:00');
@@ -404,14 +334,27 @@ export default function DashboardEquipePage() {
     setIsModalOpen(true);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/uploads', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      if (res.data?.url) {
+        setAvatarUrl(res.data.url);
+        showToast('Foto do profissional atualizada com sucesso.');
+      }
+    } catch {
+      showToast('Não foi possível enviar a foto do profissional.');
+    } finally {
+      setUploadingAvatar(false);
     }
   };
 
@@ -457,9 +400,9 @@ export default function DashboardEquipePage() {
     try {
       const payload = {
         name,
-        role: role || undefined,
+        role: role.trim() || undefined,
         phone,
-        avatarUrl: avatarUrl || undefined,
+        avatarUrl: avatarUrl ? avatarUrl : (editingMember ? null : undefined),
         color,
         commissionRate: parsedCommission,
         isActive: isActiveForm,
@@ -468,15 +411,17 @@ export default function DashboardEquipePage() {
 
       if (editingMember) {
         await api.put(`/professionals/${editingMember.id}`, payload);
+        showToast('Colaborador atualizado com sucesso!');
       } else {
         await api.post('/professionals', payload);
+        showToast('Novo colaborador cadastrado com sucesso!');
       }
 
       setIsModalOpen(false);
       fetchData();
       window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Falha ao salvar colaborador.');
+      showToast(err?.response?.data?.message || 'Falha ao salvar colaborador.');
     } finally {
       setSaving(false);
     }
@@ -487,8 +432,9 @@ export default function DashboardEquipePage() {
       await api.put(`/professionals/${member.id}`, { isActive: !member.isActive });
       fetchData();
       window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+      showToast(member.isActive ? 'Atendimentos pausados para este profissional.' : 'Profissional reativado na agenda!');
     } catch {
-      alert('Erro ao alterar status do profissional.');
+      showToast('Erro ao alterar status do profissional.');
     }
   };
 
@@ -497,13 +443,15 @@ export default function DashboardEquipePage() {
     try {
       const res = await api.delete(`/professionals/${deleteTarget.id}`);
       if (res.data?.action === 'DEACTIVATED') {
-        alert(res.data.message);
+        showToast(res.data.message);
+      } else {
+        showToast('Colaborador removido da equipe.');
       }
       setDeleteTarget(null);
       fetchData();
       window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Falha ao remover colaborador.');
+      showToast(err?.response?.data?.message || 'Falha ao remover colaborador.');
     }
   };
 
@@ -558,6 +506,20 @@ export default function DashboardEquipePage() {
 
   return (
     <div className="w-full space-y-6">
+      {/* Toast Notifier (Zero Ícones) */}
+      <AnimatePresence>
+        {toastMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-6 right-6 z-50 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl border border-slate-700"
+          >
+            <span>{toastMsg}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Barra de Contexto do Nicho e Métricas */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-2xs flex items-center justify-between">
@@ -687,8 +649,7 @@ export default function DashboardEquipePage() {
             Nenhum profissional encontrado
           </h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            Não encontramos colaboradores com os filtros selecionados para o catálogo de{' '}
-            {currentConfig.nicheLabel}.
+            Não encontramos colaboradores com os filtros selecionados na sua equipe.
           </p>
           <button
             type="button"
@@ -722,7 +683,7 @@ export default function DashboardEquipePage() {
                       <div className="w-14 h-14 rounded-2xl overflow-hidden bg-slate-100 border border-slate-200 shadow-2xs flex items-center justify-center">
                         {member.avatarUrl ? (
                           <img
-                            src={member.avatarUrl}
+                            src={resolveImageUrl(member.avatarUrl)}
                             alt={member.name}
                             className="w-full h-full object-cover object-center"
                           />
@@ -785,21 +746,43 @@ export default function DashboardEquipePage() {
                     </div>
                   </div>
 
-                  {/* Especialidades / Tags do Profissional */}
+                  {/* Especialidades / Tags do Profissional (Compacto com Modal para listas longas) */}
                   {member.specialties && member.specialties.length > 0 && (
                     <div className="space-y-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                        Especialidades & Atendimentos
-                      </span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Especialidades & Atendimentos
+                        </span>
+                        {member.specialties.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setSpecialtiesModalMember(member)}
+                            className="text-[10px] font-bold text-purple-700 hover:text-purple-800 hover:underline transition-colors cursor-pointer"
+                          >
+                            Ver todas ({member.specialties.length})
+                          </button>
+                        )}
+                      </div>
                       <div className="flex flex-wrap gap-1.5">
-                        {member.specialties.map((spec, i) => (
+                        {member.specialties.slice(0, 3).map((spec, i) => (
                           <span
                             key={i}
-                            className="px-2 py-0.5 rounded-lg bg-slate-100/90 text-slate-700 text-[11px] font-medium border border-slate-200/60"
+                            className="px-2 py-0.5 rounded-lg bg-slate-100/90 text-slate-700 text-[11px] font-medium border border-slate-200/60 truncate max-w-[140px]"
+                            title={spec}
                           >
                             {spec}
                           </span>
                         ))}
+                        {member.specialties.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={() => setSpecialtiesModalMember(member)}
+                            className="px-2 py-0.5 rounded-lg bg-purple-50 text-purple-700 text-[11px] font-bold border border-purple-200 hover:bg-purple-100 transition-colors cursor-pointer"
+                            title="Clique para ver a lista completa"
+                          >
+                            +{member.specialties.length - 3} mais
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -811,9 +794,17 @@ export default function DashboardEquipePage() {
                         <Percent className="w-3.5 h-3.5 text-purple-600" />
                         <span>Comissão / Repasse:</span>
                       </span>
-                      <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
-                        {member.commissionPercentage}%
-                      </span>
+                      {Number(member.commissionPercentage) >= 100 ||
+                      member.role?.toLowerCase().includes('dona') ||
+                      member.role?.toLowerCase().includes('proprietár') ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-purple-800 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-200 shadow-2xs">
+                          Faturamento Próprio
+                        </span>
+                      ) : (
+                        <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-200 shadow-2xs">
+                          {member.commissionPercentage}%
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-200/60">
@@ -923,7 +914,7 @@ export default function DashboardEquipePage() {
                     <div className="w-20 h-20 rounded-2xl overflow-hidden bg-white border border-purple-200 shadow-sm flex items-center justify-center">
                       {avatarUrl ? (
                         <img
-                          src={avatarUrl}
+                          src={resolveImageUrl(avatarUrl)}
                           alt="Preview do Profissional"
                           className="w-full h-full object-cover object-center"
                         />
@@ -939,8 +930,9 @@ export default function DashboardEquipePage() {
                     {/* Botão de câmera na foto */}
                     <button
                       type="button"
+                      disabled={uploadingAvatar}
                       onClick={() => fileInputRef.current?.click()}
-                      className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center shadow-md transition-all cursor-pointer"
+                      className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-purple-600 hover:bg-purple-700 text-white flex items-center justify-center shadow-md transition-all cursor-pointer disabled:opacity-50"
                       title="Alterar foto"
                     >
                       <Camera className="w-3 h-3" />
@@ -959,16 +951,18 @@ export default function DashboardEquipePage() {
                         type="file"
                         ref={fileInputRef}
                         accept="image/*"
+                        disabled={uploadingAvatar}
                         onChange={handleFileUpload}
                         className="hidden"
                       />
                       <button
                         type="button"
+                        disabled={uploadingAvatar}
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                        className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-semibold rounded-xl flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors disabled:opacity-50"
                       >
                         <Upload className="w-3 h-3" />
-                        <span>{avatarUrl ? 'Trocar Foto' : 'Enviar do Dispositivo'}</span>
+                        <span>{uploadingAvatar ? 'Enviando...' : (avatarUrl ? 'Trocar Foto' : 'Enviar do Dispositivo')}</span>
                       </button>
 
                       {avatarUrl && (
@@ -1006,27 +1000,17 @@ export default function DashboardEquipePage() {
                     <input
                       type="text"
                       required
+                      list="team-roles-list"
                       value={role}
                       onChange={(e) => setRole(e.target.value)}
+                      placeholder="Ex: Manicure, Lash Designer, Cabeleireira, Barbeiro..."
                       className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-medium"
                     />
-
-                    {/* Sugestões rápidas de cargo para o nicho */}
-                    <div className="flex items-center gap-1.5 flex-wrap mt-2">
-                      <span className="text-[10px] text-slate-400 font-semibold uppercase">
-                        Sugestões:
-                      </span>
-                      {currentConfig.roleSuggestions.slice(0, 3).map((r) => (
-                        <button
-                          key={r}
-                          type="button"
-                          onClick={() => setRole(r)}
-                          className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 hover:bg-purple-100 hover:text-purple-700 text-slate-600 transition-colors cursor-pointer"
-                        >
-                          + {r}
-                        </button>
+                    <datalist id="team-roles-list">
+                      {Array.from(new Set(team.map((m) => m.role).filter(Boolean))).map((r) => (
+                        <option key={r} value={r} />
                       ))}
-                    </div>
+                    </datalist>
                   </div>
 
                   <div>
@@ -1054,6 +1038,7 @@ export default function DashboardEquipePage() {
                         max={100}
                         value={commission}
                         onChange={(e) => setCommission(e.target.value)}
+                        placeholder="Ex: 50"
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-purple-600 transition-all font-semibold font-mono"
                       />
                       <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">
@@ -1106,24 +1091,30 @@ export default function DashboardEquipePage() {
                   </div>
 
                   <div className="flex flex-wrap gap-1.5 pt-1">
-                    {currentConfig.specialtySuggestions.map((item) => {
-                      const isSelected = selectedSpecialties.includes(item);
-                      return (
-                        <button
-                          key={item}
-                          type="button"
-                          onClick={() => toggleSpecialty(item)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                            isSelected
-                              ? 'bg-purple-600 text-white shadow-2xs font-semibold'
-                              : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          {isSelected ? '✓ ' : '+ '}
-                          {item}
-                        </button>
-                      );
-                    })}
+                    {availableServices.length > 0 ? (
+                      availableServices.map((item) => {
+                        const isSelected = selectedSpecialties.includes(item);
+                        return (
+                          <button
+                            key={item}
+                            type="button"
+                            onClick={() => toggleSpecialty(item)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-purple-600 text-white shadow-2xs font-semibold'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'
+                            }`}
+                          >
+                            {isSelected ? '✓ ' : '+ '}
+                            {item}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <p className="text-xs text-slate-400 italic">
+                        Nenhum serviço cadastrado ainda. Digite uma especialidade abaixo ou cadastre em &quot;Serviços&quot;.
+                      </p>
+                    )}
                   </div>
 
                   {/* Adicionar especialidade avulsa */}
@@ -1182,6 +1173,7 @@ export default function DashboardEquipePage() {
                       </span>
                       <input
                         type="time"
+                        step="1800"
                         value={workHoursStart}
                         onChange={(e) => setWorkHoursStart(e.target.value)}
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none font-mono font-semibold"
@@ -1193,11 +1185,47 @@ export default function DashboardEquipePage() {
                       </span>
                       <input
                         type="time"
+                        step="1800"
                         value={workHoursEnd}
                         onChange={(e) => setWorkHoursEnd(e.target.value)}
                         className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-xl outline-none font-mono font-semibold"
                       />
                     </div>
+                  </div>
+
+                  {/* Atalhos Rápidos alinhados à grade da agenda */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                    <span className="text-[10px] text-slate-400 font-medium">Grade padrão:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWorkHoursStart('09:00');
+                        setWorkHoursEnd('19:00');
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 hover:text-purple-700 hover:border-purple-300 transition-colors cursor-pointer"
+                    >
+                      09:00 às 19:00
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWorkHoursStart('08:00');
+                        setWorkHoursEnd('18:00');
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 hover:text-purple-700 hover:border-purple-300 transition-colors cursor-pointer"
+                    >
+                      08:00 às 18:00
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWorkHoursStart('10:00');
+                        setWorkHoursEnd('20:00');
+                      }}
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-600 hover:text-purple-700 hover:border-purple-300 transition-colors cursor-pointer"
+                    >
+                      10:00 às 20:00
+                    </button>
                   </div>
                 </div>
 
@@ -1319,6 +1347,19 @@ export default function DashboardEquipePage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal Dedicado de Especialidades Completas do Colaborador */}
+      <SpecialtiesModal
+        isOpen={Boolean(specialtiesModalMember)}
+        onClose={() => setSpecialtiesModalMember(null)}
+        member={specialtiesModalMember}
+        onEditMember={(m) => {
+          const full = team.find((p) => p.id === m.id);
+          if (full) {
+            handleOpenEdit(full);
+          }
+        }}
+      />
     </div>
   );
 }

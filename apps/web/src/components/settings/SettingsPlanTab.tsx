@@ -1,24 +1,43 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Check,
   AlertTriangle,
-  ArrowRight
+  ArrowRight,
+  Loader2
 } from 'lucide-react';
 import { TenantSettings } from './types';
 import { api } from '@/lib/api';
 import { PlanCheckoutModal } from '../checkout/PlanCheckoutModal';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 interface SettingsPlanTabProps {
   settings: TenantSettings;
   onRefresh: () => void;
 }
 
+interface AvailablePlanItem {
+  code: string;
+  name: string;
+  price: string;
+  numericPrice: number;
+  period: string;
+  badge?: string;
+  description: string;
+  maxProf: number;
+  isUnlimited: boolean;
+  monthlyLimit: number;
+  features: string[];
+}
+
 export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRefresh }) => {
   const [upgradingCode, setUpgradingCode] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [checkoutPlan, setCheckoutPlan] = useState<any>(null);
+  const [confirmDowngrade, setConfirmDowngrade] = useState(false);
+  const [plansFromDb, setPlansFromDb] = useState<AvailablePlanItem[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState<boolean>(true);
 
   const plan = settings.plan;
   const usage = settings.usage;
@@ -31,26 +50,21 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
   const currentProfessionals = usage?.currentProfessionals ?? 1;
   const maxProfessionals = usage?.maxProfessionals ?? 1;
 
-  interface AvailablePlanItem {
-    code: string;
-    name: string;
-    price: string;
-    period: string;
-    badge?: string;
-    description: string;
-    maxProf: number;
-    isUnlimited: boolean;
-    monthlyLimit: number;
-    features: string[];
-  }
+  const isVip = Boolean(
+    plan?.code === 'VIP_PRO' ||
+    plan?.code === 'VIP_AI' ||
+    (plan?.name && plan.name.toUpperCase().includes('VIP')) ||
+    (Boolean(plan?.isUnlimitedBookings) && Number(plan?.monthlyPrice || 0) === 0 && (plan?.maxProfessionals || 1) > 5)
+  );
 
-  const isCurrentFree = !plan || plan.code === 'FREE' || Number(plan.monthlyPrice || 0) === 0;
+  const isCurrentFree = !isVip && (!plan || plan.code === 'FREE' || Number(plan.monthlyPrice || 0) === 0);
 
-  const availablePlans: AvailablePlanItem[] = [
+  const defaultPlans: AvailablePlanItem[] = [
     {
       code: 'FREE',
       name: 'Gratuito',
       price: 'R$ 0',
+      numericPrice: 0,
       period: 'para sempre',
       description: 'Ideal para quem está começando o próprio negócio.',
       maxProf: 1,
@@ -59,70 +73,132 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
       features: [
         'Até 30 agendamentos por mês',
         '1 profissional cadastrado',
-        'Link na bio personalizável',
-        'Catálogo de serviços e preços'
+        'Vitrine pública & Link na bio',
+        'Proteção Anti-Falta (Sinal PIX Direto)',
+        'Central de Suporte Oficial com IA'
       ]
     },
     {
       code: 'SOLO',
       name: 'Profissional Solo',
-      price: 'R$ 39',
+      price: 'R$ 49,99',
+      numericPrice: 49.99,
       period: '/mês',
-      description: 'Para profissionais autônomas que vivem de hora marcada e precisam de agendamentos ilimitados.',
+      description: 'Para profissionais autônomas que precisam de agendamentos ilimitados sem fidelidade.',
       maxProf: 1,
       isUnlimited: true,
       monthlyLimit: 0,
+      badge: 'Mais Popular',
       features: [
         'Agendamentos ilimitados (sem travas)',
         '1 profissional cadastrado',
-        'Lembretes automáticos no WhatsApp',
-        'Módulo de Cursos Online para alunas',
-        'Proteção No-Show Shield (anti-faltas)',
-        'Galeria de fotos de trabalhos'
+        'Automações de WhatsApp (Lembretes & Confirmações)',
+        'Vitrine pública & Link na bio',
+        'Proteção Anti-Falta (Sinal PIX Direto)',
+        'Central de Suporte Oficial com IA',
+        'Plano pré-pago sem fidelidade'
       ]
     },
     {
       code: 'EQUIPE_PRO',
       name: 'Equipe Pro',
-      price: 'R$ 79',
+      price: 'R$ 99,99',
+      numericPrice: 99.99,
       period: '/mês',
-      description: 'Para salões, barbearias e estúdios com múltiplos atendentes.',
+      description: 'Para estabelecimentos com equipe que utilizam Copiloto IA, WhatsApp e módulo de cursos.',
       maxProf: 5,
       isUnlimited: true,
       monthlyLimit: 0,
+      badge: 'Para Salões & Equipes',
       features: [
         'Agendamentos ilimitados',
         'Até 5 profissionais na equipe',
-        'Grades individuais de horários',
-        'Lembretes no WhatsApp para todos',
-        'Cursos e vídeos para alunas',
-        'Relatórios de atendimentos por profissional'
+        'Copiloto IA (Comandos de Voz & Texto)',
+        'Lembretes automáticos no WhatsApp',
+        'Módulo de Cursos Online para alunas',
+        'Central de Suporte Oficial com IA',
+        'Cálculo de Comissões e Relatórios'
       ]
     }
   ];
 
+  // Busca planos ativos e comerciais cadastrados no banco de dados
+  useEffect(() => {
+    let isMounted = true;
+    api.get('/plans')
+      .then((res) => {
+        if (!isMounted) return;
+        if (Array.isArray(res.data) && res.data.length > 0) {
+          const mapped: AvailablePlanItem[] = res.data.map((p: any) => ({
+            code: p.code,
+            name: p.name,
+            price: Number(p.monthlyPrice) === 0 ? 'R$ 0' : `R$ ${Number(p.monthlyPrice).toFixed(2).replace('.', ',')}`,
+            numericPrice: Number(p.monthlyPrice) || 0,
+            period: Number(p.monthlyPrice) === 0 ? 'para sempre' : '/mês',
+            badge: p.code === 'SOLO' ? 'Mais Popular' : (p.code === 'EQUIPE_PRO' ? 'Para Salões & Equipes' : undefined),
+            description: p.description || '',
+            maxProf: p.maxProfessionals || 1,
+            isUnlimited: Boolean(p.isUnlimitedBookings),
+            monthlyLimit: p.monthlyFreeBookings || 30,
+            features: Array.isArray(p.features) && p.features.length > 0
+              ? p.features
+              : [
+                  `Até ${p.maxProfessionals} profissional${p.maxProfessionals > 1 ? 'is' : ''}`,
+                  p.isUnlimitedBookings ? 'Agendamentos Ilimitados' : `Até ${p.monthlyFreeBookings || 30} agendamentos/mês`,
+                  p.hasAutoWhatsapp ? 'Automações de WhatsApp (Lembretes & Confirmações)' : 'WhatsApp manual',
+                  p.hasAiAssistant ? 'Copiloto IA na agenda' : 'Painel de agendamentos'
+                ]
+          }));
+          setPlansFromDb(mapped);
+        }
+      })
+      .catch((err) => {
+        console.warn('Falha ao carregar planos do banco:', err);
+      })
+      .finally(() => {
+        if (isMounted) setLoadingPlans(false);
+      });
+
+    return () => { isMounted = false; };
+  }, []);
+
+  const availablePlans = plansFromDb.length > 0 ? plansFromDb : defaultPlans;
+
   const handleSelectPlan = async (targetCode: string) => {
+    if (isVip) {
+      setStatusMsg({
+        text: 'Seu estabelecimento possui Plano VIP Vitalício completo com acesso total a todas as funcionalidades. Não é necessário mudar de plano.',
+        type: 'success'
+      });
+      return;
+    }
+
     if (plan?.code === targetCode) return;
     const targetPlan = availablePlans.find((p) => p.code === targetCode);
     if (!targetPlan) return;
 
-    // Se for plano pago (Solo ou Equipe Pro), abre o checkout elegante com a taxa de 1.99%
-    if (targetCode !== 'FREE') {
-      setCheckoutPlan(targetPlan);
+    // Se for plano pago (Solo ou Equipe Pro), abre o checkout obrigatório com pagamento via PIX ou Cartão
+    if (targetCode !== 'FREE' && targetPlan.numericPrice > 0) {
+      setCheckoutPlan({
+        ...targetPlan,
+        monthlyPrice: targetPlan.numericPrice
+      });
       return;
     }
 
-    // Se for downgrade para o plano gratuito, executa diretamente
-    setUpgradingCode(targetCode);
+    // Se for downgrade para o plano gratuito, abre modal de confirmação
+    setConfirmDowngrade(true);
+  };
+
+  const executeDowngrade = async () => {
+    setUpgradingCode('FREE');
     setStatusMsg(null);
     try {
       const res = await api.post('/tenants/me/plan', {
-        planCode: targetCode
-      }).catch(async () => {
-        return api.put('/tenants/me/settings', { planCode: targetCode });
+        planCode: 'FREE'
       });
       setStatusMsg({
-        text: res.data?.message || `Plano atualizado com sucesso para ${targetCode}! As novas regras já estão ativas.`,
+        text: res.data?.message || 'Plano atualizado com sucesso para FREE! As novas regras já estão ativas.',
         type: 'success'
       });
       onRefresh();
@@ -134,6 +210,7 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
       });
     } finally {
       setUpgradingCode(null);
+      setConfirmDowngrade(false);
     }
   };
 
@@ -163,26 +240,30 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
                 Seu Plano Contratado
               </span>
               <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider ${
-                isCurrentFree
+                isVip
+                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                  : isCurrentFree
                   ? 'bg-purple-50 text-purple-700 border border-purple-200'
                   : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
               }`}>
-                {isCurrentFree ? 'Plano Gratuito' : 'Assinatura Ativa'}
+                {isVip ? 'Plano VIP' : isCurrentFree ? 'Plano Gratuito' : 'Assinatura Ativa'}
               </span>
             </div>
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
-              {plan?.name || 'Plano Gratuito'}
+              {isVip ? 'Plano VIP' : (plan?.name || 'Plano Gratuito')}
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              {plan?.description || 'Plano gratuito inicial (até 30 agendamentos por mês).'}
+              {isVip ? 'Plano VIP' : (plan?.description || 'Plano gratuito inicial (até 30 agendamentos por mês).')}
             </p>
           </div>
 
           <div className="text-left sm:text-right sm:self-center">
             <span className="text-3xl font-extrabold text-slate-900">
-              {plan?.monthlyPrice ? `R$ ${Number(plan.monthlyPrice).toFixed(0)}` : 'R$ 0'}
+              {isVip ? 'R$ 0' : (plan?.monthlyPrice ? `R$ ${Number(plan.monthlyPrice).toFixed(0)}` : 'R$ 0')}
             </span>
-            <span className="text-xs text-slate-500 block">/mês</span>
+            <span className="text-xs text-slate-500 block">
+              {isVip ? 'Sem mensalidade' : '/mês'}
+            </span>
           </div>
         </div>
 
@@ -273,7 +354,9 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
             Comparativo de Planos & Upgrades
           </h3>
           <p className="text-xs text-slate-500">
-            Você começa no Plano Gratuito (até 30 agendamentos por mês). Se precisar de agendamentos ilimitados, lembretes automáticos no WhatsApp ou múltiplos profissionais, escolha um dos planos abaixo.
+            {isVip
+              ? 'Seu estabelecimento possui Plano VIP Vitalício completo com acesso total. Todas as funcionalidades e vantagens de todos os planos estão 100% liberadas sem mensalidade.'
+              : 'Você começa no Plano Gratuito (até 30 agendamentos por mês). Se precisar de agendamentos ilimitados, lembretes automáticos no WhatsApp ou múltiplos profissionais, escolha um dos planos abaixo.'}
           </p>
         </div>
 
@@ -285,7 +368,9 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
               <div
                 key={p.code}
                 className={`p-6 rounded-2xl border transition-all flex flex-col justify-between ${
-                  isCurrent
+                  isVip
+                    ? 'bg-white border-slate-200/90 shadow-xs'
+                    : isCurrent
                     ? 'bg-purple-50/50 border-purple-500 shadow-md ring-2 ring-purple-500/20'
                     : 'bg-white border-slate-200 hover:border-purple-300 hover:shadow-md'
                 }`}
@@ -318,7 +403,11 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
                 </div>
 
                 <div className="pt-6">
-                  {isCurrent ? (
+                  {isVip ? (
+                    <div className="w-full py-2.5 text-center text-xs font-semibold rounded-xl bg-purple-50 text-purple-700 border border-purple-200">
+                      Incluso no seu VIP Vitalício
+                    </div>
+                  ) : isCurrent ? (
                     <div className="w-full py-2.5 text-center text-xs font-semibold rounded-xl bg-purple-100 text-purple-800 border border-purple-200">
                       Plano Atual
                     </div>
@@ -361,6 +450,18 @@ export const SettingsPlanTab: React.FC<SettingsPlanTabProps> = ({ settings, onRe
           }}
         />
       )}
+
+      {/* Modal de Confirmação de Downgrade (Zero window.confirm) */}
+      <ConfirmModal
+        isOpen={confirmDowngrade}
+        title="Mudar para o Plano Gratuito?"
+        description="As automações de WhatsApp e recursos avançados serão ajustados para os limites da franquia gratuita."
+        confirmLabel="Sim, Mudar para Gratuito"
+        cancelLabel="Continuar no Plano Atual"
+        isDestructive={false}
+        onConfirm={executeDowngrade}
+        onClose={() => setConfirmDowngrade(false)}
+      />
     </div>
   );
 };

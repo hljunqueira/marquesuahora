@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 
 interface AnamnesisData {
   hasAllergies: boolean;
@@ -146,7 +147,7 @@ export default function AnamnesisPage() {
         <div className="text-center space-y-2">
           {tenantInfo?.logoUrl && (
             <img
-              src={tenantInfo.logoUrl}
+              src={resolveImageUrl(tenantInfo.logoUrl)}
               alt={tenantInfo.name}
               className="w-14 h-14 rounded-2xl mx-auto object-cover border border-slate-200 mb-2 shadow-xs"
             />
@@ -178,22 +179,20 @@ export default function AnamnesisPage() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, hasAllergies: false, allergies: '' })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  !formData.hasAllergies
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${!formData.hasAllergies
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Não
               </button>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, hasAllergies: true })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  formData.hasAllergies
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${formData.hasAllergies
                     ? 'bg-amber-600 text-white border-amber-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Sim
               </button>
@@ -221,22 +220,20 @@ export default function AnamnesisPage() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, isDiabetic: false })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  !formData.isDiabetic
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${!formData.isDiabetic
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Não
               </button>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, isDiabetic: true })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  formData.isDiabetic
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${formData.isDiabetic
                     ? 'bg-amber-600 text-white border-amber-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Sim
               </button>
@@ -252,22 +249,20 @@ export default function AnamnesisPage() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, hasNailMycosis: false })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  !formData.hasNailMycosis
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${!formData.hasNailMycosis
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Não
               </button>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, hasNailMycosis: true })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  formData.hasNailMycosis
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${formData.hasNailMycosis
                     ? 'bg-amber-600 text-white border-amber-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Sim
               </button>
@@ -283,22 +278,20 @@ export default function AnamnesisPage() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, isPregnant: false })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  !formData.isPregnant
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${!formData.isPregnant
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Não
               </button>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, isPregnant: true })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  formData.isPregnant
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${formData.isPregnant
                     ? 'bg-purple-600 text-white border-purple-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Sim
               </button>
@@ -314,22 +307,20 @@ export default function AnamnesisPage() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, bitesNails: false })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  !formData.bitesNails
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${!formData.bitesNails
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Não
               </button>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, bitesNails: true })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  formData.bitesNails
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${formData.bitesNails
                     ? 'bg-purple-600 text-white border-purple-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Sim
               </button>
@@ -345,22 +336,20 @@ export default function AnamnesisPage() {
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, chemicalHandling: false })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  !formData.chemicalHandling
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${!formData.chemicalHandling
                     ? 'bg-slate-900 text-white border-slate-900'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Não
               </button>
               <button
                 type="button"
                 onClick={() => setFormData({ ...formData, chemicalHandling: true })}
-                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${
-                  formData.chemicalHandling
+                className={`min-h-[44px] rounded-xl text-xs font-bold border transition-colors ${formData.chemicalHandling
                     ? 'bg-purple-600 text-white border-purple-600'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 Sim
               </button>
@@ -378,11 +367,10 @@ export default function AnamnesisPage() {
                   key={shape}
                   type="button"
                   onClick={() => setFormData({ ...formData, preferredShape: shape })}
-                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold border transition-colors ${
-                    formData.preferredShape === shape
+                  className={`min-h-[44px] px-4 py-2 rounded-xl text-xs font-bold border transition-colors ${formData.preferredShape === shape
                       ? 'bg-slate-900 text-white border-slate-900'
                       : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
+                    }`}
                 >
                   {shape}
                 </button>

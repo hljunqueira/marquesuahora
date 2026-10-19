@@ -9,12 +9,18 @@ import { ClientsTable } from '@/components/clients/ClientsTable';
 import { ClientModal } from '@/components/clients/ClientModal';
 import { ClientHistoryModal } from '@/components/clients/ClientHistoryModal';
 import { CouponBroadcastModal } from '@/components/marketing/CouponBroadcastModal';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 export default function DashboardClientesPage() {
   const [activeTab, setActiveTab] = useState<ClientTab>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [clients, setClients] = useState<ClientItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(15);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalClientsCount, setTotalClientsCount] = useState(0);
+
   const [metrics, setMetrics] = useState<ClientMetrics>({
     totalClients: 0,
     birthdaysThisMonth: 0,
@@ -27,6 +33,7 @@ export default function DashboardClientesPage() {
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<ClientItem | null>(null);
   const [historyClientId, setHistoryClientId] = useState<string | null>(null);
+  const [deleteTargetClient, setDeleteTargetClient] = useState<ClientItem | null>(null);
 
   // Toast
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -54,10 +61,13 @@ export default function DashboardClientesPage() {
         params: {
           tab: activeTab,
           search: searchTerm || undefined,
-          limit: 100
+          page: currentPage,
+          limit: pageSize
         }
       });
       setClients(res.data.data || []);
+      setTotalPages(res.data.totalPages || 1);
+      setTotalClientsCount(res.data.total ?? res.data.data?.length ?? 0);
     } catch (err) {
       console.error('Erro ao carregar clientes:', err);
       if (!silent) {
@@ -68,7 +78,7 @@ export default function DashboardClientesPage() {
         setLoading(false);
       }
     }
-  }, [activeTab, searchTerm]);
+  }, [activeTab, searchTerm, currentPage, pageSize]);
 
   useEffect(() => {
     fetchMetrics();
@@ -133,24 +143,27 @@ export default function DashboardClientesPage() {
     }
   };
 
-  const handleDeleteClient = async (client: ClientItem) => {
-    if (!window.confirm(`Tem certeza que deseja remover ${client.name} da base de clientes?`)) {
-      return;
-    }
+  const handleDeleteClient = (client: ClientItem) => {
+    setDeleteTargetClient(client);
+  };
 
+  const confirmDeleteClient = async () => {
+    if (!deleteTargetClient) return;
     try {
-      await api.delete(`/clients/${client.id}`);
+      await api.delete(`/clients/${deleteTargetClient.id}`);
       showToast('Cliente removido com sucesso.');
+      setDeleteTargetClient(null);
       fetchMetrics();
       fetchClients();
       window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
       showToast(err?.response?.data?.message || 'Erro ao remover cliente.');
+      setDeleteTargetClient(null);
     }
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl bg-purple-600 text-white font-medium text-sm shadow-xl shadow-purple-900/30 animate-in fade-in slide-in-from-bottom-4">
           {toastMessage}
@@ -159,7 +172,10 @@ export default function DashboardClientesPage() {
 
       <ClientsHeader
         searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
+        onSearchChange={(val) => {
+          setSearchTerm(val);
+          setCurrentPage(1);
+        }}
         onNewClient={() => {
           setEditingClient(null);
           setIsModalOpen(true);
@@ -170,13 +186,25 @@ export default function DashboardClientesPage() {
 
       <ClientsTabs
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          setCurrentPage(1);
+        }}
         metrics={metrics}
       />
 
       <ClientsTable
         clients={clients}
         loading={loading}
+        totalCount={totalClientsCount}
+        currentPage={currentPage}
+        pageSize={pageSize}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={(newSize) => {
+          setPageSize(newSize);
+          setCurrentPage(1);
+        }}
         onViewHistory={(client) => setHistoryClientId(client.id)}
         onEdit={(client) => {
           setEditingClient(client);
@@ -196,10 +224,12 @@ export default function DashboardClientesPage() {
         onSave={handleSaveClient}
       />
 
-      <ClientHistoryModal
-        clientId={historyClientId}
-        onClose={() => setHistoryClientId(null)}
-      />
+      {historyClientId && (
+        <ClientHistoryModal
+          clientId={historyClientId}
+          onClose={() => setHistoryClientId(null)}
+        />
+      )}
 
       <CouponBroadcastModal
         isOpen={isCouponModalOpen}
@@ -208,6 +238,17 @@ export default function DashboardClientesPage() {
           fetchMetrics();
           fetchClients();
         }}
+      />
+
+      <ConfirmModal
+        isOpen={Boolean(deleteTargetClient)}
+        title="Remover Cliente?"
+        description={`Tem certeza que deseja remover "${deleteTargetClient?.name}" da base de clientes? O histórico passado de atendimentos continuará preservado no financeiro.`}
+        confirmLabel="Sim, Remover"
+        cancelLabel="Cancelar"
+        isDestructive={true}
+        onConfirm={confirmDeleteClient}
+        onClose={() => setDeleteTargetClient(null)}
       />
     </div>
   );

@@ -60,6 +60,7 @@ export class NotificationDispatcherService {
       prisma.tenant.findUnique({
         where: { id: tenantId },
         include: {
+          plan: true,
           users: {
             where: { role: 'ADMIN' },
             select: { email: true, name: true },
@@ -81,9 +82,10 @@ export class NotificationDispatcherService {
       return { dispatched: false, whatsappSentCount: 0, emailSentCount: 0, errors: [`Trigger ${trigger} desconhecido.`] };
     }
 
-    // Regra configurada ou padrão oficial ativo
+    // Regra configurada ou padrão oficial ativo (respeitando se o plano contratado permite automações de WhatsApp)
     const emailEnabled = ruleRecord ? ruleRecord.emailEnabled : true;
-    const whatsappEnabled = ruleRecord ? ruleRecord.whatsappEnabled : true;
+    const planAllowsWhatsapp = tenant.plan ? tenant.plan.hasAutoWhatsapp : true;
+    const whatsappEnabled = planAllowsWhatsapp && (ruleRecord ? ruleRecord.whatsappEnabled : true);
     const notifyProfessional = ruleRecord ? ruleRecord.notifyProfessional : true;
     const notifyOwner = ruleRecord ? ruleRecord.notifyOwner : true;
 

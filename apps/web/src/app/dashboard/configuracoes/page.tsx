@@ -13,13 +13,15 @@ import {
   ExternalLink,
   CreditCard,
   MessageSquare,
-  SlidersHorizontal
+  SlidersHorizontal,
+  FileText
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { TenantSettings, SettingsTab } from '@/components/settings/types';
 import { SettingsDataTab } from '@/components/settings/SettingsDataTab';
 import { SettingsVisualTab } from '@/components/settings/SettingsVisualTab';
 import { SettingsBookingTab } from '@/components/settings/SettingsBookingTab';
+import { SettingsAftercareTab } from '@/components/settings/SettingsAftercareTab';
 import { SettingsShieldTab } from '@/components/settings/SettingsShieldTab';
 import { SettingsAutomationsTab } from '@/components/settings/SettingsAutomationsTab';
 import { SettingsNotificationsTab } from '@/components/settings/SettingsNotificationsTab';
@@ -55,39 +57,7 @@ export default function DashboardConfiguracoesPage() {
 
   useEffect(() => {
     fetchSettings();
-
-    // Polling silencioso a cada 45 segundos se não houver alterações não salvas
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible' && !hasChanges) {
-        fetchSettings(true);
-      }
-    }, 45000);
-
-    const handleFocus = () => {
-      if (!hasChanges) fetchSettings(true);
-    };
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && !hasChanges) {
-        fetchSettings(true);
-      }
-    };
-    const handleTenantSync = (e: any) => {
-      if (!hasChanges && e.detail) {
-        setSettings((prev) => (prev ? { ...prev, ...e.detail } : e.detail));
-      }
-    };
-
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('marquesuahora_tenant_sync', handleTenantSync);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
-    };
-  }, [fetchSettings, hasChanges]);
+  }, [fetchSettings]);
 
   const handleChange = (field: keyof TenantSettings, value: any) => {
     setSettings((prev) => {
@@ -104,6 +74,8 @@ export default function DashboardConfiguracoesPage() {
       const payload = {
         name: settings.name,
         legalName: settings.legalName,
+        documentType: settings.documentType,
+        documentNumber: settings.documentNumber,
         niche: settings.niche,
         description: settings.description,
         phone: settings.phone,
@@ -113,6 +85,7 @@ export default function DashboardConfiguracoesPage() {
         secondaryColor: settings.secondaryColor,
         accentColor: settings.accentColor,
         logoUrl: settings.logoUrl,
+        coverUrl: settings.coverUrl,
         googleReviewUrl: settings.googleReviewUrl,
         npsFeedbackEnabled: settings.npsFeedbackEnabled,
         depositRequired: settings.depositRequired,
@@ -128,6 +101,8 @@ export default function DashboardConfiguracoesPage() {
         maxNoShowsAllowed: Number(settings.maxNoShowsAllowed),
         churnRecoveryEnabled: settings.churnRecoveryEnabled,
         churnAlertDays: Number(settings.churnAlertDays),
+        welcomeMessageEnabled: settings.welcomeMessageEnabled ?? true,
+        welcomeMessageCustom: settings.welcomeMessageCustom,
         birthdayMessageEnabled: settings.birthdayMessageEnabled,
         birthdayMessageCustom: settings.birthdayMessageCustom,
         bufferMinutes: Number(settings.bufferMinutes),
@@ -136,13 +111,15 @@ export default function DashboardConfiguracoesPage() {
         slotIntervalMinutes: Number(settings.slotIntervalMinutes),
         minAdvanceBookingMinutes: Number(settings.minAdvanceBookingMinutes),
         maxAdvanceBookingDays: Number(settings.maxAdvanceBookingDays),
-        addressStreet: settings.addressStreet,
-        addressNumber: settings.addressNumber,
-        addressComplement: settings.addressComplement,
-        addressNeighborhood: settings.addressNeighborhood,
-        addressCity: settings.addressCity,
-        addressState: settings.addressState,
-        addressZip: settings.addressZip
+        blockNationalHolidays: settings.blockNationalHolidays ?? true,
+        holidayExceptions: settings.holidayExceptions || [],
+        addressStreet: settings.addressStreet ? settings.addressStreet.trim() : null,
+        addressNumber: settings.addressNumber ? settings.addressNumber.trim() : null,
+        addressComplement: settings.addressComplement ? settings.addressComplement.trim() : null,
+        addressNeighborhood: settings.addressNeighborhood ? settings.addressNeighborhood.trim() : null,
+        addressCity: settings.addressCity ? settings.addressCity.trim() : null,
+        addressState: settings.addressState ? settings.addressState.trim() : null,
+        addressZip: settings.addressZip ? settings.addressZip.trim() : null
       };
 
       const res = await api.put('/tenants/me/settings', payload);
@@ -161,6 +138,13 @@ export default function DashboardConfiguracoesPage() {
             localStorage.removeItem('tenant_logo');
           }
         }
+        if (updated.coverUrl !== undefined) {
+          if (updated.coverUrl) {
+            localStorage.setItem('tenant_cover', updated.coverUrl);
+          } else {
+            localStorage.removeItem('tenant_cover');
+          }
+        }
         localStorage.setItem('tenant_data', JSON.stringify(updated));
 
         window.dispatchEvent(new Event('storage'));
@@ -170,7 +154,12 @@ export default function DashboardConfiguracoesPage() {
       showToast('Configurações salvas com sucesso!');
     } catch (err: any) {
       console.error('Erro ao salvar configurações:', err);
-      showToast(err?.response?.data?.message || 'Erro ao salvar alterações.', 'error');
+      const issues = err?.response?.data?.issues;
+      let detailedMessage = err?.response?.data?.message || 'Erro ao salvar alterações.';
+      if (Array.isArray(issues) && issues.length > 0) {
+        detailedMessage = issues.map((i: any) => `${i.field}: ${i.message}`).join(' | ');
+      }
+      showToast(detailedMessage, 'error');
     } finally {
       setSaving(false);
     }
@@ -180,6 +169,7 @@ export default function DashboardConfiguracoesPage() {
     { id: 'DATA' as SettingsTab, label: 'Dados & Endereço', icon: Building2 },
     { id: 'VISUAL' as SettingsTab, label: 'Identidade & Vitrine', icon: Palette },
     { id: 'BOOKING' as SettingsTab, label: 'Regras da Agenda', icon: Clock },
+    { id: 'AFTERCARE' as SettingsTab, label: 'Cuidados Pós-Atendimento', icon: FileText },
     { id: 'SHIELD' as SettingsTab, label: 'No-Show Shield & PIX', icon: ShieldCheck },
     { id: 'AUTOMATIONS' as SettingsTab, label: 'Automações & Reviews', icon: Zap },
     { id: 'NOTIFICATIONS' as SettingsTab, label: 'Notificações & Mensagens', icon: SlidersHorizontal },
@@ -281,6 +271,13 @@ export default function DashboardConfiguracoesPage() {
       {activeTab === 'BOOKING' && (
         <SettingsBookingTab settings={settings} onChange={handleChange} />
       )}
+      {activeTab === 'AFTERCARE' && (
+        <SettingsAftercareTab
+          initialGuides={settings.aftercareGuides}
+          onSaved={(guides) => handleChange('aftercareGuides', guides)}
+          showToast={(text, type) => showToast(text, type || 'success')}
+        />
+      )}
       {activeTab === 'SHIELD' && (
         <SettingsShieldTab settings={settings} onChange={handleChange} />
       )}
@@ -293,6 +290,7 @@ export default function DashboardConfiguracoesPage() {
       {activeTab === 'WHATSAPP' && (
         <SettingsWhatsappTab
           settings={settings}
+          onChange={handleChange}
           onNavigateToPlan={() => setActiveTab('PLAN')}
         />
       )}

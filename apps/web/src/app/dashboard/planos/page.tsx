@@ -9,10 +9,11 @@ import {
   X,
   ArrowRight,
   ShieldCheck,
-  Bot,
   Loader2
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { PlanCheckoutModal } from '@/components/checkout/PlanCheckoutModal';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 
 export interface PlanItem {
   code: string;
@@ -32,6 +33,8 @@ export default function DashboardPlanosPage() {
   const [activePlanCode, setActivePlanCode] = useState<string>('FREE');
   const [tenantData, setTenantData] = useState<any>(null);
   const [availablePlans, setAvailablePlans] = useState<PlanItem[]>([]);
+  const [checkoutPlan, setCheckoutPlan] = useState<any>(null);
+  const [confirmDowngradePlan, setConfirmDowngradePlan] = useState<{ code: string; name: string } | null>(null);
 
   // Carrega plano e métricas reais do tenant direto da API
   const loadTenantPlan = useCallback(async () => {
@@ -58,8 +61,8 @@ export default function DashboardPlanosPage() {
             : [
                 `Até ${p.maxProfessionals} profissional${p.maxProfessionals > 1 ? 'is' : ''}`,
                 p.isUnlimitedBookings ? 'Agendamentos Ilimitados' : `Até ${p.monthlyFreeBookings || 30} agendamentos/mês`,
-                p.hasAutoWhatsapp ? 'Lembretes automáticos no WhatsApp' : 'WhatsApp manual',
-                p.hasAiAssistant ? 'Atendente e Assistente IA 24/7' : 'Painel de agendamentos'
+                p.hasAutoWhatsapp ? 'Automações de WhatsApp (Lembretes & Confirmações)' : 'WhatsApp manual',
+                p.hasAiAssistant ? 'Copiloto IA na agenda' : 'Painel de agendamentos'
               ];
 
           return {
@@ -99,24 +102,39 @@ export default function DashboardPlanosPage() {
 
     const currentBookings = usage?.currentMonthBookings ?? 0;
     const monthlyFree = usage?.monthlyFreeBookings ?? (plan?.monthlyFreeBookings || 50);
-    const isUnlimited = usage?.isUnlimitedBookings ?? (plan?.isUnlimitedBookings || activePlanCode !== 'FREE');
+
+    const isVip = Boolean(
+      plan?.code === 'VIP_PRO' ||
+      plan?.code === 'VIP_AI' ||
+      activePlanCode === 'VIP_PRO' ||
+      activePlanCode === 'VIP_AI' ||
+      (plan?.name && plan.name.toUpperCase().includes('VIP')) ||
+      (Boolean(plan?.isUnlimitedBookings) && Number(plan?.monthlyPrice || 0) === 0 && (plan?.maxProfessionals || 1) > 5)
+    );
+
+    const isUnlimited = isVip || (usage?.isUnlimitedBookings ?? (plan?.isUnlimitedBookings || activePlanCode !== 'FREE'));
     const maxPros = usage?.maxProfessionals ?? (plan?.maxProfessionals || (activePlanCode === 'FREE' ? 1 : 3));
 
-    const price = plan ? Number(plan.monthlyPrice) : (
+    const price = isVip ? 0 : (plan ? Number(plan.monthlyPrice) : (
       activePlanCode === 'FREE' ? 0 :
-      activePlanCode === 'SOLO' ? 29.9 :
-      activePlanCode === 'EQUIPE_PRO' ? 59.9 : 89.9
-    );
+      activePlanCode === 'SOLO' ? 49.99 :
+      activePlanCode === 'EQUIPE_PRO' ? 99.99 : 99.99
+    ));
 
     const displayName = plan?.name || (
+      isVip ? 'Plano VIP' :
       activePlanCode === 'FREE' ? 'Plano Gratuito' :
       activePlanCode === 'SOLO' ? 'Profissional Solo' :
-      activePlanCode === 'EQUIPE_PRO' ? 'Equipe Pro' : 'Império VIP & IA'
+      activePlanCode === 'EQUIPE_PRO' ? 'Equipe Pro' : 'Plano VIP'
     );
 
-    const billingDesc = activePlanCode === 'FREE'
+    const billingDesc = isVip
+      ? 'Plano VIP'
+      : activePlanCode === 'FREE'
       ? 'Sem mensalidade fixa • Franquia mensal de agendamentos'
       : 'Assinatura Ativa na Plataforma';
+
+    const statusBadge = isVip ? 'Plano VIP' : (activePlanCode === 'FREE' ? 'Plano Gratuito' : 'Assinatura Ativa');
 
     return {
       code: activePlanCode,
@@ -126,26 +144,55 @@ export default function DashboardPlanosPage() {
       isUnlimitedBookings: isUnlimited,
       monthlyFreeBookings: monthlyFree,
       bookingsUsedThisMonth: currentBookings,
-      hasAiAssistant: Boolean(plan?.hasAiAssistant || activePlanCode === 'VIP_AI'),
-      hasCommissions: Boolean(plan?.hasCommissions || activePlanCode === 'EQUIPE_PRO' || activePlanCode === 'VIP_AI'),
-      hasProducts: Boolean(activePlanCode !== 'FREE'),
-      statusBadge: activePlanCode === 'FREE' ? 'Plano Gratuito' : 'Assinatura Ativa',
-      billingDesc
+      hasAiAssistant: Boolean(isVip || plan?.hasAiAssistant || activePlanCode === 'VIP_AI'),
+      hasCommissions: Boolean(isVip || plan?.hasCommissions || activePlanCode === 'EQUIPE_PRO' || activePlanCode === 'VIP_AI'),
+      hasProducts: Boolean(activePlanCode !== 'FREE' || isVip),
+      statusBadge,
+      billingDesc,
+      isVip
     };
   }, [tenantData, activePlanCode]);
 
   const handlePlanChange = async (planCode: string, planName: string) => {
-    try {
-      await api.put('/tenants/me/settings', { planCode });
-      setActivePlanCode(planCode);
-      localStorage.setItem('marquesuahora_tenant_plan_code', planCode);
-      setSuccessMessage(`Plano alterado para ${planName} com sucesso!`);
+    if (currentPlan.isVip) {
+      setSuccessMessage('Seu estabelecimento possui Plano VIP Vitalício completo com acesso total a todas as funcionalidades.');
       setTimeout(() => setSuccessMessage(null), 5000);
+      return;
+    }
+
+    if (activePlanCode === planCode) return;
+    const targetPlan = availablePlans.find((p) => p.code === planCode);
+    if (!targetPlan) return;
+
+    if (targetPlan.price > 0) {
+      setCheckoutPlan({
+        code: targetPlan.code,
+        name: targetPlan.name,
+        price: targetPlan.price,
+        monthlyPrice: targetPlan.price,
+        features: targetPlan.features
+      });
+      return;
+    }
+
+    // Downgrade para o Plano Gratuito via Modal Clean
+    setConfirmDowngradePlan({ code: planCode, name: planName });
+  };
+
+  const executeDowngrade = async () => {
+    if (!confirmDowngradePlan) return;
+    try {
+      await api.post('/tenants/me/plan', { planCode: confirmDowngradePlan.code });
+      setActivePlanCode(confirmDowngradePlan.code);
+      localStorage.setItem('marquesuahora_tenant_plan_code', confirmDowngradePlan.code);
+      setSuccessMessage(`Plano alterado para ${confirmDowngradePlan.name} com sucesso!`);
+      setTimeout(() => setSuccessMessage(null), 5000);
+      setConfirmDowngradePlan(null);
       loadTenantPlan();
     } catch (err: any) {
-      setSuccessMessage(`Plano alterado para ${planName}!`);
-      setActivePlanCode(planCode);
+      setSuccessMessage(err?.response?.data?.message || `Não foi possível alterar o plano.`);
       setTimeout(() => setSuccessMessage(null), 5000);
+      setConfirmDowngradePlan(null);
     }
   };
 
@@ -193,9 +240,12 @@ export default function DashboardPlanosPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
-              <span className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full border ${currentPlan.code === 'FREE'
-                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200/80'
-                  : 'text-purple-700 bg-purple-50 border-purple-200/80'
+              <span className={`text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full border ${
+                currentPlan.isVip
+                  ? 'text-amber-800 bg-amber-50 border-amber-200/80'
+                  : currentPlan.code === 'FREE'
+                  ? 'text-purple-700 bg-purple-50 border-purple-200/80'
+                  : 'text-emerald-700 bg-emerald-50 border-emerald-200/80'
                 }`}>
                 {currentPlan.statusBadge}
               </span>
@@ -213,7 +263,7 @@ export default function DashboardPlanosPage() {
               R$ {currentPlan.monthlyPrice.toFixed(2).replace('.', ',')}
             </span>
             <span className="text-xs text-slate-500 block">
-              /mês
+              {currentPlan.isVip ? 'Sem mensalidade' : '/mês'}
             </span>
           </div>
         </div>
@@ -262,7 +312,9 @@ export default function DashboardPlanosPage() {
           <div className="flex items-center gap-2.5 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-100">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span className="font-medium">
-              {currentPlan.code === 'FREE'
+              {currentPlan.isVip
+                ? 'Todos os recursos liberados (IA, WhatsApp e Cursos)'
+                : currentPlan.code === 'FREE'
                 ? 'Vitrine básica sem produtos & WhatsApp manual'
                 : (currentPlan.hasCommissions ? 'Comissões & Rateio Automático' : 'Vitrine Online Completa')}
             </span>
@@ -277,7 +329,7 @@ export default function DashboardPlanosPage() {
             Planos Disponíveis para Mudança
           </h3>
           <span className="text-xs text-purple-700 font-medium bg-purple-50 px-3 py-1 rounded-full border border-purple-100 w-fit">
-            Lembretes automáticos e IA exclusivos no VIP
+            WhatsApp no Solo e Equipe Pro • Copiloto IA e Cursos no Equipe Pro
           </span>
         </div>
 
@@ -342,7 +394,11 @@ export default function DashboardPlanosPage() {
                 </div>
 
                 <div className="mt-6 pt-4 border-t border-slate-100">
-                  {isCurrent ? (
+                  {currentPlan.isVip ? (
+                    <span className="flex items-center justify-center gap-1.5 text-center text-xs font-semibold text-purple-700 py-2.5 bg-purple-50 border border-purple-200 rounded-xl">
+                      Incluso no seu VIP Vitalício
+                    </span>
+                  ) : isCurrent ? (
                     <span className="flex items-center justify-center gap-1.5 text-center text-xs font-semibold text-emerald-700 py-2.5 bg-emerald-50 border border-emerald-200/80 rounded-xl">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                       <span>Plano Ativo</span>
@@ -362,6 +418,32 @@ export default function DashboardPlanosPage() {
           })}
         </div>
       </div>
+
+      {/* Modal de Checkout Oficial com Pagamento Real */}
+      {checkoutPlan && (
+        <PlanCheckoutModal
+          isOpen={!!checkoutPlan}
+          plan={checkoutPlan}
+          onClose={() => setCheckoutPlan(null)}
+          onSuccess={() => {
+            loadTenantPlan();
+            setSuccessMessage(`Plano atualizado com sucesso para ${checkoutPlan.name}!`);
+            setTimeout(() => setSuccessMessage(null), 5000);
+          }}
+        />
+      )}
+
+      {/* Modal de Confirmação de Downgrade (Zero window.confirm) */}
+      <ConfirmModal
+        isOpen={Boolean(confirmDowngradePlan)}
+        title="Mudar para o Plano Gratuito?"
+        description="As automações de WhatsApp e recursos avançados serão ajustados para os limites da franquia gratuita."
+        confirmLabel="Sim, Mudar para Gratuito"
+        cancelLabel="Continuar no Plano Atual"
+        isDestructive={false}
+        onConfirm={executeDowngrade}
+        onClose={() => setConfirmDowngradePlan(null)}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { formatLocalDateToYMD, getMonthGridDays } from '@/lib/dateUtils';
 import { ScheduleAppointment, ProfessionalItem, BlockItem } from './types';
+import { StatusColors, getDefaultStatusColors } from './AgendaStatusColorPicker';
 
 interface AgendaMonthGridProps {
   currentDate: Date;
@@ -10,6 +11,7 @@ interface AgendaMonthGridProps {
   selectedProfessionalId?: string;
   appointments: ScheduleAppointment[];
   blocks?: BlockItem[];
+  statusColors?: StatusColors;
   onDayClick: (date: Date) => void;
   onSlotClick: (dateStr: string, timeStr: string, professionalId?: string) => void;
   onAppointmentClick: (appt: ScheduleAppointment) => void;
@@ -22,16 +24,42 @@ export function AgendaMonthGrid({
   selectedProfessionalId = '',
   appointments,
   blocks = [],
+  statusColors: statusColorsProp,
   onDayClick,
   onSlotClick,
   onAppointmentClick
 }: AgendaMonthGridProps) {
   const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
     }
-    return '#7C3AED';
+    return '#5c0701';
   });
+
+  const [activeStatusColors, setActiveStatusColors] = useState<StatusColors>(() => {
+    if (statusColorsProp) return statusColorsProp;
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('marquesuahora_agenda_status_colors');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return getDefaultStatusColors(tenantPrimaryColor);
+  });
+
+  useEffect(() => {
+    if (statusColorsProp) {
+      setActiveStatusColors(statusColorsProp);
+    }
+  }, [statusColorsProp]);
+
+  useEffect(() => {
+    const handleStatusSync = (e: any) => {
+      if (e?.detail) setActiveStatusColors(e.detail);
+    };
+    window.addEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+    return () => window.removeEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+  }, []);
 
   useEffect(() => {
     const syncColor = () => {
@@ -128,14 +156,14 @@ export function AgendaMonthGrid({
           const dayAppts = appointmentsByDate[cell.dateStr] || [];
           const dayBlocks = blocksByDate[cell.dateStr] || [];
           const hasAppointments = dayAppts.length > 0;
-          const visibleChips = dayAppts.slice(0, 3);
+          const visibleChips = dayAppts.length <= 4 ? dayAppts : dayAppts.slice(0, 3);
           const hiddenCount = dayAppts.length - visibleChips.length;
 
           return (
             <div
               key={cell.dateStr}
               onClick={() => onDayClick(cell.date)}
-              className={`min-h-[115px] sm:min-h-[135px] p-2 flex flex-col justify-between transition-colors cursor-pointer group relative ${
+              className={`min-h-[135px] sm:min-h-[155px] lg:min-h-[170px] p-2 flex flex-col justify-between transition-colors cursor-pointer group relative ${
                 cell.isCurrentMonth ? 'bg-white' : 'bg-slate-50/70 opacity-60'
               } ${isToday ? 'bg-purple-50/20' : ''} hover:bg-slate-50/90`}
             >
@@ -168,20 +196,16 @@ export function AgendaMonthGrid({
                 </div>
               </div>
 
-              {/* Lista Compacta de Agendamentos (Chips) */}
-              <div className="flex-1 my-1.5 space-y-1 overflow-hidden">
+              {/* Lista Vertical de Agendamentos (Cards com Horário Menor, Nome da Cliente e Serviço) */}
+              <div className="flex-1 my-1.5 space-y-1.5 overflow-y-auto max-h-[125px] sm:max-h-[145px] pr-0.5">
                 {visibleChips.map((appt) => {
-                  const clientFirstName = (appt.client?.name || 'Cliente').split(' ')[0];
-                  const svcColor = appt.service?.color?.trim();
-                  const hasCustomSvcColor = svcColor && svcColor.toUpperCase() !== '#3B82F6';
-                  const profColor = appt.professional?.color?.trim();
-                  const hasCustomProfColor = profColor && profColor.toUpperCase() !== '#7C3AED' && profColor.toUpperCase() !== '#3B82F6';
+                  const clientFullName = appt.client?.name || 'Cliente';
+                  const profName = appt.professional?.name ? appt.professional.name.split(' ')[0] : '';
+                  const serviceName = appt.service?.name || (appt.items?.[0]?.service?.name) || 'Atendimento';
 
-                  const procColor = hasCustomSvcColor
-                    ? svcColor
-                    : hasCustomProfColor
-                    ? profColor
-                    : tenantPrimaryColor;
+                  const procColor = (activeStatusColors && activeStatusColors[appt.status as keyof StatusColors])
+                    || (getDefaultStatusColors(tenantPrimaryColor)[appt.status as keyof StatusColors])
+                    || tenantPrimaryColor;
 
                   return (
                     <div
@@ -190,22 +214,40 @@ export function AgendaMonthGrid({
                         e.stopPropagation();
                         onAppointmentClick(appt);
                       }}
-                      style={{ borderLeftColor: procColor }}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-50 hover:bg-slate-100 text-[10px] text-slate-700 font-medium truncate border-l-2 border border-slate-200/60 shadow-2xs transition-all hover:scale-[1.02]"
-                      title={`${appt.startTime} - ${appt.client?.name} (${appt.service?.name})`}
+                      style={{ borderLeftWidth: '3.5px', borderLeftColor: procColor }}
+                      className="p-1 sm:p-1.5 rounded-lg bg-white hover:bg-slate-50/90 text-left border border-slate-200/80 shadow-2xs transition-all hover:scale-[1.01] hover:shadow-xs cursor-pointer group/item relative overflow-hidden"
+                      title={`${appt.startTime} - ${clientFullName} | ${serviceName}${profName ? ` (${profName})` : ''}`}
                     >
-                      <span className="font-mono text-slate-500 shrink-0 text-[9px]">
-                        {appt.startTime}
-                      </span>
-                      <span className="truncate font-semibold text-slate-800">
-                        {clientFirstName}
-                      </span>
+                      {/* Topo: Horário bem menor + Profissional que atende (ex: Laura / Ana) */}
+                      <div className="flex items-center justify-between gap-1 text-[8.5px] leading-tight text-slate-500 font-mono">
+                        <span className="font-bold shrink-0 text-slate-600">
+                          {appt.startTime}
+                        </span>
+                        {profName && (
+                          <span
+                            className="truncate text-slate-400 font-sans font-medium text-[8px] max-w-[65px]"
+                            title={`Profissional: ${profName}`}
+                          >
+                            {profName}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Meio: Nome da cliente em negrito embaixo do horário */}
+                      <div className="mt-0.5 truncate font-extrabold text-[10px] sm:text-[11px] text-slate-900 leading-snug">
+                        {clientFullName}
+                      </div>
+
+                      {/* Base: Procedimento / Serviço (ex: 'Pé', 'Mão', 'Alongamento') */}
+                      <div className="text-[9px] font-semibold text-slate-600 truncate leading-tight mt-0.5">
+                        {serviceName}
+                      </div>
                     </div>
                   );
                 })}
 
                 {hiddenCount > 0 && (
-                  <div className="text-[9px] font-bold text-purple-700 hover:text-purple-900 pl-1">
+                  <div className="text-[9px] font-bold text-slate-600 hover:text-slate-900 pl-1 pt-0.5">
                     +{hiddenCount} {hiddenCount === 1 ? 'outro' : 'outros'}
                   </div>
                 )}
@@ -222,7 +264,7 @@ export function AgendaMonthGrid({
                     e.stopPropagation();
                     onSlotClick(cell.dateStr, '09:00', selectedProfessionalId || undefined);
                   }}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-purple-700 hover:text-purple-900 bg-purple-50 px-1.5 py-0.5 rounded-md hover:bg-purple-100"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md"
                   title="Novo agendamento neste dia"
                 >
                   + Agendar

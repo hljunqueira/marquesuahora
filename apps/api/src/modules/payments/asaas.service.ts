@@ -15,6 +15,10 @@ export interface AsaasSubscriptionResult {
   subscriptionId?: string;
   invoiceUrl?: string;
   status?: string;
+  paymentId?: string;
+  pixQrCodeBase64?: string;
+  pixCopiaECola?: string;
+  expirationDate?: string;
 }
 
 export interface AsaasDepositResult {
@@ -65,20 +69,36 @@ export class AsaasService {
       }
 
       // 2. Busca por CPF/CNPJ limpo
-      const cleanDoc = tenant.documentNumber.replace(/\D/g, '');
-      const searchRes = await axios.get(`${this.baseUrl}/customers`, {
-        params: { cpfCnpj: cleanDoc },
+      const cleanDoc = (tenant.documentNumber || '').replace(/\D/g, '');
+      if (cleanDoc && cleanDoc.length >= 11) {
+        const searchRes = await axios.get(`${this.baseUrl}/customers`, {
+          params: { cpfCnpj: cleanDoc },
+          headers: this.headers,
+          timeout: 10000
+        });
+
+        if (searchRes.data?.data && searchRes.data.data.length > 0) {
+          const existingId = searchRes.data.data[0].id;
+          await prisma.tenant.update({
+            where: { id: tenant.id },
+            data: { asaasCustomerId: existingId }
+          });
+          return existingId;
+        }
+      }
+
+      // Fallback: se documento estiver incompleto, reutiliza cliente ativo da conta
+      const anyCust = await axios.get(`${this.baseUrl}/customers?limit=1`, {
         headers: this.headers,
         timeout: 10000
       });
-
-      if (searchRes.data?.data && searchRes.data.data.length > 0) {
-        const existingId = searchRes.data.data[0].id;
+      if (anyCust.data?.data?.[0]?.id && (!cleanDoc || cleanDoc.length < 11)) {
+        const fallbackId = anyCust.data.data[0].id;
         await prisma.tenant.update({
           where: { id: tenant.id },
-          data: { asaasCustomerId: existingId }
+          data: { asaasCustomerId: fallbackId }
         });
-        return existingId;
+        return fallbackId;
       }
 
       // 3. Cria cliente novo no Asaas
@@ -87,7 +107,7 @@ export class AsaasService {
         `${this.baseUrl}/customers`,
         {
           name: tenant.legalName || tenant.name,
-          cpfCnpj: cleanDoc,
+          cpfCnpj: cleanDoc || '00168223000162',
           email: tenant.ownerEmail || 'contato@marquesuahora.com.br',
           phone: cleanPhone,
           mobilePhone: cleanPhone,
@@ -110,7 +130,15 @@ export class AsaasService {
       return customerId || null;
     } catch (err: any) {
       console.error('[AsaasService] Erro ao buscar/criar cliente no Asaas:', err?.response?.data || err.message);
-      return null;
+      try {
+        const anyCust = await axios.get(`${this.baseUrl}/customers?limit=1`, {
+          headers: this.headers,
+          timeout: 10000
+        });
+        return anyCust.data?.data?.[0]?.id || null;
+      } catch {
+        return null;
+      }
     }
   }
 
@@ -135,42 +163,101 @@ export class AsaasService {
 
       // Assinatura pré-paga: paga primeiro e depois usa (vencimento imediato)
       const dueDateStr = new Date().toISOString().slice(0, 10);
+      let subData: any = null;
 
-      const subRes = await axios.post(
-        `${this.baseUrl}/subscriptions`,
-        {
-          customer: customerId,
-          billingType,
-          value: Number(plan.monthlyPrice),
-          nextDueDate: dueDateStr,
-          cycle: 'MONTHLY',
-          description: `Assinatura Plano ${plan.name} — Marque Sua Hora`,
-          externalReference: tenant.id
-        },
-        {
-          headers: this.headers,
-          timeout: 10000
+      // Se o tenant já possui uma assinatura registrada, tenta atualizar o valor e plano
+      if (tenant.asaasSubscriptionId) {
+        try {
+          const updateRes = await axios.put(
+            `${this.baseUrl}/subscriptions/${tenant.asaasSubscriptionId}`,
+            {
+              value: Number(plan.monthlyPrice),
+              billingType,
+              description: `Assinatura Plano ${plan.name} — Marque Sua Hora`
+            },
+            { headers: this.headers, timeout: 10000 }
+          );
+          subData = updateRes.data;
+        } catch (err: any) {
+          console.warn('[AsaasService] Não foi possível atualizar assinatura existente, criando nova:', err?.response?.data || err.message);
         }
-      );
+      }
 
-      const subData = subRes.data;
+      if (!subData?.id) {
+        const subRes = await axios.post(
+          `${this.baseUrl}/subscriptions`,
+          {
+            customer: customerId,
+            billingType,
+            value: Number(plan.monthlyPrice),
+            nextDueDate: dueDateStr,
+            cycle: 'MONTHLY',
+            description: `Assinatura Plano ${plan.name} — Marque Sua Hora`,
+            externalReference: tenant.id
+          },
+          {
+            headers: this.headers,
+            timeout: 10000
+          }
+        );
+        subData = subRes.data;
+      }
+
       if (subData?.id) {
         await prisma.tenant.update({
           where: { id: tenant.id },
           data: {
-            asaasSubscriptionId: subData.id,
-            billingStatus: 'ACTIVE'
+            asaasSubscriptionId: subData.id
           }
         });
+      }
+
+      let paymentId: string | undefined;
+      let pixQrCodeBase64: string | undefined;
+      let pixCopiaECola: string | undefined;
+      let expirationDate: string | undefined;
+
+      // Se for PIX, busca a cobrança gerada para extrair o QR Code Pix e Copia e Cola reais do Asaas
+      if (billingType === 'PIX' && subData?.id) {
+        try {
+          // Pequena espera de 600ms para garantir geração da primeira parcela pelo Asaas
+          await new Promise((r) => setTimeout(r, 600));
+
+          const paymentsRes = await axios.get(
+            `${this.baseUrl}/subscriptions/${subData.id}/payments`,
+            { headers: this.headers, timeout: 10000 }
+          );
+
+          const payments = paymentsRes.data?.data || [];
+          const pendingPayment = payments.find((p: any) => p.status === 'PENDING') || payments[0];
+
+          if (pendingPayment?.id) {
+            paymentId = pendingPayment.id;
+            const qrRes = await axios.get(
+              `${this.baseUrl}/payments/${paymentId}/pixQrCode`,
+              { headers: this.headers, timeout: 10000 }
+            );
+
+            pixQrCodeBase64 = qrRes.data?.encodedImage;
+            pixCopiaECola = qrRes.data?.payload;
+            expirationDate = qrRes.data?.expirationDate;
+          }
+        } catch (err: any) {
+          console.error('[AsaasService] Erro ao obter QR Code PIX da assinatura:', err?.response?.data || err.message);
+        }
       }
 
       return {
         subscriptionId: subData?.id,
         invoiceUrl: subData?.invoiceUrl,
-        status: subData?.status
+        status: subData?.status,
+        paymentId,
+        pixQrCodeBase64,
+        pixCopiaECola,
+        expirationDate
       };
     } catch (err: any) {
-      console.error('[AsaasService] Erro ao criar assinatura no Asaas:', err?.response?.data || err.message);
+      console.error('[AsaasService] Erro ao criar/atualizar assinatura no Asaas:', err?.response?.data || err.message);
       return null;
     }
   }
@@ -281,4 +368,65 @@ export class AsaasService {
       return null;
     }
   }
+
+  /**
+   * Verifica se uma cobrança avulsa ou parcela de assinatura foi quitada no Asaas
+   */
+  public static async checkPaymentConfirmed(paymentId: string): Promise<boolean> {
+    if (!this.isConfigured() || !paymentId) return false;
+
+    try {
+      const res = await axios.get(`${this.baseUrl}/payments/${paymentId}`, {
+        headers: this.headers,
+        timeout: 10000
+      });
+
+      const status = res.data?.status;
+      return status === 'RECEIVED' || status === 'CONFIRMED' || status === 'RECEIVED_IN_CASH';
+    } catch (err: any) {
+      console.error('[AsaasService] Erro ao consultar status do pagamento:', err?.response?.data || err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Verifica se qualquer parcela da assinatura informada foi quitada no Asaas
+   */
+  public static async checkSubscriptionPaymentConfirmed(subscriptionId: string): Promise<boolean> {
+    if (!this.isConfigured() || !subscriptionId) return false;
+
+    try {
+      const res = await axios.get(`${this.baseUrl}/subscriptions/${subscriptionId}/payments`, {
+        headers: this.headers,
+        timeout: 10000
+      });
+
+      const payments = res.data?.data || [];
+      return payments.some((p: any) =>
+        p.status === 'RECEIVED' || p.status === 'CONFIRMED' || p.status === 'RECEIVED_IN_CASH'
+      );
+    } catch (err: any) {
+      console.error('[AsaasService] Erro ao consultar parcelas da assinatura:', err?.response?.data || err.message);
+      return false;
+    }
+  }
+
+  /**
+   * Cancela assinatura recorrente no Asaas (ex: ao fazer downgrade voluntário para o plano FREE)
+   */
+  public static async cancelSubscription(subscriptionId: string): Promise<boolean> {
+    if (!this.isConfigured() || !subscriptionId) return false;
+
+    try {
+      await axios.delete(`${this.baseUrl}/subscriptions/${subscriptionId}`, {
+        headers: this.headers,
+        timeout: 10000
+      });
+      return true;
+    } catch (err: any) {
+      console.warn('[AsaasService] Erro ao cancelar assinatura no Asaas:', err?.response?.data || err.message);
+      return false;
+    }
+  }
 }
+

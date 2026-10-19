@@ -1,13 +1,35 @@
 import axios from 'axios';
+import argon2 from 'argon2';
 import { prisma } from '../../lib/prisma';
 import { BookingService } from '../schedules/booking.service';
-import { BookingSource, PaymentMethod, TransactionType, CreditAccountStatus } from '@prisma/client';
+import {
+  BookingSource,
+  PaymentMethod,
+  TransactionType,
+  CreditAccountStatus,
+  ScheduleStatus
+} from '@prisma/client';
 
 export interface QuickCommandPreview {
-  action: 'CREATE_EXPENSE' | 'CREATE_INCOME' | 'CREATE_SCHEDULE' | 'BLOCK_SCHEDULE' | 'CREATE_CREDIT' | 'UNKNOWN';
+  action:
+    | 'CREATE_EXPENSE'
+    | 'CREATE_INCOME'
+    | 'CREATE_SCHEDULE'
+    | 'BLOCK_SCHEDULE'
+    | 'CREATE_CREDIT'
+    | 'DELETE_SCHEDULE'
+    | 'DELETE_BLOCK'
+    | 'DELETE_EXPENSE'
+    | 'DELETE_INCOME'
+    | 'DELETE_CLIENT'
+    | 'DELETE_CREDIT'
+    | 'DELETE_PRODUCT'
+    | 'DELETE_SERVICE'
+    | 'UNKNOWN';
   confidence: number;
   summary: string;
   spokenFeedback: string;
+  requiresPassword?: boolean;
   payload: {
     // Financeiro
     amount?: number;
@@ -15,6 +37,7 @@ export interface QuickCommandPreview {
     category?: string;
     date?: string; // YYYY-MM-DD
     paymentMethod?: string;
+    entryId?: string;
 
     // Agendamento
     clientName?: string;
@@ -25,18 +48,25 @@ export interface QuickCommandPreview {
     professionalName?: string;
     dateStr?: string; // YYYY-MM-DD
     startTime?: string; // HH:MM
+    scheduleId?: string;
 
     // Bloqueio
     blockDate?: string;
     blockStartTime?: string;
     blockEndTime?: string;
     blockReason?: string;
+    blockId?: string;
 
     // Crediário
     creditClientName?: string;
     creditAmount?: number;
     creditDueDate?: string;
     creditNotes?: string;
+    creditAccountId?: string;
+
+    // Produto
+    productName?: string;
+    productId?: string;
   };
   missingInfo?: string[];
 }
@@ -66,6 +96,7 @@ export class QuickCommandService {
     let rawServices: any[] = [];
     let professionals: any[] = [];
     let clients: any[] = [];
+    let tenant: any = null;
 
     try {
       const results = await Promise.all([
@@ -81,16 +112,38 @@ export class QuickCommandService {
           where: { tenantId },
           select: { id: true, name: true, phone: true },
           take: 300
+        }),
+        prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: { plan: { select: { code: true, monthlyPrice: true } } }
         })
       ]);
       rawServices = results[0];
       professionals = results[1];
       clients = results[2];
+      tenant = results[3];
     } catch {
       rawServices = [];
       professionals = [];
       clients = [];
+      tenant = null;
     }
+
+    const isFreePlan = tenant?.plan?.code === 'FREE' && Number(tenant.plan.monthlyPrice) === 0;
+
+    const sanitizeResult = (res: QuickCommandPreview): QuickCommandPreview => {
+      if (isFreePlan && (res.action === 'CREATE_CREDIT' || res.action === 'DELETE_CREDIT')) {
+        return {
+          action: 'UNKNOWN',
+          confidence: 0.95,
+          summary: 'A gestão de crediário/fiado é um recurso dos planos Solo, Equipe Pro e VIP.',
+          spokenFeedback: 'A gestão de crediário e fiado é um recurso dos planos Solo, Equipe Pro e VIP. Acesse a aba de planos para liberar.',
+          payload: {},
+          missingInfo: ['Recurso dos planos Solo, Equipe Pro e VIP']
+        };
+      }
+      return res;
+    };
 
     const services = rawServices.map((s) => ({
       id: s.id,
@@ -111,7 +164,7 @@ export class QuickCommandService {
           apiKey
         });
         if (llmResult && llmResult.action !== 'UNKNOWN') {
-          return llmResult;
+          return sanitizeResult(llmResult);
         }
       } catch (err) {
         console.warn('[QuickCommand] LLM indisponível ou falhou, acionando fallback determinístico:', err);
@@ -119,7 +172,7 @@ export class QuickCommandService {
     }
 
     // Fallback Inteligente baseado em regras determinísticas (NLP em Português)
-    return this.parseWithRules({
+    const ruleResult = this.parseWithRules({
       transcript,
       services,
       professionals,
@@ -127,6 +180,8 @@ export class QuickCommandService {
       currentDateStr,
       now
     });
+
+    return sanitizeResult(ruleResult);
   }
 
   /**
@@ -157,14 +212,21 @@ Sua tarefa é analisar a frase falada pela dona do salão e classificá-la estri
 3. CREATE_SCHEDULE: Registra um agendamento de cliente (ex: "agendar Maria dia 22 às 17h", "marcar corte com Paula para amanhã às 14h").
 4. BLOCK_SCHEDULE: Registra bloqueio de horário (ex: "bloquear minha agenda amanhã das 12h às 13h almoço").
 5. CREATE_CREDIT: Registra crediário/fiado para cliente (ex: "anotar crediário de 180 reais para Carla vencer dia 30").
-6. UNKNOWN: Frase não compreendida como comando.
+6. DELETE_SCHEDULE: Cancela ou desmarca um agendamento existente (ex: "cancelar horário da Maria amanhã", "desmarcar Paula"). DEVE incluir "requiresPassword": true.
+7. DELETE_BLOCK: Remove um bloqueio de agenda (ex: "desbloquear agenda das 12h", "remover bloqueio de almoço"). DEVE incluir "requiresPassword": true.
+8. DELETE_EXPENSE: Exclui uma despesa financeira lançada (ex: "apagar despesa de 150", "excluir gasto no mercado"). DEVE incluir "requiresPassword": true.
+9. DELETE_CREDIT: Cancela ou apaga uma conta de crediário/fiado (ex: "cancelar fiado da Carla", "apagar dívida de 180"). DEVE incluir "requiresPassword": true.
+10. DELETE_CLIENT: Exclui o cadastro de um cliente (ex: "apagar cadastro da cliente Joana"). DEVE incluir "requiresPassword": true.
+11. DELETE_PRODUCT: Exclui um produto do estoque (ex: "excluir produto shampoo anti-resíduos"). DEVE incluir "requiresPassword": true.
+12. UNKNOWN: Frase não compreendida como comando.
 
 Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) no formato:
 {
-  "action": "CREATE_EXPENSE" | "CREATE_INCOME" | "CREATE_SCHEDULE" | "BLOCK_SCHEDULE" | "CREATE_CREDIT" | "UNKNOWN",
+  "action": "CREATE_EXPENSE" | "CREATE_INCOME" | "CREATE_SCHEDULE" | "BLOCK_SCHEDULE" | "CREATE_CREDIT" | "DELETE_SCHEDULE" | "DELETE_BLOCK" | "DELETE_EXPENSE" | "DELETE_CREDIT" | "DELETE_CLIENT" | "DELETE_PRODUCT" | "UNKNOWN",
   "confidence": 0.95,
   "summary": "Resumo amigável em português do que será feito",
   "spokenFeedback": "Texto curto para falar de volta para a usuária confirmando a ação",
+  "requiresPassword": true | false,
   "payload": {
     "amount": 150.00,
     "description": "Produtos loja Fraceto",
@@ -184,7 +246,8 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
     "creditClientName": "Nome cliente crediário",
     "creditAmount": 180.00,
     "creditDueDate": "YYYY-MM-DD",
-    "creditNotes": "Observações do crediário"
+    "creditNotes": "Observações do crediário",
+    "productName": "Nome do produto se aplicável"
   }
 }`;
 
@@ -442,6 +505,152 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
       };
     }
 
+    // =========================================================================
+    // REGRA F: CANCELAR / APAGAR AGENDAMENTO (Exige Senha)
+    // =========================================================================
+    const isDeleteSchedule =
+      (lower.includes('cancelar') || lower.includes('desmarcar') || lower.includes('apagar') || lower.includes('excluir')) &&
+      (lower.includes('agendamento') || lower.includes('horário') || lower.includes('horario') || lower.includes('agenda'));
+
+    if (isDeleteSchedule) {
+      const clientMatch = text.match(/(?:da|do|de|cliente)\s+([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i);
+      const clientName = clientMatch ? clientMatch[1].trim() : '';
+
+      return {
+        action: 'DELETE_SCHEDULE',
+        confidence: 0.9,
+        summary: clientName
+          ? `Cancelar agendamento de ${clientName} (Ação destrutiva - requer senha)`
+          : `Cancelar agendamento na agenda (Ação destrutiva - requer senha)`,
+        spokenFeedback: `Atenção: o cancelamento de agendamento requer sua senha de acesso para confirmar.`,
+        requiresPassword: true,
+        payload: {
+          clientName: clientName || undefined,
+          dateStr: targetDateStr
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA G: REMOVER BLOQUEIO DE AGENDA (Exige Senha)
+    // =========================================================================
+    const isDeleteBlock =
+      (lower.includes('remover') || lower.includes('cancelar') || lower.includes('apagar') || lower.includes('excluir') || lower.includes('desbloquear')) &&
+      (lower.includes('bloqueio') || lower.includes('bloqueado'));
+
+    if (isDeleteBlock) {
+      return {
+        action: 'DELETE_BLOCK',
+        confidence: 0.9,
+        summary: `Remover bloqueio de agenda (Ação destrutiva - requer senha)`,
+        spokenFeedback: `Remoção de bloqueio requer sua senha de acesso.`,
+        requiresPassword: true,
+        payload: {
+          blockDate: targetDateStr,
+          blockStartTime: singleTimeMatch ? `${String(singleTimeMatch[1]).padStart(2, '0')}:00` : undefined
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA H: EXCLUIR DESPESA FINANCEIRA (Exige Senha)
+    // =========================================================================
+    const isDeleteExpense =
+      (lower.includes('excluir') || lower.includes('apagar') || lower.includes('deletar') || lower.includes('cancelar')) &&
+      (lower.includes('despesa') || lower.includes('gasto') || lower.includes('saída') || lower.includes('saida'));
+
+    if (isDeleteExpense) {
+      return {
+        action: 'DELETE_EXPENSE',
+        confidence: 0.9,
+        summary: amount
+          ? `Excluir despesa de R$ ${amount.toFixed(2).replace('.', ',')} (Ação destrutiva - requer senha)`
+          : `Excluir lançamento de despesa (Ação destrutiva - requer senha)`,
+        spokenFeedback: `Exclusão de despesa requer sua senha de acesso.`,
+        requiresPassword: true,
+        payload: {
+          amount,
+          date: targetDateStr
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA I: CANCELAR CREDIÁRIO / FIADO (Exige Senha)
+    // =========================================================================
+    const isDeleteCredit =
+      (lower.includes('cancelar') || lower.includes('apagar') || lower.includes('excluir') || lower.includes('remover')) &&
+      (lower.includes('crediário') || lower.includes('crediario') || lower.includes('fiado'));
+
+    if (isDeleteCredit) {
+      const clientMatch = text.match(/(?:da|do|de|cliente)\s+([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i);
+      const clientName = clientMatch ? clientMatch[1].trim() : '';
+
+      return {
+        action: 'DELETE_CREDIT',
+        confidence: 0.9,
+        summary: clientName
+          ? `Cancelar conta de crediário/fiado de ${clientName} (Ação destrutiva - requer senha)`
+          : `Cancelar conta de crediário/fiado (Ação destrutiva - requer senha)`,
+        spokenFeedback: `Cancelamento de dívida de crediário requer sua senha de acesso.`,
+        requiresPassword: true,
+        payload: {
+          creditClientName: clientName || undefined,
+          creditAmount: amount
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA J: EXCLUIR CLIENTE (Exige Senha)
+    // =========================================================================
+    const isDeleteClient =
+      (lower.includes('excluir') || lower.includes('apagar') || lower.includes('deletar') || lower.includes('remover')) &&
+      lower.includes('cliente');
+
+    if (isDeleteClient) {
+      const clientMatch = text.match(/(?:cliente)\s+([A-ZÀ-Úa-zà-ú]+(?:\s+[A-ZÀ-Úa-zà-ú]+)?)/i);
+      const clientName = clientMatch ? clientMatch[1].trim() : '';
+
+      return {
+        action: 'DELETE_CLIENT',
+        confidence: 0.9,
+        summary: clientName
+          ? `Excluir cadastro da cliente ${clientName} (Ação destrutiva - requer senha)`
+          : `Excluir cadastro de cliente (Ação destrutiva - requer senha)`,
+        spokenFeedback: `Exclusão de cliente requer sua senha de acesso.`,
+        requiresPassword: true,
+        payload: {
+          clientName: clientName || undefined
+        }
+      };
+    }
+
+    // =========================================================================
+    // REGRA K: EXCLUIR PRODUTO (Exige Senha)
+    // =========================================================================
+    const isDeleteProduct =
+      (lower.includes('excluir') || lower.includes('apagar') || lower.includes('deletar') || lower.includes('remover')) &&
+      lower.includes('produto');
+
+    if (isDeleteProduct) {
+      const prodMatch = text.match(/(?:produto)\s+([^,.\n]+)/i);
+      const prodName = prodMatch ? prodMatch[1].trim() : '';
+
+      return {
+        action: 'DELETE_PRODUCT',
+        confidence: 0.9,
+        summary: prodName
+          ? `Excluir produto "${prodName}" do estoque (Ação destrutiva - requer senha)`
+          : `Excluir produto do estoque (Ação destrutiva - requer senha)`,
+        spokenFeedback: `Exclusão de produto requer sua senha de acesso.`,
+        requiresPassword: true,
+        payload: {
+          productName: prodName || undefined
+        }
+      };
+    }
+
     return {
       action: 'UNKNOWN',
       confidence: 0.2,
@@ -459,11 +668,58 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
     tenantId: string;
     userId: string;
     preview: QuickCommandPreview;
+    password?: string;
     ip?: string;
     userAgent?: string;
   }) {
-    const { tenantId, userId, preview, ip, userAgent } = params;
+    const { tenantId, userId, preview, password, ip, userAgent } = params;
     const { action, payload } = preview;
+
+    // Verificação de Segurança Estrita: Ações destrutivas / de exclusão exigem senha do usuário
+    if (preview.requiresPassword || action.startsWith('DELETE_')) {
+      if (!password || !password.trim()) {
+        throw new Error('Senha de acesso obrigatória para confirmar a exclusão.');
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { id: userId }
+      });
+
+      if (!user) {
+        throw new Error('Usuário autenticado não localizado.');
+      }
+
+      const isPasswordValid = await argon2.verify(user.passwordHash, password.trim());
+      if (!isPasswordValid) {
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            tenantId,
+            action: 'AI_DESTRUCTIVE_PASSWORD_FAILED',
+            entityType: 'CopilotIA',
+            entityId: tenantId,
+            details: { action, payload },
+            ipAddress: ip,
+            userAgent
+          }
+        }).catch(() => null);
+
+        throw new Error('Senha incorreta. Ação cancelada por segurança.');
+      }
+
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          tenantId,
+          action: 'AI_DESTRUCTIVE_AUTHORIZED',
+          entityType: 'CopilotIA',
+          entityId: tenantId,
+          details: { action, payload },
+          ipAddress: ip,
+          userAgent
+        }
+      }).catch(() => null);
+    }
 
     switch (action) {
       case 'CREATE_EXPENSE': {
@@ -541,6 +797,14 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
           throw new Error('Nome do cliente e valor do crediário são obrigatórios.');
         }
 
+        const tenant = await prisma.tenant.findUnique({
+          where: { id: tenantId },
+          include: { plan: true }
+        });
+        if (tenant?.plan?.code === 'FREE' && Number(tenant.plan.monthlyPrice) === 0) {
+          throw new Error('A gestão de crediário e fiado é um recurso dos planos Solo, Equipe Pro e VIP. Faça upgrade para desbloquear.');
+        }
+
         // Localiza ou cria cliente
         let client = await prisma.client.findFirst({
           where: {
@@ -603,11 +867,19 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
           throw new Error('Horários inicial e final do bloqueio são obrigatórios.');
         }
 
+        // Correção de Data Segura ISO-8601 para DateTime @db.Date do Prisma
+        const rawDate = payload.blockDate || new Date().toISOString().slice(0, 10);
+        const datePart = rawDate.includes('T') ? rawDate.split('T')[0] : rawDate;
+        let blockDateObj = new Date(`${datePart}T12:00:00.000Z`);
+        if (isNaN(blockDateObj.getTime())) {
+          blockDateObj = new Date();
+        }
+
         const block = await prisma.scheduleBlock.create({
           data: {
             tenantId,
             professionalId: payload.professionalId || null,
-            date: payload.blockDate || new Date().toISOString().slice(0, 10),
+            date: blockDateObj,
             startTime: payload.blockStartTime,
             endTime: payload.blockEndTime,
             reason: payload.blockReason || 'Bloqueio via comando de voz'
@@ -706,6 +978,258 @@ Responda SOMENTE um objeto JSON válido (sem tags markdown, sem código extra) n
             clientName: payload.clientName,
             clientPhone: realPhone
           }
+        };
+      }
+
+      // =========================================================================
+      // CASOS DELETAR / EXCLUIR (Com autenticação obrigatória de senha)
+      // =========================================================================
+      case 'DELETE_SCHEDULE': {
+        let schedule = null;
+        if (payload.scheduleId) {
+          schedule = await prisma.schedule.findFirst({
+            where: { id: payload.scheduleId, tenantId },
+            include: { client: true }
+          });
+        } else if (payload.clientName) {
+          schedule = await prisma.schedule.findFirst({
+            where: {
+              tenantId,
+              client: { name: { contains: payload.clientName.trim(), mode: 'insensitive' } },
+              status: { in: [ScheduleStatus.PENDING, ScheduleStatus.CONFIRMED] }
+            },
+            orderBy: { date: 'asc' },
+            include: { client: true }
+          });
+        } else {
+          // Último agendamento ativo
+          schedule = await prisma.schedule.findFirst({
+            where: {
+              tenantId,
+              status: { in: [ScheduleStatus.PENDING, ScheduleStatus.CONFIRMED] }
+            },
+            orderBy: { createdAt: 'desc' },
+            include: { client: true }
+          });
+        }
+
+        if (!schedule) {
+          throw new Error('Nenhum agendamento ativo localizado para cancelar.');
+        }
+
+        await prisma.schedule.update({
+          where: { id: schedule.id },
+          data: {
+            status: ScheduleStatus.CANCELLED,
+            notes: 'Cancelado via comando de voz com confirmação de senha'
+          }
+        });
+
+        return {
+          success: true,
+          message: `Agendamento de ${schedule.client?.name || 'Cliente'} cancelado com sucesso!`,
+          spokenFeedback: `Agendamento cancelado com sucesso.`,
+          data: { id: schedule.id }
+        };
+      }
+
+      case 'DELETE_BLOCK': {
+        let block = null;
+        if (payload.blockId) {
+          block = await prisma.scheduleBlock.findFirst({ where: { id: payload.blockId, tenantId } });
+        } else {
+          block = await prisma.scheduleBlock.findFirst({
+            where: {
+              tenantId,
+              ...(payload.blockStartTime ? { startTime: payload.blockStartTime } : {})
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+        }
+
+        if (!block) {
+          throw new Error('Bloqueio de agenda não localizado para remover.');
+        }
+
+        await prisma.scheduleBlock.delete({ where: { id: block.id } });
+
+        return {
+          success: true,
+          message: `Bloqueio de horário (${block.startTime} às ${block.endTime}) removido da agenda!`,
+          spokenFeedback: `Bloqueio de horário removido da agenda.`,
+          data: { id: block.id }
+        };
+      }
+
+      case 'DELETE_EXPENSE': {
+        let entry = null;
+        if (payload.entryId) {
+          entry = await prisma.financialEntry.findFirst({ where: { id: payload.entryId, tenantId } });
+        } else {
+          entry = await prisma.financialEntry.findFirst({
+            where: {
+              tenantId,
+              type: TransactionType.EXPENSE,
+              ...(payload.amount ? { amount: payload.amount } : {})
+            },
+            orderBy: { paidAt: 'desc' }
+          });
+        }
+
+        if (!entry) {
+          throw new Error('Lançamento de despesa não localizado para excluir.');
+        }
+
+        await prisma.financialEntry.delete({ where: { id: entry.id } });
+
+        return {
+          success: true,
+          message: `Despesa de R$ ${Number(entry.amount).toFixed(2).replace('.', ',')} excluída com sucesso!`,
+          spokenFeedback: `Despesa excluída com sucesso.`,
+          data: { id: entry.id }
+        };
+      }
+
+      case 'DELETE_INCOME': {
+        let entry = null;
+        if (payload.entryId) {
+          entry = await prisma.financialEntry.findFirst({ where: { id: payload.entryId, tenantId } });
+        } else {
+          entry = await prisma.financialEntry.findFirst({
+            where: {
+              tenantId,
+              type: TransactionType.INCOME,
+              ...(payload.amount ? { amount: payload.amount } : {})
+            },
+            orderBy: { paidAt: 'desc' }
+          });
+        }
+
+        if (!entry) {
+          throw new Error('Lançamento de receita não localizado para excluir.');
+        }
+
+        await prisma.financialEntry.delete({ where: { id: entry.id } });
+
+        return {
+          success: true,
+          message: `Receita de R$ ${Number(entry.amount).toFixed(2).replace('.', ',')} excluída do financeiro!`,
+          spokenFeedback: `Receita excluída do financeiro.`,
+          data: { id: entry.id }
+        };
+      }
+
+      case 'DELETE_CREDIT': {
+        let credit = null;
+        if (payload.creditAccountId) {
+          credit = await prisma.creditAccount.findFirst({ where: { id: payload.creditAccountId, tenantId } });
+        } else {
+          credit = await prisma.creditAccount.findFirst({
+            where: {
+              tenantId,
+              ...(payload.creditClientName
+                ? { clientName: { contains: payload.creditClientName.trim(), mode: 'insensitive' } }
+                : {}),
+              status: { in: [CreditAccountStatus.OPEN, CreditAccountStatus.PARTIAL] }
+            },
+            orderBy: { createdAt: 'desc' }
+          });
+        }
+
+        if (!credit) {
+          throw new Error('Conta de crediário/fiado não localizada.');
+        }
+
+        await prisma.creditAccount.delete({
+          where: { id: credit.id }
+        });
+
+        return {
+          success: true,
+          message: `Conta de crediário de ${credit.clientName} excluída com sucesso!`,
+          spokenFeedback: `Conta de crediário excluída com sucesso.`,
+          data: { id: credit.id }
+        };
+      }
+
+      case 'DELETE_CLIENT': {
+        if (!payload.clientName) {
+          throw new Error('Nome da cliente não informado para exclusão.');
+        }
+
+        const client = await prisma.client.findFirst({
+          where: {
+            tenantId,
+            name: { contains: payload.clientName.trim(), mode: 'insensitive' }
+          }
+        });
+
+        if (!client) {
+          throw new Error(`Cliente "${payload.clientName}" não localizada no cadastro.`);
+        }
+
+        await prisma.client.delete({ where: { id: client.id } });
+
+        return {
+          success: true,
+          message: `Cadastro da cliente ${client.name} excluído com sucesso!`,
+          spokenFeedback: `Cadastro da cliente excluído com sucesso.`,
+          data: { id: client.id }
+        };
+      }
+
+      case 'DELETE_PRODUCT': {
+        if (!payload.productName) {
+          throw new Error('Nome do produto não informado para exclusão.');
+        }
+
+        const product = await prisma.product.findFirst({
+          where: {
+            tenantId,
+            name: { contains: payload.productName.trim(), mode: 'insensitive' }
+          }
+        });
+
+        if (!product) {
+          throw new Error(`Produto "${payload.productName}" não localizado no catálogo.`);
+        }
+
+        await prisma.product.delete({ where: { id: product.id } });
+
+        return {
+          success: true,
+          message: `Produto "${product.name}" excluído do estoque com sucesso!`,
+          spokenFeedback: `Produto excluído do estoque.`,
+          data: { id: product.id }
+        };
+      }
+
+      case 'DELETE_SERVICE': {
+        if (!payload.serviceName) {
+          throw new Error('Nome do procedimento não informado.');
+        }
+
+        const service = await prisma.service.findFirst({
+          where: {
+            tenantId,
+            name: { contains: payload.serviceName.trim(), mode: 'insensitive' }
+          }
+        });
+
+        if (!service) {
+          throw new Error(`Procedimento "${payload.serviceName}" não localizado no catálogo.`);
+        }
+
+        await prisma.service.update({
+          where: { id: service.id },
+          data: { allowOnlineBooking: false }
+        });
+
+        return {
+          success: true,
+          message: `Procedimento "${service.name}" desativado do catálogo com sucesso!`,
+          spokenFeedback: `Procedimento desativado com sucesso.`,
+          data: { id: service.id }
         };
       }
 

@@ -26,6 +26,9 @@ interface PlanData {
   monthlyFreeBookings: number;
   extraBookingFee: number;
   hasAiAssistant: boolean;
+  hasAutoWhatsapp: boolean;
+  hasCourses: boolean;
+  hasSupport: boolean;
   hasAnamnesis: boolean;
   hasCommissions: boolean;
   hasGoogleCalendar: boolean;
@@ -63,6 +66,9 @@ export default function AdminPlanosPage() {
             maxProfessionals: Number(p.maxProfessionals) || 1,
             features: Array.isArray(p.features) ? p.features : [],
             hasAiAssistant: Boolean(p.hasAiAssistant),
+            hasAutoWhatsapp: Boolean(p.hasAutoWhatsapp),
+            hasCourses: Boolean(p.hasCourses),
+            hasSupport: Boolean(p.hasSupport ?? true),
             hasAnamnesis: Boolean(p.hasAnamnesis),
             hasCommissions: Boolean(p.hasCommissions),
             hasGoogleCalendar: Boolean(p.hasGoogleCalendar),
@@ -95,6 +101,9 @@ export default function AdminPlanosPage() {
   const [monthlyFreeBookings, setMonthlyFreeBookings] = useState('0');
   const [extraBookingFee, setExtraBookingFee] = useState('0.00');
   const [hasAiAssistant, setHasAiAssistant] = useState(false);
+  const [hasAutoWhatsapp, setHasAutoWhatsapp] = useState(false);
+  const [hasCourses, setHasCourses] = useState(false);
+  const [hasSupport, setHasSupport] = useState(true);
   const [hasAnamnesis, setHasAnamnesis] = useState(false);
   const [hasCommissions, setHasCommissions] = useState(false);
   const [hasGoogleCalendar, setHasGoogleCalendar] = useState(false);
@@ -113,6 +122,9 @@ export default function AdminPlanosPage() {
     setMonthlyFreeBookings('0');
     setExtraBookingFee('0.00');
     setHasAiAssistant(false);
+    setHasAutoWhatsapp(false);
+    setHasCourses(false);
+    setHasSupport(true);
     setHasAnamnesis(false);
     setHasCommissions(false);
     setHasGoogleCalendar(false);
@@ -132,6 +144,9 @@ export default function AdminPlanosPage() {
     setMonthlyFreeBookings(String(plan.monthlyFreeBookings || 0));
     setExtraBookingFee(String(plan.extraBookingFee || 0));
     setHasAiAssistant(plan.hasAiAssistant);
+    setHasAutoWhatsapp(Boolean(plan.hasAutoWhatsapp));
+    setHasCourses(Boolean(plan.hasCourses));
+    setHasSupport(Boolean(plan.hasSupport ?? true));
     setHasAnamnesis(plan.hasAnamnesis);
     setHasCommissions(plan.hasCommissions);
     setHasGoogleCalendar(plan.hasGoogleCalendar);
@@ -160,6 +175,9 @@ export default function AdminPlanosPage() {
       monthlyFreeBookings: isUnlimitedBookings ? 0 : (parseInt(monthlyFreeBookings, 10) || 0),
       extraBookingFee: isUnlimitedBookings ? 0 : (Number(extraBookingFee) || 0),
       hasAiAssistant,
+      hasAutoWhatsapp,
+      hasCourses,
+      hasSupport,
       hasAnamnesis,
       hasCommissions,
       hasGoogleCalendar,
@@ -329,11 +347,26 @@ export default function AdminPlanosPage() {
                   <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap gap-1.5 text-[11px]">
                     {p.hasAiAssistant && (
                       <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/60 font-medium">
-                        Atendente IA
+                        Copiloto IA
+                      </span>
+                    )}
+                    {p.hasAutoWhatsapp && (
+                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-medium">
+                        WhatsApp Automático
+                      </span>
+                    )}
+                    {p.hasCourses && (
+                      <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/60 font-medium">
+                        Cursos Online
+                      </span>
+                    )}
+                    {p.hasSupport && (
+                      <span className="px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200/60 font-medium">
+                        Suporte Oficial com IA
                       </span>
                     )}
                     {p.hasAnamnesis && (
-                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-medium">
+                      <span className="px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-teal-200/60 font-medium">
                         Anamnese Digital
                       </span>
                     )}
@@ -588,7 +621,37 @@ export default function AdminPlanosPage() {
                         onChange={(e) => setHasAiAssistant(e.target.checked)}
                         className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
                       />
-                      <span>Atendente Virtual IA (WhatsApp)</span>
+                      <span>Copiloto IA (Voz & Texto na Agenda)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/60 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={hasAutoWhatsapp}
+                        onChange={(e) => setHasAutoWhatsapp(e.target.checked)}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      <span>Automações WhatsApp (Lembretes)</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/60 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={hasCourses}
+                        onChange={(e) => setHasCourses(e.target.checked)}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      <span>Cursos Online para Alunas</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/60 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={hasSupport}
+                        onChange={(e) => setHasSupport(e.target.checked)}
+                        className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500"
+                      />
+                      <span>Central de Suporte Oficial IA</span>
                     </label>
 
                     <label className="flex items-center gap-2 cursor-pointer p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/60 transition-colors">
@@ -621,7 +684,7 @@ export default function AdminPlanosPage() {
                       <span>Google Calendar Sync</span>
                     </label>
 
-                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/60 transition-colors sm:col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer p-2 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200/60 transition-colors">
                       <input
                         type="checkbox"
                         checked={active}

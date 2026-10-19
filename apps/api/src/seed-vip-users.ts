@@ -10,76 +10,21 @@ async function main() {
   const henriquePassHash = await argon2.hash('183834@Hlj');
   const emanuellePassHash = await argon2.hash('Davih06.');
 
-  // 2. Garantir o Plano VIP sem mensalidade
-  const vipPlan = await prisma.plan.upsert({
-    where: { code: 'VIP_PRO' },
-    update: {
-      name: 'VIP Equipe Pro',
-      description: 'Acesso VIP vitalício com todos os recursos liberados e sem mensalidade',
-      monthlyPrice: 0.0,
-      maxProfessionals: 99,
-      isUnlimitedBookings: true,
-      monthlyFreeBookings: 999999,
-      extraBookingFee: 0.0,
-      hasAiAssistant: true,
-      hasAnamnesis: true,
-      hasCommissions: true,
-      hasGoogleCalendar: true,
-      features: [
-        'Agendamentos Ilimitados',
-        'Atendente IA no WhatsApp',
-        'Ficha de Anamnese Digital',
-        'Cálculo de Comissões',
-        'Gestão Financeira & Relatórios',
-        'Sem Mensalidade (Cliente VIP)'
-      ],
-      active: true
-    },
-    create: {
-      code: 'VIP_PRO',
-      name: 'VIP Equipe Pro',
-      description: 'Acesso VIP vitalício com todos os recursos liberados e sem mensalidade',
-      monthlyPrice: 0.0,
-      maxProfessionals: 99,
-      isUnlimitedBookings: true,
-      monthlyFreeBookings: 999999,
-      extraBookingFee: 0.0,
-      hasAiAssistant: true,
-      hasAnamnesis: true,
-      hasCommissions: true,
-      hasGoogleCalendar: true,
-      features: [
-        'Agendamentos Ilimitados',
-        'Atendente IA no WhatsApp',
-        'Ficha de Anamnese Digital',
-        'Cálculo de Comissões',
-        'Gestão Financeira & Relatórios',
-        'Sem Mensalidade (Cliente VIP)'
-      ],
-      active: true
-    }
+  // 2. Localizar Plano VIP ou Gratuito
+  const vipPlan = await prisma.plan.findFirst({
+    where: { code: 'VIP_PRO' }
+  });
+  const freePlan = await prisma.plan.findFirst({
+    where: { code: 'FREE' }
   });
 
-  console.log(`✓ Plano VIP garantido: ${vipPlan.name} (${vipPlan.code})`);
-
-  // 3. Garantir o Tenant da Emanuelle
+  // 3. Garantir o Tenant da Emanuelle (sem sobrescrever personalizações feitas no painel)
   const emanuelleTenant = await prisma.tenant.upsert({
     where: { slug: 'emanuelletelles' },
     update: {
-      name: 'Emanuelle Telles Nails',
-      legalName: 'Emanuelle Telles Studio de Unhas',
-      phone: '11999999999',
-      description: 'Especialista em Nail Art, Alongamentos em Gel, Cílios e Cuidados Especiais.',
-      niche: BusinessNiche.NAIL_LASH_STUDIO,
-      terminology: {
-        professional: 'Designer',
-        space: 'Mesa de Atendimento',
-        service: 'Procedimento'
-      },
-      planId: vipPlan.id,
-      billingStatus: 'ACTIVE',
       blockedAt: null,
-      blockedReason: null
+      blockedReason: null,
+      ...(vipPlan?.id ? { planId: vipPlan.id } : {})
     },
     create: {
       name: 'Emanuelle Telles Nails',
@@ -101,7 +46,7 @@ async function main() {
       addressCity: 'São Paulo',
       addressState: 'SP',
       addressZip: '01001-000',
-      planId: vipPlan.id,
+      planId: vipPlan?.id || freePlan?.id || null,
       billingStatus: 'ACTIVE'
     }
   });

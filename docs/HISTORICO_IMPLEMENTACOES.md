@@ -186,6 +186,18 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
   - **Navegação Mobile e Botão Flutuante (FAB)**: O botão circular flutuante (`+`) na Agenda mobile e os itens ativos da barra inferior (Bottom Navigation) em `dashboard/layout.tsx` passam a sincronizar em tempo real com `subscriberPrimaryColor`.
   - **Catálogo de Serviços (`dashboard/servicos/page.tsx`)**: Novos procedimentos criados assumem a cor do estabelecimento por padrão, e a paleta do modal inclui a cor do tenant no topo.
 
+- **Fase 11: Correção Definitiva do Fuso Horário Noturno (UTC-3 / Horário de Brasília) na Vitrine e no Painel**:
+  - **Diagnóstico da Causa Raiz**:
+    - No componente `BookingWizard.tsx` (Passo 2 - Escolha de Data e Horário), a geração dos 14 dias da barra superior utilizava `d.toISOString().split('T')[0]`, e a inicialização do estado `selectedDate` utilizava `new Date().toISOString().split('T')[0]`.
+    - No Brasil (fuso UTC-3 / America/Sao_Paulo), após as 21:00 (como observado no relógio do usuário às 23:42 de 18/10), `toISOString()` projeta o horário para UTC (+3h), saltando para o dia civil seguinte (`2026-10-19`).
+    - Como resultado, os botões visuais da vitrine exibiam a data civil local (`DOM 18 OUT`, `QUA 21 OUT`), mas gravavam no estado e enviavam para a API a data avançada em UTC (`2026-10-19` - Segunda-feira e `2026-10-22` - Quinta-feira). A API recebia Segunda/Quinta, dias em que o estabelecimento está fechado, e respondia com a mensagem incongruente "Fechado aos Segunda-feiras" (com o dia 18 selecionado) e "Fechado aos Quinta-feiras" (com o dia 21 selecionado).
+  - **Solução Implementada**:
+    - `BookingWizard.tsx`: Todos os `toISOString().split('T')[0]` foram substituídos por `formatLocalDateToYMD(d)`, com normalização segura para meio-dia local (`today.setHours(12, 0, 0, 0)`), impedindo qualquer salto ou variação de horário de verão. Adicionada garantia de que `selectedDate` inicial sincronize diretamente com a data civil do primeiro dia da barra.
+    - Backend API (`apps/api/src/utils/date-utils.ts`): Criados utilitários `getBrazilTodayYMD()`, `getBrazilNowMinutes()` e `parseYMDToSafeUtcDate(dateStr)` que extraem com precisão matemática o dia da semana (`dayOfWeek`) e a data civil, sem qualquer interferência do timezone da VPS ou container Docker.
+    - `availability.service.ts`: O cálculo do dia da semana (`dayOfWeek`) e a verificação de horário atual para bloqueio de horários passados no dia corrente (`isToday`) agora utilizam o fuso oficial de Brasília (`America/Sao_Paulo`).
+    - `booking.service.ts` & `schedules.routes.ts`: `targetDate`, filtros de `startDate`/`endDate` e cálculo de `dashboard-summary` blindados contra saltos de fuso na VPS.
+    - Painel Administrativo (`agendamentos/page.tsx`, `dashboard/page.tsx`, `AgendaAppointmentModal.tsx`, `AgendaAppointmentDetailsModal.tsx`, `AgendaBlockModal.tsx`): Todos os pontos com `toISOString()` convertidos para `formatLocalDateToYMD` e `getWeekDays`.
+
 ---
 
 ## 3. Estado Atual do Repositório Git
@@ -194,5 +206,5 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
   - `packages/shared`: **0 erros**.
   - `apps/api`: **0 erros**.
   - `apps/web`: **0 erros**.
-- **Testes Unitários da API (`vitest run`)**: Todos os **89 testes unitários** aprovados com 100% de sucesso.
+- **Testes Unitários da API (`vitest run`)**: Todos os **94 testes unitários** aprovados com 100% de sucesso.
 - **Ambiente de Produção**: Totalmente atualizado na VPS `23.80.89.116` com Caddy HTTPS e Docker Compose.

@@ -24,6 +24,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { formatLocalDateToYMD, getWeekDays } from '@/lib/dateUtils';
 import { AgendaAppointmentModal } from '@/components/agenda/AgendaAppointmentModal';
 import { AppointmentCheckoutModal } from '@/components/agenda/AppointmentCheckoutModal';
 import { ScheduleAppointment, ProfessionalItem, ServiceOption } from '@/components/agenda/types';
@@ -77,11 +78,18 @@ const STATUS_CONFIG: Record<
 };
 
 export default function AgendamentosPage() {
+  const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
+    }
+    return '#5c0701';
+  });
+
   const [schedules, setSchedules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [limit] = useState(25);
+  const [limit, setLimit] = useState(10);
 
   // Filtros
   const [search, setSearch] = useState('');
@@ -109,8 +117,29 @@ export default function AgendamentosPage() {
   const [openStatusMenuId, setOpenStatusMenuId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
-  // 1. Carrega opções de serviços e profissionais
+  // 1. Carrega opções de serviços e profissionais e cor do tenant
   useEffect(() => {
+    const syncColor = () => {
+      const saved = localStorage.getItem('tenant_primary_color');
+      if (saved) setTenantPrimaryColor(saved);
+    };
+    syncColor();
+    api.get('/tenants/me').then((res) => {
+      if (res.data?.primaryColor) {
+        setTenantPrimaryColor(res.data.primaryColor);
+        localStorage.setItem('tenant_primary_color', res.data.primaryColor);
+      }
+    }).catch(() => {});
+    const handleTenantSync = (e: any) => {
+      if (e?.detail?.primaryColor) {
+        setTenantPrimaryColor(e.detail.primaryColor);
+      } else {
+        syncColor();
+      }
+    };
+    window.addEventListener('storage', syncColor);
+    window.addEventListener('marquesuahora_tenant_sync', handleTenantSync);
+
     Promise.all([
       api.get('/professionals').catch(() => ({ data: [] })),
       api.get('/services').catch(() => ({ data: [] }))
@@ -118,12 +147,18 @@ export default function AgendamentosPage() {
       setProfessionals(profRes.data || []);
       setServices(servRes.data || []);
     });
+
+    return () => {
+      window.removeEventListener('storage', syncColor);
+      window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    };
   }, []);
 
-  // 2. Calcula intervalo de datas baseado no filtro de período
+  // 2. Calcula intervalo de datas baseado no filtro de período (sem drift noturno)
   const dateRange = useMemo(() => {
     const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
+    today.setHours(12, 0, 0, 0);
+    const todayStr = formatLocalDateToYMD(today);
 
     if (periodFilter === 'today') {
       return { startDate: todayStr, endDate: todayStr };
@@ -132,28 +167,24 @@ export default function AgendamentosPage() {
     if (periodFilter === 'tomorrow') {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+      const tomorrowStr = formatLocalDateToYMD(tomorrow);
       return { startDate: tomorrowStr, endDate: tomorrowStr };
     }
 
     if (periodFilter === 'week') {
-      const day = today.getDay();
-      const diff = today.getDate() - day + (day === 0 ? -6 : 1);
-      const monday = new Date(today.setDate(diff));
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
+      const week = getWeekDays(today);
       return {
-        startDate: monday.toISOString().slice(0, 10),
-        endDate: sunday.toISOString().slice(0, 10)
+        startDate: formatLocalDateToYMD(week[0]),
+        endDate: formatLocalDateToYMD(week[6])
       };
     }
 
     if (periodFilter === 'month') {
-      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1, 12, 0, 0);
+      const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0, 12, 0, 0);
       return {
-        startDate: startOfMonth.toISOString().slice(0, 10),
-        endDate: endOfMonth.toISOString().slice(0, 10)
+        startDate: formatLocalDateToYMD(startOfMonth),
+        endDate: formatLocalDateToYMD(endOfMonth)
       };
     }
 
@@ -195,7 +226,7 @@ export default function AgendamentosPage() {
 
   useEffect(() => {
     fetchSchedules();
-  }, [page, statusFilter, periodFilter, selectedProfessionalId, dateRange]);
+  }, [page, limit, statusFilter, periodFilter, selectedProfessionalId, dateRange]);
 
   // Revalidação Automática Inteligente em Segundo Plano (30s e foco na janela)
   useEffect(() => {
@@ -426,199 +457,180 @@ export default function AgendamentosPage() {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="py-3.5 px-4">Cliente</th>
-                  <th className="py-3.5 px-4">Data & Horário</th>
-                  <th className="py-3.5 px-4">Serviço / Combo</th>
-                  <th className="py-3.5 px-4">Profissional</th>
-                  <th className="py-3.5 px-4">Valor</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                {schedules.map((item) => {
-                  const statusInfo = STATUS_CONFIG[item.status] || STATUS_CONFIG.PENDING;
-                  const StatusIcon = statusInfo.icon;
-                  const dateDisplay = formatDateDisplay(item.date);
+          <div>
+            {/* 1. VISÃO DESKTOP & TABLET: TABELA COMPACTA */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50/80 border-b border-slate-200/80 text-[10.5px] font-bold uppercase tracking-wider text-slate-500">
+                  <tr>
+                    <th className="py-2.5 px-3">Cliente</th>
+                    <th className="py-2.5 px-3">Data & Horário</th>
+                    <th className="py-2.5 px-3">Serviço / Combo</th>
+                    <th className="py-2.5 px-3">Profissional</th>
+                    <th className="py-2.5 px-3">Valor</th>
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {schedules.map((item) => {
+                    const statusInfo = STATUS_CONFIG[item.status] || STATUS_CONFIG.PENDING;
+                    const StatusIcon = statusInfo.icon;
+                    const dateDisplay = formatDateDisplay(item.date);
 
-                  return (
-                    <tr
-                      key={item.id}
-                      className="hover:bg-purple-50/30 transition-colors group"
-                    >
-                      {/* Cliente */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-xs flex-shrink-0">
-                            {item.client?.name?.charAt(0)?.toUpperCase() || 'C'}
+                    return (
+                      <tr
+                        key={item.id}
+                        className="hover:bg-purple-50/30 transition-colors group"
+                      >
+                        {/* Cliente */}
+                        <td className="py-2 px-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-full bg-purple-100 text-purple-700 font-bold flex items-center justify-center text-[11px] flex-shrink-0">
+                              {item.client?.name?.charAt(0)?.toUpperCase() || 'C'}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-900 truncate max-w-[150px] leading-tight text-xs">
+                                {item.client?.name}
+                              </p>
+                              <p className="text-[10px] text-slate-400 font-mono leading-tight">
+                                {item.client?.phone}
+                              </p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-900 truncate">
-                              {item.client?.name}
-                            </p>
-                            <p className="text-[11px] text-slate-400 font-mono">
-                              {item.client?.phone}
-                            </p>
+                        </td>
+
+                        {/* Data & Horário */}
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          <div className="flex items-center gap-1 font-bold text-slate-900 text-xs">
+                            <Calendar className="w-3 h-3 text-purple-600 shrink-0" />
+                            <span>{dateDisplay}</span>
                           </div>
-                        </div>
-                      </td>
+                          <div className="flex items-center gap-1 text-[10.5px] text-slate-500 font-mono mt-0.5">
+                            <Clock className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                            <span>
+                              {item.startTime} - {item.endTime} ({item.totalDurationMinutes}m)
+                            </span>
+                          </div>
+                        </td>
 
-                      {/* Data & Horário */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                          <Calendar className="w-3.5 h-3.5 text-purple-600" />
-                          <span>{dateDisplay}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-mono mt-0.5">
-                          <Clock className="w-3 h-3 text-slate-400" />
-                          <span>
-                            {item.startTime} - {item.endTime} ({item.totalDurationMinutes} min)
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Serviço */}
-                      <td className="py-3.5 px-4">
-                        <p className="font-semibold text-slate-800 truncate max-w-[200px]">
-                          {item.service?.name}
-                        </p>
-                        {item.items && item.items.length > 1 && (
-                          <p className="text-[10px] text-purple-600 font-bold mt-0.5">
-                            + {item.items.length - 1} serviço(s) no combo
+                        {/* Serviço */}
+                        <td className="py-2 px-3">
+                          <p className="font-semibold text-slate-800 truncate max-w-[180px] text-xs">
+                            {item.service?.name}
                           </p>
-                        )}
-                      </td>
-
-                      {/* Profissional */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700">
-                          <span
-                            className="w-2 h-2 rounded-full"
-                            style={{ backgroundColor: item.professional?.color || '#7C3AED' }}
-                          />
-                          {item.professional?.name}
-                        </span>
-                      </td>
-
-                      {/* Valor */}
-                      <td className="py-3.5 px-4 font-bold text-slate-900 font-mono whitespace-nowrap">
-                        R$ {Number(item.totalPrice).toFixed(2).replace('.', ',')}
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="relative inline-block">
-                          <button
-                            onClick={() =>
-                              setOpenStatusMenuId(openStatusMenuId === item.id ? null : item.id)
-                            }
-                            disabled={updatingStatusId === item.id}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition-all ${statusInfo.bg} ${statusInfo.text} ${statusInfo.border} hover:opacity-80`}
-                          >
-                            {updatingStatusId === item.id ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <StatusIcon className="w-3 h-3" />
-                            )}
-                            <span>{statusInfo.label}</span>
-                          </button>
-
-                          {/* Dropdown de Troca Rápida de Status */}
-                          {openStatusMenuId === item.id && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-20 cursor-default"
-                                onClick={() => setOpenStatusMenuId(null)}
-                              />
-                              <div className="absolute left-0 mt-1 w-44 bg-white rounded-2xl shadow-xl border border-slate-200 z-30 py-1.5 overflow-hidden animate-in fade-in zoom-in-95">
-                                <p className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                  Mudar Status
-                                </p>
-                                {[
-                                  { key: 'CONFIRMED', label: 'Confirmado' },
-                                  { key: 'IN_SERVICE', label: 'Em Atendimento' },
-                                  { key: 'COMPLETED', label: 'Concluído' },
-                                  { key: 'NO_SHOW', label: 'Não Compareceu' },
-                                  { key: 'CANCELLED', label: 'Cancelar' }
-                                ].map((opt) => (
-                                  <button
-                                    key={opt.key}
-                                    onClick={() => handleQuickStatusChange(item.id, opt.key)}
-                                    className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
-                                  >
-                                    {opt.label}
-                                  </button>
-                                ))}
-                              </div>
-                            </>
+                          {item.items && item.items.length > 1 && (
+                            <p className="text-[9.5px] text-purple-600 font-bold mt-0.5">
+                              + {item.items.length - 1} serviço(s) no combo
+                            </p>
                           )}
-                        </div>
-                      </td>
+                        </td>
 
-                      {/* Ações */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* Botão WhatsApp */}
-                          {item.client?.phone && (
+                        {/* Profissional */}
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          {(() => {
+                            const SYSTEM_DEFAULTS = ['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'];
+                            const profColor = item.professional?.color?.trim();
+                            const isDefault = !profColor || SYSTEM_DEFAULTS.includes(profColor.toUpperCase());
+                            const displayColor = isDefault ? tenantPrimaryColor : profColor;
+                            return (
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10.5px] font-semibold bg-slate-100 text-slate-700">
+                                <span
+                                  className="w-1.5 h-1.5 rounded-full"
+                                  style={{ backgroundColor: displayColor }}
+                                />
+                                {item.professional?.name}
+                              </span>
+                            );
+                          })()}
+                        </td>
+
+                        {/* Valor */}
+                        <td className="py-2 px-3 font-bold text-slate-900 font-mono text-xs whitespace-nowrap">
+                          R$ {Number(item.totalPrice).toFixed(2).replace('.', ',')}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-2 px-3 whitespace-nowrap">
+                          <div className="relative inline-block">
                             <button
                               onClick={() =>
-                                handleOpenWhatsApp(
-                                  item.client.name,
-                                  item.client.phone,
-                                  item.date,
-                                  item.startTime,
-                                  item.service?.name
-                                )
+                                setOpenStatusMenuId(openStatusMenuId === item.id ? null : item.id)
                               }
-                              className="p-2 rounded-xl text-emerald-600 bg-emerald-50 hover:bg-emerald-100 transition-colors"
-                              title="Enviar lembrete / confirmação via WhatsApp"
+                              disabled={updatingStatusId === item.id}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-bold border transition-all ${statusInfo.bg} ${statusInfo.text} ${statusInfo.border} hover:opacity-80`}
                             >
-                              <MessageCircle className="w-3.5 h-3.5" />
+                              {updatingStatusId === item.id ? (
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                              ) : (
+                                <StatusIcon className="w-2.5 h-2.5" />
+                              )}
+                              <span>{statusInfo.label}</span>
                             </button>
-                          )}
 
-                          {/* Botão Detalhes / Edição */}
-                          <button
-                            onClick={() => {
-                              setSelectedAppointment({
-                                id: item.id,
-                                clientId: item.clientId || item.client?.id || '',
-                                serviceId: item.serviceId,
-                                professionalId: item.professionalId,
-                                date: item.date ? (typeof item.date === 'string' ? item.date.slice(0, 10) : new Date(item.date).toISOString().slice(0, 10)) : '',
-                                startTime: item.startTime,
-                                endTime: item.endTime,
-                                status: item.status,
-                                totalPrice: Number(item.totalPrice),
-                                totalDurationMinutes: item.totalDurationMinutes,
-                                notes: item.notes,
-                                depositAmount: item.depositAmount,
-                                depositPaid: item.depositPaid,
-                                client: item.client,
-                                service: item.service,
-                                professional: item.professional
-                              });
-                              setIsModalOpen(true);
-                            }}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
-                          >
-                            Detalhes
-                          </button>
+                            {/* Dropdown de Troca Rápida de Status */}
+                            {openStatusMenuId === item.id && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-20 cursor-default"
+                                  onClick={() => setOpenStatusMenuId(null)}
+                                />
+                                <div className="absolute left-0 mt-1 w-40 bg-white rounded-2xl shadow-xl border border-slate-200 z-30 py-1 overflow-hidden animate-in fade-in zoom-in-95">
+                                  <p className="px-3 py-1 text-[9.5px] font-bold text-slate-400 uppercase tracking-wider">
+                                    Mudar Status
+                                  </p>
+                                  {[
+                                    { key: 'CONFIRMED', label: 'Confirmado' },
+                                    { key: 'IN_SERVICE', label: 'Em Atendimento' },
+                                    { key: 'COMPLETED', label: 'Concluído' },
+                                    { key: 'NO_SHOW', label: 'Não Compareceu' },
+                                    { key: 'CANCELLED', label: 'Cancelar' }
+                                  ].map((opt) => (
+                                    <button
+                                      key={opt.key}
+                                      onClick={() => handleQuickStatusChange(item.id, opt.key)}
+                                      className="w-full text-left px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-purple-50 hover:text-purple-700 transition-colors"
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  ))}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </td>
 
-                          {/* Botão Cobrar / Comanda */}
-                          {item.status !== 'CANCELLED' && (
+                        {/* Ações */}
+                        <td className="py-2 px-3 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1">
+                            {/* Botão WhatsApp */}
+                            {item.client?.phone && (
+                              <button
+                                onClick={() =>
+                                  handleOpenWhatsApp(
+                                    item.client.name,
+                                    item.client.phone,
+                                    item.date,
+                                    item.startTime,
+                                    item.service?.name
+                                  )
+                                }
+                                className="p-1.5 rounded-lg text-emerald-600 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                title="Enviar lembrete / confirmação via WhatsApp"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* Botão Detalhes / Edição */}
                             <button
                               onClick={() => {
-                                setCheckoutAppointment({
+                                setSelectedAppointment({
                                   id: item.id,
                                   clientId: item.clientId || item.client?.id || '',
                                   serviceId: item.serviceId,
                                   professionalId: item.professionalId,
-                                  date: item.date ? (typeof item.date === 'string' ? item.date.slice(0, 10) : new Date(item.date).toISOString().slice(0, 10)) : '',
+                                  date: item.date ? formatLocalDateToYMD(item.date) : '',
                                   startTime: item.startTime,
                                   endTime: item.endTime,
                                   status: item.status,
@@ -631,41 +643,244 @@ export default function AgendamentosPage() {
                                   service: item.service,
                                   professional: item.professional
                                 });
+                                setIsModalOpen(true);
                               }}
-                              className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-white btn-primary-tenant transition-colors shadow-xs cursor-pointer"
-                              title="Abrir comanda e recebimento financeiro"
+                              className="px-2 py-1 rounded-lg text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
                             >
-                              Cobrar
+                              Detalhes
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+
+                            {/* Botão Cobrar / Comanda */}
+                            {item.status !== 'CANCELLED' && (
+                              <button
+                                onClick={() => {
+                                  setCheckoutAppointment({
+                                    id: item.id,
+                                    clientId: item.clientId || item.client?.id || '',
+                                    serviceId: item.serviceId,
+                                    professionalId: item.professionalId,
+                                    date: item.date ? formatLocalDateToYMD(item.date) : '',
+                                    startTime: item.startTime,
+                                    endTime: item.endTime,
+                                    status: item.status,
+                                    totalPrice: Number(item.totalPrice),
+                                    totalDurationMinutes: item.totalDurationMinutes,
+                                    notes: item.notes,
+                                    depositAmount: item.depositAmount,
+                                    depositPaid: item.depositPaid,
+                                    client: item.client,
+                                    service: item.service,
+                                    professional: item.professional
+                                  });
+                                }}
+                                className="px-2 py-1 rounded-lg text-[11px] font-bold text-white btn-primary-tenant transition-colors shadow-2xs cursor-pointer"
+                                title="Abrir comanda e recebimento financeiro"
+                              >
+                                Cobrar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 2. VISÃO MOBILE: CARDS COMPACTOS PARA CABER NUMA PÁGINA */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {schedules.map((item) => {
+                const statusInfo = STATUS_CONFIG[item.status] || STATUS_CONFIG.PENDING;
+                const StatusIcon = statusInfo.icon;
+                const dateDisplay = formatDateDisplay(item.date);
+
+                return (
+                  <div key={item.id} className="p-3 space-y-2 hover:bg-slate-50/60 transition-colors">
+                    {/* Linha Topo: Data/Hora + Status + Valor */}
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                        <Calendar className="w-3 h-3 text-purple-600 shrink-0" />
+                        <span>{dateDisplay}</span>
+                        <span className="text-slate-300">•</span>
+                        <span className="font-mono text-slate-600 text-[11px]">{item.startTime}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusInfo.bg} ${statusInfo.text} ${statusInfo.border}`}>
+                          <StatusIcon className="w-2.5 h-2.5" />
+                          <span>{statusInfo.label}</span>
+                        </span>
+                        <span className="font-bold font-mono text-slate-900 text-xs">
+                          R$ {Number(item.totalPrice).toFixed(2).replace('.', ',')}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Linha Meio: Cliente + Serviço */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-900 text-xs truncate">
+                          {item.client?.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          {item.service?.name}
+                          {item.items && item.items.length > 1 ? ` (+${item.items.length - 1})` : ''}
+                        </p>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                        {item.client?.phone || 'Sem tel'}
+                      </span>
+                    </div>
+
+                    {/* Linha Base: Ações Rápidas */}
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-100/80">
+                      <span className="text-[10px] text-slate-500 font-medium">
+                        Prof: <strong>{item.professional?.name}</strong>
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {item.client?.phone && (
+                          <button
+                            onClick={() =>
+                              handleOpenWhatsApp(
+                                item.client.name,
+                                item.client.phone,
+                                item.date,
+                                item.startTime,
+                                item.service?.name
+                              )
+                            }
+                            className="p-1.5 rounded-lg text-emerald-600 bg-emerald-50 hover:bg-emerald-100"
+                            title="WhatsApp"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            setSelectedAppointment({
+                              id: item.id,
+                              clientId: item.clientId || item.client?.id || '',
+                              serviceId: item.serviceId,
+                              professionalId: item.professionalId,
+                              date: item.date ? formatLocalDateToYMD(item.date) : '',
+                              startTime: item.startTime,
+                              endTime: item.endTime,
+                              status: item.status,
+                              totalPrice: Number(item.totalPrice),
+                              totalDurationMinutes: item.totalDurationMinutes,
+                              notes: item.notes,
+                              depositAmount: item.depositAmount,
+                              depositPaid: item.depositPaid,
+                              client: item.client,
+                              service: item.service,
+                              professional: item.professional
+                            });
+                            setIsModalOpen(true);
+                          }}
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200"
+                        >
+                          Detalhes
+                        </button>
+                        {item.status !== 'CANCELLED' && (
+                          <button
+                            onClick={() => {
+                              setCheckoutAppointment({
+                                id: item.id,
+                                clientId: item.clientId || item.client?.id || '',
+                                serviceId: item.serviceId,
+                                professionalId: item.professionalId,
+                                date: item.date ? formatLocalDateToYMD(item.date) : '',
+                                startTime: item.startTime,
+                                endTime: item.endTime,
+                                status: item.status,
+                                totalPrice: Number(item.totalPrice),
+                                totalDurationMinutes: item.totalDurationMinutes,
+                                notes: item.notes,
+                                depositAmount: item.depositAmount,
+                                depositPaid: item.depositPaid,
+                                client: item.client,
+                                service: item.service,
+                                professional: item.professional
+                              });
+                            }}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white btn-primary-tenant"
+                          >
+                            Cobrar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {/* Paginação */}
-        {totalCount > limit && (
-          <div className="px-6 py-4 bg-slate-50 border-t border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
-            <span>
-              Página {page} de {Math.ceil(totalCount / limit)}
-            </span>
-            <div className="flex items-center gap-1.5">
+        {/* 3. BARRA DE PAGINAÇÃO COMPLETA E COMPACTA */}
+        {totalCount > 0 && (
+          <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600">
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[11px] font-medium text-slate-500">
+                Exibindo <strong>{(page - 1) * limit + 1}</strong> a <strong>{Math.min(page * limit, totalCount)}</strong> de <strong>{totalCount}</strong> agendamentos
+              </span>
+
+              {/* Seletor de Registros por Página */}
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <span className="text-slate-400">Por página:</span>
+                <select
+                  value={limit}
+                  onChange={(e) => {
+                    setLimit(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="px-2 py-0.5 bg-white border border-slate-200 rounded-lg text-slate-700 font-bold outline-none cursor-pointer hover:border-slate-300"
+                >
+                  <option value={10}>10</option>
+                  <option value={15}>15</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Controles de Navegação */}
+            <div className="flex items-center gap-1">
               <button
                 disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 font-bold cursor-pointer"
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 font-bold text-xs cursor-pointer transition-colors shadow-2xs"
+                title="Página Anterior"
               >
                 Anterior
               </button>
+
+              {/* Botões Numéricos Inteligentes */}
+              {Array.from({ length: Math.ceil(totalCount / limit) }, (_, idx) => idx + 1)
+                .filter((p) => p === 1 || p === Math.ceil(totalCount / limit) || Math.abs(p - page) <= 1)
+                .map((p, i, arr) => (
+                  <React.Fragment key={p}>
+                    {i > 0 && p - arr[i - 1] > 1 && (
+                      <span className="px-1 text-slate-400 text-xs">...</span>
+                    )}
+                    <button
+                      onClick={() => setPage(p)}
+                      className={`w-7 h-7 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        page === p
+                          ? 'btn-primary-tenant shadow-2xs'
+                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </React.Fragment>
+                ))}
+
               <button
                 disabled={page >= Math.ceil(totalCount / limit)}
                 onClick={() => setPage(page + 1)}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 font-bold cursor-pointer"
+                className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 font-bold text-xs cursor-pointer transition-colors shadow-2xs"
+                title="Próxima Página"
               >
                 Próxima
               </button>
@@ -678,6 +893,7 @@ export default function AgendamentosPage() {
       {isModalOpen && (
         <AgendaAppointmentModal
           existingAppointment={selectedAppointment}
+          existingAppointments={schedules}
           professionals={professionals}
           services={services}
           onClose={() => {

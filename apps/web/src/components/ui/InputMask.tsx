@@ -93,6 +93,24 @@ export const InputMask: React.FC<InputMaskProps> = ({
     onChangeValue(formatted, raw, numVal);
   };
 
+  const getDisplayValue = () => {
+    if (!value) return '';
+    switch (mask) {
+      case 'phone':
+        return maskPhone(value);
+      case 'document':
+        return maskDocument(value);
+      case 'cep':
+        return maskZipCode(value);
+      case 'currency':
+        return maskCurrency(value);
+      case 'date':
+        return maskDate(value);
+      default:
+        return value;
+    }
+  };
+
   return (
     <div className="w-full flex flex-col gap-1.5 text-left">
       {label && (
@@ -101,7 +119,7 @@ export const InputMask: React.FC<InputMaskProps> = ({
           className="text-xs font-semibold tracking-wide uppercase text-slate-600 flex items-center justify-between"
         >
           <span>
-            {label} {required && <span className="text-brand-purple">*</span>}
+            {label.replace(/\s*\*+$/, '')} {required && <span className="text-brand-purple">*</span>}
           </span>
         </label>
       )}
@@ -110,7 +128,7 @@ export const InputMask: React.FC<InputMaskProps> = ({
         <input
           {...props}
           id={inputId}
-          value={value}
+          value={getDisplayValue()}
           onChange={handleChange}
           disabled={disabled}
           placeholder={placeholder}

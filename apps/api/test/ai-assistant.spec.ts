@@ -41,6 +41,12 @@ vi.mock('../src/lib/prisma', () => ({
     },
     schedule: {
       count: vi.fn().mockResolvedValue(0)
+    },
+    product: {
+      findMany: vi.fn().mockResolvedValue([])
+    },
+    course: {
+      findMany: vi.fn().mockResolvedValue([])
     }
   }
 }));

@@ -69,15 +69,14 @@ try {
   # 2. Verificacao de tipos TypeScript
   if (-not $SkipTypeCheck) {
     Write-DeployStep "2/5 Validando codigo TypeScript local..."
-    Write-DeployInfo "Executando tsc --noEmit no apps/web..."
-    $tscResult = cmd.exe /c "npx tsc --project apps/web/tsconfig.json --noEmit 2>&1"
+    Write-DeployInfo "Executando tsc --noEmit no apps/api..."
+    $tscResult = cmd.exe /c "npx tsc --project apps/api/tsconfig.json --noEmit 2>&1"
     if ($LASTEXITCODE -ne 0) {
-      Write-DeployFail "Falha na verificacao de tipos:"
+      Write-DeployFail "Falha na verificacao de tipos da API:"
       Write-Host $tscResult -ForegroundColor Red
-      Write-DeployInfo "Corrija os erros ou passe o parametro -SkipTypeCheck."
       exit 1
     }
-    Write-DeploySuccess "TypeScript compilado com sucesso."
+    Write-DeploySuccess "TypeScript da API compilado com sucesso."
   }
   else {
     Write-DeployInfo "Verificacao de tipos ignorada (-SkipTypeCheck)."

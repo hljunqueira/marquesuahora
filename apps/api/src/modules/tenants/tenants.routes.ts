@@ -261,7 +261,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       console.warn('[Onboarding Email] Falha no disparo do e-mail de confirmação:', err.message);
     });
 
-    // Emite Tokens JWT para Login Imediato
+    // Emite Tokens JWT para Login Imediato e Contínuo
     const accessToken = app.jwt.sign(
       {
         sub: result.user.id,
@@ -270,12 +270,12 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         name: result.user.name,
         email: result.user.email
       },
-      { expiresIn: '7d' }
+      { expiresIn: '30d' }
     );
 
     const refreshToken = app.jwt.sign(
       { sub: result.user.id, tokenType: 'refresh' },
-      { expiresIn: '30d' }
+      { expiresIn: '90d' }
     );
 
     reply.setCookie('refreshToken', refreshToken, {
@@ -283,11 +283,11 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 30 * 24 * 60 * 60
+      maxAge: 90 * 24 * 60 * 60 // 90 dias
     });
 
     return reply.status(201).send({
-      message: 'Estabelecimento cadastrado com sucesso! Bem-vindo ao Marca Tua Hora.',
+      message: 'Estabelecimento cadastrado com sucesso! Bem-vindo ao Marca Sua Hora.',
       tenant: {
         id: result.tenant.id,
         name: result.tenant.name,
@@ -387,53 +387,51 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
 
       const data = updateTenantSettingsSchema.parse(request.body);
 
-      // Trata upgrade/mudança de plano se planCode for informado
-      let resolvedPlanId: string | undefined = undefined;
-      let newBillingStatus: string | undefined = undefined;
+      let cleanDoc = data.documentNumber ? data.documentNumber.replace(/\D/g, '') : undefined;
+      if (cleanDoc) {
+        if (cleanDoc.length !== 11 && cleanDoc.length !== 14) {
+          return reply.status(400).send({
+            error: 'Bad Request',
+            message: 'O documento deve conter 11 dígitos para CPF ou 14 dígitos para CNPJ.'
+          });
+        }
 
-      if (data.planCode) {
-        const resolvedPlan = await PlansService.resolvePlan(data.planCode);
-        if (resolvedPlan) {
-          resolvedPlanId = resolvedPlan.id;
-          newBillingStatus = 'ACTIVE';
+        const existingTenantWithDoc = await prisma.tenant.findUnique({
+          where: { documentNumber: cleanDoc }
+        });
 
-          // Se for plano pago e Asaas estiver configurado, cria ou atualiza assinatura recorrente
-          if (resolvedPlan.code !== 'FREE' && AsaasService.isConfigured()) {
-            const currentTenant = await prisma.tenant.findUnique({
-              where: { id: request.user.tenantId },
-              include: { users: { select: { email: true } } }
-            });
-            if (currentTenant) {
-              const ownerEmail = currentTenant.users[0]?.email;
-              AsaasService.createOrUpdateSubscription(
-                { ...currentTenant, ownerEmail },
-                resolvedPlan,
-                'PIX'
-              ).catch((subErr) => {
-                console.warn('[Asaas] Falha não-bloqueante ao registrar assinatura:', subErr?.message);
-              });
-            }
-          }
+        if (existingTenantWithDoc && existingTenantWithDoc.id !== request.user.tenantId) {
+          return reply.status(409).send({
+            error: 'Conflito',
+            message: 'Já existe um estabelecimento cadastrado com este CPF/CNPJ.'
+          });
         }
       }
+
+      const resolvedDocType = data.documentType 
+        ? data.documentType 
+        : (cleanDoc ? (cleanDoc.length === 14 ? 'CNPJ' : 'CPF') : undefined);
 
       const updated = await prisma.tenant.update({
         where: { id: request.user.tenantId },
         data: {
           name: data.name,
           legalName: data.legalName,
+          ...(resolvedDocType ? { documentType: resolvedDocType } : {}),
+          ...(cleanDoc ? { documentNumber: cleanDoc } : {}),
           description: data.description,
           ...(data.niche ? {
             niche: data.niche,
             terminology: nicheTerminologyMap[data.niche] || nicheTerminologyMap.OTHER
           } : {}),
-          phone: data.phone,
+          ...(data.phone !== undefined ? { phone: data.phone || '' } : {}),
           instagramUrl: data.instagramUrl,
           themeTemplate: data.themeTemplate,
           primaryColor: data.primaryColor,
           secondaryColor: data.secondaryColor,
           accentColor: data.accentColor,
           logoUrl: data.logoUrl,
+          coverUrl: data.coverUrl,
           googleReviewUrl: data.googleReviewUrl,
           npsFeedbackEnabled: data.npsFeedbackEnabled,
           depositRequired: data.depositRequired,
@@ -450,6 +448,8 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           maxNoShowsAllowed: data.maxNoShowsAllowed,
           churnRecoveryEnabled: data.churnRecoveryEnabled,
           churnAlertDays: data.churnAlertDays,
+          welcomeMessageEnabled: data.welcomeMessageEnabled,
+          welcomeMessageCustom: data.welcomeMessageCustom,
           birthdayMessageEnabled: data.birthdayMessageEnabled,
           birthdayMessageCustom: data.birthdayMessageCustom,
           bufferMinutes: data.bufferMinutes,
@@ -458,6 +458,8 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           ...(data.slotIntervalMinutes !== undefined ? { slotIntervalMinutes: data.slotIntervalMinutes } : {}),
           minAdvanceBookingMinutes: data.minAdvanceBookingMinutes,
           maxAdvanceBookingDays: data.maxAdvanceBookingDays,
+          ...(data.blockNationalHolidays !== undefined ? { blockNationalHolidays: data.blockNationalHolidays } : {}),
+          ...(data.holidayExceptions !== undefined ? { holidayExceptions: data.holidayExceptions } : {}),
           ...(data.addressStreet !== undefined ? { addressStreet: data.addressStreet } : {}),
           ...(data.addressNumber !== undefined ? { addressNumber: data.addressNumber } : {}),
           ...(data.addressComplement !== undefined ? { addressComplement: data.addressComplement } : {}),
@@ -465,8 +467,8 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           ...(data.addressCity !== undefined ? { addressCity: data.addressCity } : {}),
           ...(data.addressState !== undefined ? { addressState: data.addressState } : {}),
           ...(data.addressZip !== undefined ? { addressZip: data.addressZip } : {}),
-          ...(resolvedPlanId ? { planId: resolvedPlanId } : {}),
-          ...(newBillingStatus ? { billingStatus: newBillingStatus } : {})
+          ...(data.galleryPhotos !== undefined ? { galleryPhotos: data.galleryPhotos } : {}),
+          ...(data.aftercareGuides !== undefined ? { aftercareGuides: data.aftercareGuides } : {})
         },
         include: { plan: true }
       });
@@ -490,7 +492,137 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       });
     });
 
-    // POST /tenants/me/plan - Rota direta para contratação ou alteração de plano
+    // GET /tenants/me/gallery - Consulta da galeria de fotos oficial de resultados e unhas
+    tenantScope.get('/me/gallery', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: request.user.tenantId },
+        select: { id: true, name: true, galleryPhotos: true }
+      });
+
+      return reply.send({
+        photos: tenant?.galleryPhotos || []
+      });
+    });
+
+    // PUT /tenants/me/gallery - Atualização rápida da galeria de fotos oficial
+    tenantScope.put('/me/gallery', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const body = request.body as { photos?: string[] };
+      const photos = Array.isArray(body?.photos)
+        ? body.photos.filter((p) => typeof p === 'string' && p.trim().length > 0)
+        : [];
+
+      const updated = await prisma.tenant.update({
+        where: { id: request.user.tenantId },
+        data: { galleryPhotos: photos },
+        select: { id: true, galleryPhotos: true }
+      });
+
+      return reply.send({
+        success: true,
+        photos: updated.galleryPhotos
+      });
+    });
+
+    // PUT /tenants/me/aftercare - Atualização rápida dos guias de cuidados pós-atendimento
+    tenantScope.put('/me/aftercare', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const body = request.body as { aftercareGuides: any[] };
+      const guides = Array.isArray(body?.aftercareGuides) ? body.aftercareGuides : [];
+
+      const updated = await prisma.tenant.update({
+        where: { id: request.user.tenantId },
+        data: { aftercareGuides: guides }
+      });
+
+      return reply.send({ success: true, aftercareGuides: updated.aftercareGuides });
+    });
+
+    // POST /tenants/me/plan/checkout-intent - Gera ou obtém o QR Code Pix e dados de pagamento da assinatura Asaas
+    tenantScope.post('/me/plan/checkout-intent', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Usuário sem estabelecimento vinculado.' });
+      }
+
+      const body = request.body as { planCode?: string; billingType?: 'PIX' | 'BOLETO' | 'CREDIT_CARD' };
+      if (!body?.planCode) {
+        return reply.status(400).send({ error: 'Bad Request', message: 'Código do plano (planCode) é obrigatório.' });
+      }
+
+      const plan = await PlansService.resolvePlan(body.planCode);
+      if (!plan) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Plano não encontrado.' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: request.user.tenantId },
+        include: { plan: true, users: { select: { email: true } } }
+      });
+
+      if (!tenant) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Estabelecimento não encontrado.' });
+      }
+
+      // Blindagem VIP: estabelecimentos VIP não precisam nem podem alterar plano
+      const isCurrentVip = Boolean(
+        tenant.plan?.code === 'VIP_PRO' ||
+        tenant.plan?.code === 'VIP_AI' ||
+        (tenant.plan?.name && tenant.plan.name.toUpperCase().includes('VIP')) ||
+        tenant.billingStatus === 'GRATUITY'
+      );
+
+      if (isCurrentVip) {
+        return reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Seu estabelecimento possui Plano VIP Vitalício completo com acesso total a todas as funcionalidades.'
+        });
+      }
+
+      const ownerEmail = tenant.users[0]?.email;
+      let subscriptionResult: any = null;
+
+      if (plan.code !== 'FREE' && AsaasService.isConfigured()) {
+        subscriptionResult = await AsaasService.createOrUpdateSubscription(
+          { ...tenant, ownerEmail },
+          plan,
+          body.billingType || 'PIX'
+        );
+      }
+
+      const rawPrice = Number(plan.monthlyPrice);
+      const feeRate = 0.0199;
+      const fee = rawPrice * feeRate;
+      const total = rawPrice + fee;
+
+      return reply.send({
+        plan: {
+          id: plan.id,
+          code: plan.code,
+          name: plan.name,
+          monthlyPrice: rawPrice
+        },
+        fee: Number(fee.toFixed(2)),
+        total: Number(total.toFixed(2)),
+        subscriptionId: subscriptionResult?.subscriptionId,
+        paymentId: subscriptionResult?.paymentId,
+        pixQrCodeBase64: subscriptionResult?.pixQrCodeBase64,
+        pixCopiaECola: subscriptionResult?.pixCopiaECola,
+        expirationDate: subscriptionResult?.expirationDate,
+        invoiceUrl: subscriptionResult?.invoiceUrl
+      });
+    });
+
+    // POST /tenants/me/plan - Rota para alteração de plano (apenas downgrade gratuito; planos pagos exigem checkout)
     tenantScope.post('/me/plan', async (request, reply) => {
       if (!request.user.tenantId) {
         return reply.status(403).send({ error: 'Proibido', message: 'Usuário sem estabelecimento vinculado.' });
@@ -508,22 +640,42 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
 
       const tenant = await prisma.tenant.findUnique({
         where: { id: request.user.tenantId },
-        include: { users: { select: { email: true } } }
+        include: { plan: true, users: { select: { email: true } } }
       });
 
       if (!tenant) {
         return reply.status(404).send({ error: 'Not Found', message: 'Estabelecimento não encontrado.' });
       }
 
-      let subscriptionResult: any = null;
+      // 1. Blindagem VIP: estabelecimentos VIP não podem ter o plano alterado nem sofrer downgrade
+      const isCurrentVip = Boolean(
+        tenant.plan?.code === 'VIP_PRO' ||
+        tenant.plan?.code === 'VIP_AI' ||
+        (tenant.plan?.name && tenant.plan.name.toUpperCase().includes('VIP')) ||
+        tenant.billingStatus === 'GRATUITY'
+      );
 
-      if (plan.code !== 'FREE' && AsaasService.isConfigured()) {
-        const ownerEmail = tenant.users[0]?.email;
-        subscriptionResult = await AsaasService.createOrUpdateSubscription(
-          { ...tenant, ownerEmail },
-          plan,
-          body.billingType || 'PIX'
-        );
+      if (isCurrentVip) {
+        return reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Seu estabelecimento possui Plano VIP Vitalício completo com acesso total a todas as funcionalidades. A alteração de plano está bloqueada.'
+        });
+      }
+
+      // 2. Proteção contra ativação gratuita de planos pagos:
+      // Planos comerciais pagos (Solo, Equipe Pro) DEVEM passar pelo checkout com confirmação bancária
+      if (Number(plan.monthlyPrice) > 0) {
+        return reply.status(402).send({
+          error: 'PaymentRequired',
+          message: 'A contratação de planos pagos requer confirmação de pagamento no checkout. Conclua o pagamento via PIX ou Cartão para ativar.'
+        });
+      }
+
+      // 3. Downgrade para o Plano Gratuito (permitido apenas para estabelecimentos não-VIP)
+      if (tenant.asaasSubscriptionId && AsaasService.isConfigured()) {
+        await AsaasService.cancelSubscription(tenant.asaasSubscriptionId).catch((cancelErr) => {
+          console.warn('[Asaas] Falha ao cancelar assinatura durante downgrade:', cancelErr?.message);
+        });
       }
 
       const updated = await prisma.tenant.update({
@@ -531,6 +683,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         data: {
           planId: plan.id,
           billingStatus: 'ACTIVE',
+          asaasSubscriptionId: null,
           blockedReason: null,
           blockedAt: null
         },
@@ -541,14 +694,12 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         data: {
           userId: request.user.sub,
           tenantId: tenant.id,
-          action: 'TENANT_PLAN_CHANGE',
+          action: 'TENANT_PLAN_DOWNGRADE_FREE',
           entityType: 'Tenant',
           entityId: tenant.id,
           details: {
             planCode: plan.code,
-            planName: plan.name,
-            monthlyPrice: plan.monthlyPrice,
-            subscription: subscriptionResult
+            planName: plan.name
           },
           ipAddress: request.ip,
           userAgent: request.headers['user-agent']
@@ -556,10 +707,144 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       });
 
       return reply.send({
-        message: `Plano atualizado com sucesso para ${plan.name}!`,
+        message: 'Plano alterado para Gratuito com sucesso.',
         tenant: updated,
-        plan,
-        subscription: subscriptionResult
+        plan
+      });
+    });
+
+    // POST /tenants/me/plan/verify-payment - Valida o pagamento no gateway Asaas e ativa o plano correspondente
+    tenantScope.post('/me/plan/verify-payment', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Usuário sem estabelecimento vinculado.' });
+      }
+
+      const body = request.body as {
+        planCode?: string;
+        paymentId?: string;
+        subscriptionId?: string;
+      };
+
+      if (!body?.planCode) {
+        return reply.status(400).send({ error: 'Bad Request', message: 'Código do plano (planCode) é obrigatório.' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: request.user.tenantId },
+        include: { plan: true, users: { select: { email: true } } }
+      });
+
+      if (!tenant) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Estabelecimento não encontrado.' });
+      }
+
+      // Blindagem VIP
+      const isCurrentVip = Boolean(
+        tenant.plan?.code === 'VIP_PRO' ||
+        tenant.plan?.code === 'VIP_AI' ||
+        (tenant.plan?.name && tenant.plan.name.toUpperCase().includes('VIP')) ||
+        tenant.billingStatus === 'GRATUITY'
+      );
+
+      if (isCurrentVip) {
+        return reply.status(403).send({
+          error: 'Forbidden',
+          message: 'Seu estabelecimento possui Plano VIP Vitalício completo com acesso total a todas as funcionalidades.'
+        });
+      }
+
+      const targetPlan = await PlansService.resolvePlan(body.planCode);
+      if (!targetPlan) {
+        return reply.status(404).send({ error: 'Not Found', message: 'Plano não encontrado.' });
+      }
+
+      // Se for plano gratuito, ativa sem exigência de pagamento
+      if (Number(targetPlan.monthlyPrice) === 0) {
+        const updated = await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            planId: targetPlan.id,
+            billingStatus: 'ACTIVE',
+            blockedReason: null,
+            blockedAt: null
+          },
+          include: { plan: true }
+        });
+        return reply.send({
+          confirmed: true,
+          message: 'Plano gratuito ativado com sucesso.',
+          tenant: updated,
+          plan: targetPlan
+        });
+      }
+
+      // Para planos pagos, valida a compensação bancária real no Asaas
+      if (!AsaasService.isConfigured()) {
+        return reply.send({
+          confirmed: false,
+          message: 'Gateway de pagamento indisponível no momento. Por favor, entre em contato com o suporte.'
+        });
+      }
+
+      let isPaid = false;
+
+      // 1. Tenta validar pelo ID da cobrança específica
+      if (body.paymentId) {
+        isPaid = await AsaasService.checkPaymentConfirmed(body.paymentId);
+      }
+
+      // 2. Se não confirmado ainda, tenta validar pelas parcelas da assinatura
+      if (!isPaid) {
+        const subId = body.subscriptionId || tenant.asaasSubscriptionId;
+        if (subId) {
+          isPaid = await AsaasService.checkSubscriptionPaymentConfirmed(subId);
+        }
+      }
+
+      if (!isPaid) {
+        return reply.send({
+          confirmed: false,
+          message: 'Pagamento PIX ainda não identificado pela compensação bancária. Se você já realizou a transferência, aguarde cerca de 30 segundos e clique novamente para verificar.'
+        });
+      }
+
+      // Pagamento COMPROVADO no gateway: ativação do plano no banco de dados
+      const updated = await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          planId: targetPlan.id,
+          billingStatus: 'ACTIVE',
+          blockedReason: null,
+          blockedAt: null,
+          ...(body.subscriptionId ? { asaasSubscriptionId: body.subscriptionId } : {})
+        },
+        include: { plan: true }
+      });
+
+      await prisma.auditLog.create({
+        data: {
+          userId: request.user.sub,
+          tenantId: tenant.id,
+          action: 'TENANT_PLAN_UPGRADE_CONFIRMED',
+          entityType: 'Tenant',
+          entityId: tenant.id,
+          details: {
+            planCode: targetPlan.code,
+            planName: targetPlan.name,
+            monthlyPrice: targetPlan.monthlyPrice,
+            paymentId: body.paymentId,
+            subscriptionId: body.subscriptionId || tenant.asaasSubscriptionId
+          },
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent']
+        }
+      });
+
+      return reply.send({
+        confirmed: true,
+        message: `Pagamento confirmado com sucesso! O plano ${targetPlan.name} já está ativo.`,
+        tenant: updated,
+        plan: targetPlan
       });
     });
 
@@ -598,7 +883,8 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
-      const result = await EvolutionService.connectInstance(tenant.id, tenant.slug);
+      const body = (request.body as { phoneNumber?: string } | undefined) || {};
+      const result = await EvolutionService.connectInstance(tenant.id, tenant.slug, body.phoneNumber);
       return reply.send(result);
     });
 
@@ -609,6 +895,57 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       }
       const result = await EvolutionService.disconnectInstance(request.user.tenantId);
       return reply.send(result);
+    });
+
+    // POST /tenants/me/whatsapp/test-message - Envia mensagem de teste oficial para validar o WhatsApp
+    tenantScope.post('/me/whatsapp/test-message', async (request, reply) => {
+      if (!request.user.tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Acesso restrito ao salão.' });
+      }
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: request.user.tenantId }
+      });
+      const config = await prisma.whatsappConfig.findUnique({
+        where: { tenantId: request.user.tenantId }
+      });
+
+      if (!config || !config.isConnected) {
+        return reply.status(400).send({
+          error: 'WhatsApp desconectado',
+          message: 'Conecte o WhatsApp do seu salão antes de enviar mensagens de teste.'
+        });
+      }
+
+      const body = (request.body as { targetPhone?: string } | undefined) || {};
+      const targetPhone = body.targetPhone || config.phoneNumber;
+
+      if (!targetPhone) {
+        return reply.status(400).send({
+          error: 'Número não informado',
+          message: 'Nenhum número de telefone disponível para envio do teste.'
+        });
+      }
+
+      const testMsg = `Ola! Esta e uma mensagem de teste oficial do MarqueSuaHora enviada atraves do WhatsApp do estabelecimento ${tenant?.name || 'seu salao'}.\n\nA sua Atendente IA e os lembretes anti-falta estao ativos e prontos para atender seus clientes com maxima agilidade!`;
+
+      const sendResult = await EvolutionService.sendTextMessage(
+        request.user.tenantId,
+        targetPhone,
+        testMsg
+      );
+
+      if (!sendResult.success) {
+        return reply.status(500).send({
+          error: 'Falha no envio',
+          message: 'Nao foi possivel enviar a mensagem de teste. Verifique se o aparelho esta conectado e com internet ativa.'
+        });
+      }
+
+      return reply.send({
+        success: true,
+        message: 'Mensagem de teste enviada com sucesso para ' + targetPhone,
+        targetPhone
+      });
     });
 
     // GET /tenants/me/ai-settings - Configurações da Atendente IA

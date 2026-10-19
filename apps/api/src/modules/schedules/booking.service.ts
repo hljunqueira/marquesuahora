@@ -4,6 +4,7 @@ import { parseTimeToMinutes, formatMinutesToTime } from '@marquesuahora/shared';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcherService } from '../notifications/dispatcher.service';
 import { checkBrazilianHoliday } from '../../utils/brazilian-holidays';
+import { parseYMDToSafeUtcDate } from '../../utils/date-utils';
 
 // Serviço de reserva transacional com PostgreSQL Advisory Lock (Blocker C1) e frozen items (Blocker C2)
 
@@ -126,7 +127,7 @@ export class BookingService {
     const endMinutes = startMinutes + totalDurationMinutes;
     const endTime = formatMinutesToTime(endMinutes);
 
-    const targetDate = new Date(`${dateStr}T00:00:00`);
+    const { targetDate } = parseYMDToSafeUtcDate(dateStr);
 
     // 2. Se professionalId não foi fornecido, seleciona um profissional apto
     let selectedProfessionalId = input.professionalId;

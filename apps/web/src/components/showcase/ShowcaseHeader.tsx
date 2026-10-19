@@ -7,13 +7,13 @@ import {
   Phone,
   MapPin,
   Clock,
-  Sparkles,
   ChevronDown,
   ChevronUp,
   Star,
   ExternalLink,
   CalendarCheck2
 } from 'lucide-react';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { TenantShowcase } from './types';
 
@@ -26,17 +26,9 @@ interface ShowcaseHeaderProps {
 export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseHeaderProps) {
   const [bioExpanded, setBioExpanded] = useState(false);
 
-  const brandColor = tenant.primaryColor || '#7C3AED';
+  const brandColor = tenant.primaryColor || '#5c0701';
   const bio = tenant.description?.trim() || null;
   const isBioLong = bio ? bio.length > 140 : false;
-
-  // Monta lista de especialidades em linha com base exclusivamente nas categorias/serviços reais do tenant
-  const specialtiesLine =
-    tenant.categories && tenant.categories.length > 0
-      ? tenant.categories.map((c) => c.name.toUpperCase()).join(' · ')
-      : tenant.services && tenant.services.length > 0
-      ? tenant.services.slice(0, 4).map((s) => s.name.toUpperCase()).join(' · ')
-      : '';
 
   return (
     <header className="relative w-full bg-white border-b border-slate-100 shadow-sm overflow-hidden">
@@ -51,9 +43,10 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
       >
         {tenant.coverUrl && (
           <Image
-            src={tenant.coverUrl}
+            src={resolveImageUrl(tenant.coverUrl)}
             alt={tenant.name}
             fill
+            unoptimized
             className="object-cover"
             priority
           />
@@ -86,9 +79,10 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
           <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-white ring-4 ring-white shadow-xl flex-shrink-0">
             {tenant.logoUrl ? (
               <Image
-                src={tenant.logoUrl}
+                src={resolveImageUrl(tenant.logoUrl)}
                 alt={tenant.name}
                 fill
+                unoptimized
                 className="object-cover"
               />
             ) : (
@@ -101,60 +95,48 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
             )}
           </div>
 
-          {/* Nome, Especialidades e Informações */}
+          {/* Nome e Descrição com Tipografia Limpa */}
           <div className="mt-3.5 w-full">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
                   {tenant.name}
                 </h1>
-                {specialtiesLine && (
-                  <p
-                    className="mt-1 text-xs sm:text-sm font-semibold tracking-wider uppercase text-slate-500"
-                    style={{ color: brandColor }}
-                  >
-                    {specialtiesLine}
+                {bio && (
+                  <p className="mt-1.5 text-xs sm:text-sm text-slate-600 leading-relaxed max-w-2xl">
+                    {bioExpanded || !isBioLong ? bio : `${bio.substring(0, 140)}...`}
+                    {isBioLong && (
+                      <button
+                        onClick={() => setBioExpanded(!bioExpanded)}
+                        className="ml-2 font-medium underline inline-flex items-center gap-0.5 cursor-pointer"
+                        style={{ color: brandColor }}
+                      >
+                        {bioExpanded ? (
+                          <>
+                            ver menos <ChevronUp className="w-3.5 h-3.5" />
+                          </>
+                        ) : (
+                          <>
+                            ver mais <ChevronDown className="w-3.5 h-3.5" />
+                          </>
+                        )}
+                      </button>
+                    )}
                   </p>
                 )}
               </div>
 
               {/* Botão de Agendamento Online no Topo (Desktop / Mobile CTA) */}
-              <div className="flex items-center justify-center sm:justify-end gap-2.5">
+              <div className="flex items-center justify-center sm:justify-end gap-2.5 flex-shrink-0">
                 <button
                   onClick={onBookClick}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-white shadow-md hover:shadow-lg transition-all duration-200 active:scale-95"
+                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-white shadow-md hover:shadow-lg transition-all duration-200 active:scale-95 cursor-pointer"
                   style={{ backgroundColor: brandColor }}
                 >
                   Agendamento Online
                 </button>
               </div>
             </div>
-
-            {/* Bio Institucional com Expansão Ver Mais (Apenas se o negócio cadastrou bio) */}
-            {bio && (
-              <div className="mt-3 text-sm text-slate-600 leading-relaxed max-w-3xl">
-                <p>
-                  {bioExpanded || !isBioLong ? bio : `${bio.substring(0, 140)}...`}
-                  {isBioLong && (
-                    <button
-                      onClick={() => setBioExpanded(!bioExpanded)}
-                      className="ml-2 font-medium underline inline-flex items-center gap-0.5"
-                      style={{ color: brandColor }}
-                    >
-                      {bioExpanded ? (
-                        <>
-                          ver menos <ChevronUp className="w-3.5 h-3.5" />
-                        </>
-                      ) : (
-                        <>
-                          ver mais <ChevronDown className="w-3.5 h-3.5" />
-                        </>
-                      )}
-                    </button>
-                  )}
-                </p>
-              </div>
-            )}
 
             {/* Redes Sociais e Ações Rápidas */}
             <div className="mt-4 flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2 border-t border-slate-100">
@@ -197,20 +179,20 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
                   href={tenant.googleReviewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50/80 hover:bg-amber-100 border border-amber-200/60 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 transition-all shadow-2xs hover:shadow-xs active:scale-97"
                 >
                   <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                  <span>Avaliações no Google</span>
+                  <span>Avaliar no Google</span>
                 </a>
               )}
 
-              {tenant.openingTime && tenant.closingTime && (
-                <div className="inline-flex items-center px-3 py-1.5 text-xs text-slate-500 font-medium">
-                  <span>
-                    Atendimento: {tenant.openingTime} às {tenant.closingTime}
-                  </span>
-                </div>
-              )}
+              <div className="inline-flex items-center px-3 py-1.5 text-xs text-slate-500 font-medium">
+                <span>
+                  {tenant.isOpenNow && tenant.openingTime && tenant.closingTime
+                    ? `Atendimento hoje: ${tenant.openingTime} às ${tenant.closingTime}`
+                    : 'Atendimento hoje: Fechado'}
+                </span>
+              </div>
             </div>
           </div>
         </div>

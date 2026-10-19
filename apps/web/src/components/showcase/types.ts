@@ -13,6 +13,7 @@ export interface ServiceItem {
   description?: string | null;
   price: number;
   durationMinutes: number;
+  photos?: string[];
   serviceType?: string;
   requiresRemovalCheck?: boolean;
   requiresDeposit?: boolean;

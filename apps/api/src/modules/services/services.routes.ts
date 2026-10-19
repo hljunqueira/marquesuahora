@@ -20,6 +20,7 @@ const serviceInputSchema = z.object({
   requiresDeposit: z.boolean().default(false),
   depositType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
   depositAmount: z.number().min(0).default(50.0),
+  color: z.string().optional().nullable(),
   intakeWarning: z.string().optional().nullable()
 });
 
@@ -91,6 +92,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         requiresDeposit: data.requiresDeposit,
         depositType: data.depositType,
         depositAmount: data.depositAmount,
+        color: data.color || null,
         intakeWarning: data.intakeWarning
       }
     });

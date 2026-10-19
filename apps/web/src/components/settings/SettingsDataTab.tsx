@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Building2, MapPin, Phone, Instagram, FileText } from 'lucide-react';
+import { Building2, MapPin, Phone, Instagram, FileText, Star } from 'lucide-react';
 import { InputMask } from '@/components/ui/InputMask';
 import { TenantSettings } from './types';
 
@@ -77,30 +77,81 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-              {settings.documentType || 'CNPJ/CPF'}
-            </label>
-            <input
-              type="text"
-              disabled
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                Documento Fiscal
+              </label>
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium">
+                <button
+                  type="button"
+                  onClick={() => onChange('documentType', 'CPF')}
+                  className={`px-2 py-0.5 rounded-md cursor-pointer transition-all ${
+                    (settings.documentType || 'CPF') === 'CPF'
+                      ? 'bg-white shadow-xs text-purple-700 font-bold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  CPF
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange('documentType', 'CNPJ')}
+                  className={`px-2 py-0.5 rounded-md cursor-pointer transition-all ${
+                    settings.documentType === 'CNPJ'
+                      ? 'bg-white shadow-xs text-purple-700 font-bold'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  CNPJ
+                </button>
+              </div>
+            </div>
+            <InputMask
+              mask="document"
               value={settings.documentNumber || ''}
-              className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm text-slate-500 font-mono cursor-not-allowed"
+              onChangeValue={(formatted, raw) => {
+                onChange('documentNumber', raw || '');
+                if (raw && raw.length > 11 && settings.documentType !== 'CNPJ') {
+                  onChange('documentType', 'CNPJ');
+                }
+              }}
+              placeholder={settings.documentType === 'CNPJ' ? '00.000.000/0000-00' : '000.000.000-00'}
+              className="!py-2.5 !px-3.5 font-mono text-slate-800 text-sm"
             />
             <span className="text-[11px] text-slate-400 mt-1 block">
-              Para alterar o documento, contate o suporte.
+              {(settings.documentType || 'CPF') === 'CNPJ'
+                ? 'CNPJ do estabelecimento para identificação e recibos.'
+                : 'CPF do titular responsável pelo salão.'}
             </span>
           </div>
 
-          <div>
+          <div className="relative">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+                WhatsApp / Telefone
+              </label>
+              {settings.phone && (
+                <button
+                  type="button"
+                  onClick={() => onChange('phone', '')}
+                  className="text-[11px] text-slate-400 hover:text-rose-600 font-medium cursor-pointer transition-colors"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
             <InputMask
               mask="phone"
-              label="WhatsApp / Telefone de Contato *"
               value={settings.phone || ''}
-              onChangeValue={(formatted, raw) => onChange('phone', raw)}
-              required
+              onChangeValue={(formatted, raw) => onChange('phone', raw || '')}
+              placeholder="(00) 00000-0000"
+              className="!py-2.5 !px-3.5 text-slate-800 text-sm"
             />
+            <span className="text-[11px] text-slate-400 mt-1 block">
+              Exibido na vitrine e usado para dúvidas de clientes.
+            </span>
           </div>
 
           <div>
@@ -112,21 +163,57 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
               type="url"
               value={settings.instagramUrl || ''}
               onChange={(e) => onChange('instagramUrl', e.target.value)}
+              placeholder="https://instagram.com/seuperfil"
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
             />
+            <span className="text-[11px] text-slate-400 mt-1 block">
+              Link na bio e botão direto na vitrine.
+            </span>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
+              <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+              <span>Avaliações Google Maps</span>
+            </label>
+            <input
+              type="url"
+              value={settings.googleReviewUrl || ''}
+              onChange={(e) => onChange('googleReviewUrl', e.target.value)}
+              placeholder="https://g.page/r/.../review"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
+            />
+            <span className="text-[11px] text-slate-400 mt-1 block">
+              Selo 5 estrelas e link de avaliação na vitrine.
+            </span>
           </div>
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">
-            Bio / Descrição Editorial (Exibida no topo da Vitrine)
-          </label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
+              Sobre o Estabelecimento / História da Marca & Bio da Vitrine
+            </label>
+            <span className={`text-[11px] font-mono transition-colors ${
+              (settings.description || '').length > 1800
+                ? 'text-amber-600 font-bold'
+                : 'text-slate-400'
+            }`}>
+              {(settings.description || '').length} / 2000 caracteres
+            </span>
+          </div>
           <textarea
-            rows={3}
+            rows={4}
+            maxLength={2000}
             value={settings.description || ''}
             onChange={(e) => onChange('description', e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all"
+            placeholder="Conte um pouco sobre sua trajetória, especialidades, conforto do espaço (ex: ambiente climatizado, café) e compromisso com suas clientes..."
+            className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all resize-y"
           />
+          <div className="flex items-center justify-between mt-1 text-[11px] text-slate-400">
+            <span>Exibido no topo e nos detalhes da Vitrine Pública</span>
+            <span>Máximo de 2.000 caracteres</span>
+          </div>
         </div>
       </div>
 
@@ -150,7 +237,7 @@ export const SettingsDataTab: React.FC<SettingsDataTabProps> = ({
           <div>
             <InputMask
               mask="cep"
-              label="CEP *"
+              label="CEP"
               value={settings.addressZip || ''}
               onChangeValue={(formatted) => onChange('addressZip', formatted)}
               required

@@ -22,6 +22,7 @@ import {
 import { InputMask } from '@/components/ui/InputMask';
 import { BusinessNiche, ThemeTemplate, onlyDigits } from '@marquesuahora/shared';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 
 const NICHES = [
   { id: 'OTHER', label: 'Geral / Múltiplos Serviços', desc: 'Atendimentos diversos, beleza, bem-estar e múltiplos serviços' },
@@ -163,18 +164,34 @@ function CadastroForm() {
     setPrimaryColor(t.primary);
   };
 
-  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 2 * 1024 * 1024) {
-        setError('A logo deve ter no máximo 2MB.');
-        return;
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError('A logo deve ter no máximo 5MB.');
+      return;
+    }
+
+    setUploadingLogo(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const url = res.data?.url || res.data?.relativeUrl;
+      if (url) {
+        setLogoUrl(url);
       }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setLogoUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Falha ao enviar a foto do logotipo.');
+    } finally {
+      setUploadingLogo(false);
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -977,7 +994,7 @@ function CadastroForm() {
                   <div className="flex items-center gap-3">
                     {logoUrl ? (
                       <div className="w-10 h-10 rounded-xl border border-slate-200 overflow-hidden relative shrink-0">
-                        <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" />
+                        <img src={resolveImageUrl(logoUrl)} alt="Logo" className="w-full h-full object-cover" />
                       </div>
                     ) : (
                       <div className="w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 text-[10px] font-bold shrink-0">
@@ -986,8 +1003,8 @@ function CadastroForm() {
                     )}
                     <div className="flex items-center gap-2">
                       <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors">
-                        <span>{logoUrl ? 'Trocar Logo' : 'Enviar Imagem'}</span>
-                        <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                        <span>{uploadingLogo ? 'Enviando...' : (logoUrl ? 'Trocar Logo' : 'Enviar Imagem')}</span>
+                        <input type="file" accept="image/*" onChange={handleLogoUpload} disabled={uploadingLogo} className="hidden" />
                       </label>
                       {logoUrl && (
                         <button

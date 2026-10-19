@@ -46,7 +46,7 @@ interface NotificationsModalProps {
 export function NotificationsModal({
   isOpen,
   onClose,
-  primaryColor = '#7C3AED',
+  primaryColor = '#5c0701',
   onSummaryUpdate
 }: NotificationsModalProps) {
   const router = useRouter();
@@ -253,7 +253,7 @@ export function NotificationsModal({
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs">
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs">
         {/* Backdrop para fechar ao clicar fora */}
         <motion.div
           initial={{ opacity: 0 }}

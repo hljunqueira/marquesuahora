@@ -15,7 +15,11 @@ import {
   XCircle,
   AlertTriangle,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+  Wallet
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { api } from '@/lib/api';
@@ -88,9 +92,9 @@ function getContrastColor(hexColor: string) {
 export default function DashboardPage() {
   const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
     }
-    return '#7C3AED';
+    return '#5c0701';
   });
 
   useEffect(() => {
@@ -99,6 +103,13 @@ export default function DashboardPage() {
       if (saved) setTenantPrimaryColor(saved);
     };
     syncColor();
+
+    api.get('/tenants/me').then((res) => {
+      if (res.data?.primaryColor) {
+        setTenantPrimaryColor(res.data.primaryColor);
+        localStorage.setItem('tenant_primary_color', res.data.primaryColor);
+      }
+    }).catch(() => {});
     const handleTenantSync = (e: any) => {
       if (e?.detail?.primaryColor) {
         setTenantPrimaryColor(e.detail.primaryColor);
@@ -114,8 +125,12 @@ export default function DashboardPage() {
     };
   }, []);
 
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [selectedDateStr, setSelectedDateStr] = useState<string>(
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    return d;
+  });
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(() =>
     formatLocalDateToYMD(new Date())
   );
 
@@ -138,6 +153,39 @@ export default function DashboardPage() {
     setTimeout(() => setToastMsg(null), 3500);
   };
 
+  // Estados do Resumo Executivo Mensal (Entradas, Saídas, No-Show e Cancelamento)
+  const [monthFinancial, setMonthFinancial] = useState<{
+    income: number;
+    expense: number;
+    net: number;
+    loading: boolean;
+  }>({ income: 0, expense: 0, net: 0, loading: true });
+
+  const [monthOperational, setMonthOperational] = useState<{
+    total: number;
+    completed: number;
+    noShow: number;
+    noShowRate: number;
+    cancelled: number;
+    cancelledRate: number;
+    loading: boolean;
+  }>({
+    total: 0,
+    completed: 0,
+    noShow: 0,
+    noShowRate: 0,
+    cancelled: 0,
+    cancelledRate: 0,
+    loading: true
+  });
+
+  const formatBRL = (val: number) => {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(val || 0);
+  };
+
   // Calcula os 7 dias da semana atual usando o utilitário seguro
   const weekDays = useMemo(() => {
     return getWeekDays(currentDate);
@@ -156,7 +204,7 @@ export default function DashboardPage() {
     });
   }, []);
 
-  // Busca agendamentos da semana
+  // Busca agendamentos da semana usando o endpoint otimizado /schedules/calendar
   const fetchWeekAppointments = useCallback(async (silent = false) => {
     if (weekDays.length === 0) return;
     if (!silent) setLoading(true);
@@ -165,10 +213,10 @@ export default function DashboardPage() {
     const endDate = formatLocalDateToYMD(weekDays[weekDays.length - 1]);
 
     try {
-      const res = await api.get('/schedules', {
+      const res = await api.get('/schedules/calendar', {
         params: { startDate, endDate }
       });
-      const list = res.data?.data || res.data?.schedules || (Array.isArray(res.data) ? res.data : []);
+      const list = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.schedules || []);
       setAppointments(Array.isArray(list) ? list : []);
     } catch {
       setAppointments([]);
@@ -177,23 +225,90 @@ export default function DashboardPage() {
     }
   }, [weekDays]);
 
+  // Busca indicadores consolidados do mês (Entradas, Saídas, No-Show e Cancelamento)
+  const fetchMonthSummary = useCallback(async () => {
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth() + 1;
+    const currentYearMonth = `${y}-${String(m).padStart(2, '0')}`;
+    const startOfMonth = `${currentYearMonth}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const endOfMonth = `${currentYearMonth}-${String(lastDay).padStart(2, '0')}`;
+
+    try {
+      const [finRes, schedRes] = await Promise.all([
+        api.get('/financial').catch(() => ({ data: { transactions: [] } })),
+        api.get('/schedules/calendar', {
+          params: { startDate: startOfMonth, endDate: endOfMonth }
+        }).catch(() => ({ data: [] }))
+      ]);
+
+      // 1. Financeiro do Mês (Entradas e Saídas)
+      const txs = finRes.data?.transactions || [];
+      let inc = 0;
+      let exp = 0;
+      for (const t of txs) {
+        if (t.date && t.date.startsWith(currentYearMonth)) {
+          const amt = Number(t.amount) || 0;
+          if (t.type === 'INCOME') inc += amt;
+          else if (t.type === 'EXPENSE') exp += amt;
+        }
+      }
+      setMonthFinancial({
+        income: inc,
+        expense: exp,
+        net: inc - exp,
+        loading: false
+      });
+
+      // 2. Operacional do Mês (No-Show, Cancelamentos, Atendimentos)
+      const list = Array.isArray(schedRes.data)
+        ? schedRes.data
+        : (schedRes.data?.data || schedRes.data?.schedules || []);
+      const total = list.length;
+      const noShow = list.filter((a: any) => a.status === 'NO_SHOW').length;
+      const cancelled = list.filter((a: any) => a.status === 'CANCELLED').length;
+      const completed = list.filter((a: any) => a.status === 'COMPLETED').length;
+      const activeOrAttended = total - cancelled;
+      const noShowRate = activeOrAttended > 0 ? (noShow / activeOrAttended) * 100 : 0;
+      const cancelledRate = total > 0 ? (cancelled / total) * 100 : 0;
+
+      setMonthOperational({
+        total,
+        completed,
+        noShow,
+        noShowRate: Math.round(noShowRate * 10) / 10,
+        cancelled,
+        cancelledRate: Math.round(cancelledRate * 10) / 10,
+        loading: false
+      });
+    } catch {
+      setMonthFinancial((prev) => ({ ...prev, loading: false }));
+      setMonthOperational((prev) => ({ ...prev, loading: false }));
+    }
+  }, [currentDate]);
+
   useEffect(() => {
     fetchWeekAppointments();
+    fetchMonthSummary();
 
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         fetchWeekAppointments(true);
+        fetchMonthSummary();
       }
     }, 20000);
 
-    const handleSync = () => fetchWeekAppointments(true);
+    const handleSync = () => {
+      fetchWeekAppointments(true);
+      fetchMonthSummary();
+    };
     window.addEventListener('marquesuahora_agenda_sync', handleSync);
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('marquesuahora_agenda_sync', handleSync);
     };
-  }, [fetchWeekAppointments]);
+  }, [fetchWeekAppointments, fetchMonthSummary]);
 
   // Agendamentos filtrados para o dia selecionado
   const dayAppointments = useMemo(() => {
@@ -241,6 +356,7 @@ export default function DashboardPage() {
 
   const handleToday = () => {
     const today = new Date();
+    today.setHours(12, 0, 0, 0);
     setCurrentDate(today);
     setSelectedDateStr(formatLocalDateToYMD(today));
   };
@@ -405,10 +521,11 @@ export default function DashboardPage() {
               {dayAppointments.map((appt) => {
                 const badge =
                   STATUS_BADGES[appt.status] || STATUS_BADGES.CONFIRMED;
+                const SYSTEM_DEFAULTS = ['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'];
                 const svcColor = appt.service?.color?.trim();
-                const hasCustomSvcColor = svcColor && svcColor.toUpperCase() !== '#3B82F6';
+                const hasCustomSvcColor = svcColor && !SYSTEM_DEFAULTS.includes(svcColor.toUpperCase());
                 const profColor = appt.professional?.color?.trim();
-                const hasCustomProfColor = profColor && profColor.toUpperCase() !== '#7C3AED' && profColor.toUpperCase() !== '#3B82F6';
+                const hasCustomProfColor = profColor && !SYSTEM_DEFAULTS.includes(profColor.toUpperCase());
 
                 const procColor = hasCustomSvcColor
                   ? svcColor
@@ -503,7 +620,152 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* 4. MODAIS DO DASHBOARD */}
+      {/* 4. RESUMO EXECUTIVO DO MÊS: ENTRADAS, SAÍDAS, NO-SHOW E CANCELAMENTOS */}
+      <section className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden p-5 sm:p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-slate-100">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-bold text-slate-900">
+                Resumo Executivo do Mês
+              </h2>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 capitalize">
+                {currentDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Métricas financeiras consolidadas, faltas (no-show) e cancelamentos do mês
+            </p>
+          </div>
+
+          <Link
+            href="/dashboard/financeiro"
+            className="text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+          >
+            <span>Ver Financeiro & Gráfico</span>
+            <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+          </Link>
+        </div>
+
+        {/* Grid de 5 Cards Métricos */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {/* Card 1: Entradas & Faturamento */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Entradas Realizadas
+              </span>
+              <span className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                <TrendingUp className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <span className="text-xl font-mono font-bold text-slate-900 block">
+              {formatBRL(monthFinancial.income)}
+            </span>
+            <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/50">
+              <span>Receitas do mês</span>
+              <span className="text-emerald-700 font-semibold">Conciliado</span>
+            </div>
+          </div>
+
+          {/* Card 2: Saídas & Despesas */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Saídas & Despesas
+              </span>
+              <span className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                <TrendingDown className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <span className="text-xl font-mono font-bold text-slate-900 block">
+              {formatBRL(monthFinancial.expense)}
+            </span>
+            <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/50">
+              <span>Custos operacionais</span>
+              <span className="text-rose-700 font-semibold">Pagas</span>
+            </div>
+          </div>
+
+          {/* Card 3: Saldo Líquido em Caixa */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Saldo Líquido
+              </span>
+              <span className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                <DollarSign className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <span
+              className={`text-xl font-mono font-bold block ${
+                monthFinancial.net >= 0 ? 'text-slate-900' : 'text-rose-700'
+              }`}
+            >
+              {formatBRL(monthFinancial.net)}
+            </span>
+            <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/50">
+              <span>Resultado líquido</span>
+              <span className={monthFinancial.net >= 0 ? 'text-emerald-600 font-bold' : 'text-rose-600 font-bold'}>
+                {monthFinancial.net >= 0 ? 'Positivo' : 'Déficit'}
+              </span>
+            </div>
+          </div>
+
+          {/* Card 4: Faltas / No-Show */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Faltas (No-Show)
+              </span>
+              <span className="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                <AlertTriangle className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-mono font-bold text-slate-900">
+                {monthOperational.noShow}
+              </span>
+              <span className="text-[11px] font-bold text-slate-400">
+                faltas
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/50">
+              <span>Taxa no mês:</span>
+              <span className={`font-bold ${monthOperational.noShowRate > 5 ? 'text-amber-700' : 'text-slate-600'}`}>
+                {monthOperational.noShowRate}%
+              </span>
+            </div>
+          </div>
+
+          {/* Card 5: Cancelamentos */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/70 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                Cancelamentos
+              </span>
+              <span className="w-7 h-7 rounded-lg bg-slate-200 text-slate-700 flex items-center justify-center font-bold">
+                <XCircle className="w-3.5 h-3.5" />
+              </span>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xl font-mono font-bold text-slate-900">
+                {monthOperational.cancelled}
+              </span>
+              <span className="text-[11px] font-bold text-slate-400">
+                cancelados
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/50">
+              <span>Taxa sobre total:</span>
+              <span className="font-bold text-slate-600">
+                {monthOperational.cancelledRate}%
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5. MODAIS DO DASHBOARD */}
       {isNewBookingModalOpen && (
         <AgendaAppointmentModal
           initialDate={selectedDateStr}

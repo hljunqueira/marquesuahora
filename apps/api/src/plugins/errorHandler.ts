@@ -14,6 +14,8 @@ export function errorHandler(
       message: err.message
     }));
 
+    request.log.warn({ issues: formattedErrors, url: request.url }, 'Erro de validação Zod (400)');
+
     return reply.status(400).send({
       statusCode: 400,
       error: 'Bad Request',
@@ -58,10 +60,37 @@ export function errorHandler(
     });
   }
 
-  // 4. Erros Internos Não Tratados (HTTP 500)
+  // 4. Erros de Regra de Negócio e Validações Controladas (HTTP 400 a 499)
+  const rawStatus = (error as any).statusCode || (error as any).status;
+  const numStatus = typeof rawStatus === 'number' ? rawStatus : parseInt(rawStatus, 10);
+  if (!isNaN(numStatus) && numStatus >= 400 && numStatus < 500) {
+    return reply.status(numStatus).send({
+      statusCode: numStatus,
+      error: error.name || (numStatus === 409 ? 'Conflict' : 'Bad Request'),
+      message: error.message
+    });
+  }
+
+  // Se a mensagem contiver termos claros de conflito de horário ou regra de negócio, trata com 409 humanizado
+  if (
+    error.message &&
+    (error.message.includes('reservado por outra cliente') ||
+      error.message.includes('bloqueado') ||
+      error.message.includes('conflito') ||
+      error.message.includes('expediente') ||
+      error.message.includes('disponível'))
+  ) {
+    return reply.status(409).send({
+      statusCode: 409,
+      error: 'Conflict',
+      message: error.message
+    });
+  }
+
+  // 5. Erros Internos Não Tratados (HTTP 500)
   request.log.error(error);
-  return reply.status(error.statusCode || 500).send({
-    statusCode: error.statusCode || 500,
+  return reply.status(numStatus || 500).send({
+    statusCode: numStatus || 500,
     error: 'Internal Server Error',
     message:
       process.env.NODE_ENV === 'production'

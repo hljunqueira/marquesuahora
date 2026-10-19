@@ -39,11 +39,16 @@ import {
   CalendarDays,
   Zap,
   RotateCcw,
-  Loader2
+  Loader2,
+  Lock,
+  ShoppingCart
 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { InputMask } from '@/components/ui/InputMask';
 import { api } from '@/lib/api';
+import { QuickSaleModal } from '@/components/pos/QuickSaleModal';
+import { DreReportView } from '@/components/financial/DreReportView';
+import { FinancialFlowChart } from '@/components/financial/FinancialFlowChart';
 
 // ==========================================
 // TIPOS E MODELOS CONECTADOS
@@ -73,13 +78,15 @@ export interface CommissionPayoutItem {
   professionalId: string;
   professionalName: string;
   professionalRole: string;
+  isOwner?: boolean;
   percentage: number;
   salesTotal: number;
   payoutAmount: number;
   servicesCount: number;
-  status: 'PENDING' | 'PAID';
+  status: 'PENDING' | 'PAID' | 'SETTLED';
   paidAt?: string;
   paidMethod?: PaymentMethod;
+  notes?: string;
 }
 
 export type CreditAccountStatus = 'OPEN' | 'PARTIAL' | 'PAID' | 'OVERDUE';
@@ -151,8 +158,9 @@ const EXPENSE_CATEGORIES = [
 ];
 
 export default function DashboardFinanceiroPage() {
-  const [activeTab, setActiveTab] = useState<'TRANSACTIONS' | 'COMMISSIONS' | 'CREDIT_ACCOUNT'>('TRANSACTIONS');
+  const [activeTab, setActiveTab] = useState<'TRANSACTIONS' | 'COMMISSIONS' | 'CREDIT_ACCOUNT' | 'DRE'>('TRANSACTIONS');
   const [period, setPeriod] = useState<'HOJE' | 'ESTA_SEMANA' | 'ESTE_MES' | 'TODOS'>('ESTE_MES');
+  const [isQuickSaleOpen, setIsQuickSaleOpen] = useState(false);
 
   // Estado da Loja & Nicho
   const [storeName, setStoreName] = useState(() => {
@@ -169,10 +177,38 @@ export default function DashboardFinanceiroPage() {
   });
   const [tenantPlanCode, setTenantPlanCode] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('marquesuahora_tenant_plan_code') || 'VIP_PRO';
+      return localStorage.getItem('marquesuahora_tenant_plan_code') || 'FREE';
     }
-    return 'VIP_PRO';
+    return 'FREE';
   });
+
+  const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
+    }
+    return '#5c0701';
+  });
+
+  useEffect(() => {
+    const syncColor = () => {
+      const saved = localStorage.getItem('tenant_primary_color');
+      if (saved) setTenantPrimaryColor(saved);
+    };
+    syncColor();
+    window.addEventListener('storage', syncColor);
+    const handleTenantSync = (e: any) => {
+      if (e?.detail?.primaryColor) {
+        setTenantPrimaryColor(e.detail.primaryColor);
+      } else {
+        syncColor();
+      }
+    };
+    window.addEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    return () => {
+      window.removeEventListener('storage', syncColor);
+      window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    };
+  }, []);
 
   // 1. Fluxo de Caixa (Lançamentos)
   const [transactions, setTransactions] = useState<TransactionItem[]>([]);
@@ -265,7 +301,7 @@ export default function DashboardFinanceiroPage() {
       if (tenantRes.data) {
         setStoreName(tenantRes.data.name || 'Meu Estabelecimento');
         setCurrentNiche(tenantRes.data.niche || 'NAIL_LASH_STUDIO');
-        setTenantPlanCode(tenantRes.data.plan?.code || 'VIP_PRO');
+        setTenantPlanCode(tenantRes.data.plan?.code || 'FREE');
         if (tenantRes.data.name) localStorage.setItem('tenant_name', tenantRes.data.name);
         if (tenantRes.data.niche) localStorage.setItem('tenant_niche', tenantRes.data.niche);
         if (tenantRes.data.plan?.code) localStorage.setItem('marquesuahora_tenant_plan_code', tenantRes.data.plan.code);
@@ -303,9 +339,11 @@ export default function DashboardFinanceiroPage() {
         setConnectedServices([]);
       }
 
-      if (Array.isArray(schedulesRes.data)) {
+      const schedulesRaw = schedulesRes.data?.data || schedulesRes.data?.schedules || (Array.isArray(schedulesRes.data) ? schedulesRes.data : []);
+      const schedulesList = Array.isArray(schedulesRaw) ? schedulesRaw : [];
+      if (schedulesList.length > 0) {
         setConnectedAppointments(
-          schedulesRes.data.map((sch: any) => ({
+          schedulesList.map((sch: any) => ({
             id: sch.id,
             clientName: sch.client?.name || 'Cliente',
             clientPhone: sch.client?.phone || '',
@@ -393,6 +431,10 @@ export default function DashboardFinanceiroPage() {
   }, []);
 
   const handleToggleCreditEnabled = () => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('O crediário e fiado é exclusivo dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     const nextVal = !isCreditEnabled;
     setIsCreditEnabled(nextVal);
     localStorage.setItem('marquesuahora_credit_enabled', String(nextVal));
@@ -401,13 +443,53 @@ export default function DashboardFinanceiroPage() {
   };
 
   // ==========================================
+  // FILTRAGEM POR PERÍODO SELECIONADO
+  // ==========================================
+  const periodTransactions = useMemo(() => {
+    if (period === 'TODOS') return transactions;
+
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    return transactions.filter((t) => {
+      if (!t.date) return false;
+      const txDate = t.date.slice(0, 10);
+
+      if (period === 'HOJE') {
+        return txDate === todayStr;
+      }
+
+      if (period === 'ESTA_SEMANA') {
+        const d = new Date(txDate + 'T12:00:00');
+        const dayOfWeek = now.getDay();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - dayOfWeek);
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6);
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        return d >= startOfWeek && d <= endOfWeek;
+      }
+
+      if (period === 'ESTE_MES') {
+        const currentYearMonth = now.toISOString().slice(0, 7);
+        return txDate.slice(0, 7) === currentYearMonth;
+      }
+
+      return true;
+    });
+  }, [transactions, period]);
+
+  // ==========================================
   // CÁLCULOS E TOTAIS DINÂMICOS (KPIs)
   // ==========================================
   const summary = useMemo(() => {
     let incomeTotal = 0;
     let expenseTotal = 0;
 
-    transactions.forEach((tx) => {
+    periodTransactions.forEach((tx) => {
       if (tx.type === 'INCOME') {
         incomeTotal += tx.amount;
       } else {
@@ -415,8 +497,10 @@ export default function DashboardFinanceiroPage() {
       }
     });
 
+    // A dona do negócio (isOwner) não tem repasse (100% entra no caixa/lucro da empresa).
+    // Somente somamos comissões a repassar de outros profissionais cadastrados na equipe.
     const pendingCommissionsTotal = commissions
-      .filter((c) => c.status === 'PENDING')
+      .filter((c) => c.status === 'PENDING' && !c.isOwner)
       .reduce((acc, curr) => acc + curr.payoutAmount, 0);
 
     const netProfit = incomeTotal - expenseTotal;
@@ -429,7 +513,7 @@ export default function DashboardFinanceiroPage() {
       netProfit,
       margin
     };
-  }, [transactions, commissions]);
+  }, [periodTransactions, commissions]);
 
   // Total do Crediário Pendente
   const creditSummary = useMemo(() => {
@@ -559,7 +643,7 @@ export default function DashboardFinanceiroPage() {
     e.preventDefault();
     const val = parseFloat(txAmount.replace(',', '.'));
     if (isNaN(val) || val <= 0) {
-      alert('Informe um valor monetário válido maior que zero.');
+      showToast('Informe um valor monetário válido maior que zero.');
       return;
     }
 
@@ -719,6 +803,10 @@ export default function DashboardFinanceiroPage() {
   // HANDLERS DO CREDIÁRIO DE CLIENTES
   // ==========================================
   const handleOpenCreateCredit = () => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('O crediário e fiado é exclusivo dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     setEditingCredit(null);
     setCreditClientName('');
     setCreditClientPhone('');
@@ -742,6 +830,10 @@ export default function DashboardFinanceiroPage() {
   };
 
   const handleOpenEditCredit = (item: CreditAccountItem) => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('O crediário e fiado é exclusivo dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     setEditingCredit(item);
     setCreditClientName(item.clientName);
     setCreditClientPhone(item.clientPhone);
@@ -756,7 +848,7 @@ export default function DashboardFinanceiroPage() {
     e.preventDefault();
     const totalVal = parseFloat(creditTotalAmount.replace(',', '.'));
     if (isNaN(totalVal) || totalVal <= 0) {
-      alert('Informe um valor de crédito válido maior que zero.');
+      showToast('Informe um valor de crédito válido maior que zero.');
       return;
     }
 
@@ -797,6 +889,10 @@ export default function DashboardFinanceiroPage() {
 
   // Abrir Modal de Pagamento de Crediário (Baixa)
   const handleOpenPayCredit = (item: CreditAccountItem) => {
+    if (tenantPlanCode === 'FREE') {
+      showToast('O crediário e fiado é exclusivo dos planos pagos (Solo ou Equipe Pro). Faça upgrade para liberar.');
+      return;
+    }
     setPayingCreditTarget(item);
     setPaymentAmountInput(String(item.remainingAmount));
     setPaymentMethodForCredit('PIX');
@@ -808,7 +904,7 @@ export default function DashboardFinanceiroPage() {
 
     const paidVal = parseFloat(paymentAmountInput.replace(',', '.'));
     if (isNaN(paidVal) || paidVal <= 0) {
-      alert('Informe um valor de pagamento válido maior que zero.');
+      showToast('Informe um valor de pagamento válido maior que zero.');
       return;
     }
 
@@ -848,16 +944,18 @@ export default function DashboardFinanceiroPage() {
     }
   };
 
-  // Filtragem de Transações
-  const filteredTransactions = transactions.filter((t) => {
-    const matchesType = typeFilter === 'ALL' ? true : t.type === typeFilter;
-    const matchesSearch =
-      t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      t.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.clientName && t.clientName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      (t.professionalName && t.professionalName.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesType && matchesSearch;
-  });
+  // Filtragem de Transações (respeitando período + pesquisa + tipo)
+  const filteredTransactions = useMemo(() => {
+    return periodTransactions.filter((t) => {
+      const matchesType = typeFilter === 'ALL' ? true : t.type === typeFilter;
+      const matchesSearch =
+        t.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        t.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (t.clientName && t.clientName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (t.professionalName && t.professionalName.toLowerCase().includes(searchTerm.toLowerCase()));
+      return matchesType && matchesSearch;
+    });
+  }, [periodTransactions, typeFilter, searchTerm]);
 
   return (
     <div className="w-full space-y-6">
@@ -926,6 +1024,19 @@ export default function DashboardFinanceiroPage() {
             >
               {isCreditEnabled ? 'Ativo' : 'Opcional'}
             </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('DRE')}
+            className={`px-3.5 py-2 rounded-xl flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap ${
+              activeTab === 'DRE'
+                ? 'btn-primary-tenant shadow-xs'
+                : 'text-slate-600 hover:text-tenant-primary hover:bg-tenant-light'
+            }`}
+          >
+            <TrendingUp className="w-4 h-4" />
+            <span>DRE &amp; Lucro Real</span>
           </button>
         </div>
 
@@ -1047,6 +1158,12 @@ export default function DashboardFinanceiroPage() {
           ========================================== */}
       {activeTab === 'TRANSACTIONS' && (
         <div className="space-y-4">
+          {/* Gráfico Comparativo Visual: Entradas vs Saídas */}
+          <FinancialFlowChart
+            transactions={transactions}
+            tenantPrimaryColor={tenantPrimaryColor}
+          />
+
           {/* Barra de Filtros e Ações de Lançamento */}
           <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
             <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
@@ -1074,6 +1191,15 @@ export default function DashboardFinanceiroPage() {
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsQuickSaleOpen(true)}
+                className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <ShoppingCart className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Venda Balcão (PDV)</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => handleOpenCreateTx('EXPENSE')}
@@ -1283,7 +1409,7 @@ export default function DashboardFinanceiroPage() {
                   </div>
                   <p className="text-xs text-slate-600 mt-1 max-w-2xl leading-relaxed">
                     Você está no plano <strong>{tenantPlanCode === 'FREE' ? 'Plano Gratuito' : 'Profissional Solo'}</strong>. 
-                    O rateio automático de comissões por colaborador e dedução direta do caixa com relatórios detalhados é liberado nos planos <strong>Equipe Pro</strong> e <strong>Império VIP</strong>.
+                    O rateio automático de comissões por colaborador e dedução direta do caixa com relatórios detalhados é liberado no plano <strong>Equipe Pro</strong>.
                   </p>
                 </div>
               </div>
@@ -1305,7 +1431,7 @@ export default function DashboardFinanceiroPage() {
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Cálculo automático sobre os atendimentos da equipe cadastrada em{' '}
-                  <strong className="text-purple-700">{storeName}</strong>. Ao efetuar repasse, a despesa entra no caixa e diminui o lucro líquido na hora.
+                  <strong className="text-purple-700">{storeName}</strong>. Atendimentos da proprietária entram 100% no caixa do salão sem repasse.
                 </p>
               </div>
 
@@ -1317,34 +1443,55 @@ export default function DashboardFinanceiroPage() {
               </div>
             </div>
 
+            {/* Banner Explicativo de Regra de Negócio: Dona do Negócio */}
+            <div className="p-4 rounded-2xl bg-purple-50/60 border border-purple-200/70 flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-purple-100 text-purple-700 shrink-0">
+                <Percent className="w-4 h-4" />
+              </div>
+              <div className="text-xs text-slate-700 space-y-1">
+                <p className="font-bold text-slate-900">
+                  Regra de Repasse: Apenas para Colaboradores e Profissionais Parceiros
+                </p>
+                <p className="leading-relaxed">
+                  Como <strong>{storeName}</strong> é operado pela dona do negócio, 100% do faturamento dos seus atendimentos é receita direta e caixa livre da empresa, sem repasse de comissões. Ao cadastrar outro profissional na aba <strong>Equipe</strong>, o sistema calculará automaticamente o repasse com base na porcentagem de comissão cadastrada.
+                </p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
               {commissions.map((comm) => {
-                const isPaid = comm.status === 'PAID';
+                const isOwner = Boolean(comm.isOwner);
+                const isPaid = comm.status === 'PAID' || comm.status === 'SETTLED';
+
                 return (
                   <div
                     key={comm.id}
                     className={`p-5 rounded-2xl border transition-all flex flex-col justify-between space-y-4 ${
-                      isPaid
-                        ? 'bg-slate-50/70 border-slate-200/80 opacity-90'
-                        : 'bg-white border-purple-200 shadow-2xs hover:shadow-md'
+                      isOwner
+                        ? 'bg-gradient-to-b from-emerald-50/40 via-white to-white border-emerald-200/80 shadow-2xs'
+                        : isPaid
+                          ? 'bg-slate-50/70 border-slate-200/80 opacity-90'
+                          : 'bg-white border-purple-200 shadow-2xs hover:shadow-md'
                     }`}
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <h4 className="text-sm font-bold text-slate-900">{comm.professionalName}</h4>
-                          <span className="text-[11px] font-semibold text-purple-700 block">
+                          <span className={`text-[11px] font-semibold block ${isOwner ? 'text-emerald-700' : 'text-purple-700'}`}>
                             {comm.professionalRole}
                           </span>
                         </div>
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                            isPaid
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
+                            isOwner
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : isPaid
+                                ? 'bg-slate-100 text-slate-700'
+                                : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {isPaid ? 'Repasse Efetuado' : 'Pendente'}
+                          {isOwner ? 'Proprietária (100% da Casa)' : isPaid ? 'Repasse Efetuado' : 'Pendente'}
                         </span>
                       </div>
 
@@ -1357,7 +1504,9 @@ export default function DashboardFinanceiroPage() {
                         </div>
                         <div className="flex items-center justify-between text-xs text-slate-600">
                           <span>Taxa de Repasse:</span>
-                          <span className="font-bold text-purple-700">{comm.percentage}%</span>
+                          <span className={`font-bold ${isOwner ? 'text-emerald-700' : 'text-purple-700'}`}>
+                            {isOwner ? '0% (Sem repasse / 100% Salão)' : `${comm.percentage}%`}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between text-xs text-slate-600">
                           <span>Atendimentos Concluídos:</span>
@@ -1365,22 +1514,31 @@ export default function DashboardFinanceiroPage() {
                         </div>
                         <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
                           <span className="font-bold text-slate-800">Valor do Repasse:</span>
-                          <span className="font-mono font-bold text-base text-purple-700">
+                          <span className={`font-mono font-bold text-base ${isOwner ? 'text-emerald-700' : 'text-purple-700'}`}>
                             R$ {comm.payoutAmount.toFixed(2).replace('.', ',')}
                           </span>
                         </div>
                       </div>
 
-                      {isPaid && (
+                      {isOwner ? (
                         <div className="mt-2 text-[11px] text-emerald-700 flex items-center gap-1 font-medium">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Pago via {comm.paidMethod} ({comm.paidAt})</span>
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Faturamento 100% da proprietária — sem repasse a terceiros.</span>
                         </div>
-                      )}
+                      ) : isPaid ? (
+                        <div className="mt-2 text-[11px] text-emerald-700 flex items-center gap-1 font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Pago via {comm.paidMethod || 'PIX'} ({comm.paidAt || 'Conciliado'})</span>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-                      {isPaid ? (
+                      {isOwner ? (
+                        <div className="w-full py-2 px-3 bg-emerald-50 text-emerald-800 rounded-xl text-xs font-semibold text-center border border-emerald-200/80">
+                          Faturamento 100% da Casa (Sem Repasse)
+                        </div>
+                      ) : isPaid ? (
                         <button
                           type="button"
                           onClick={() => handleUndoPayout(comm)}
@@ -1412,6 +1570,48 @@ export default function DashboardFinanceiroPage() {
           ========================================== */}
       {activeTab === 'CREDIT_ACCOUNT' && (
         <div className="space-y-4">
+          {/* Upgrade Gate Elegante para o Plano Gratuito (FREE) */}
+          {tenantPlanCode === 'FREE' && (
+            <div className="p-6 sm:p-7 rounded-3xl bg-gradient-to-br from-amber-50/80 via-white to-purple-50/80 border border-amber-200/90 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-6 animate-fadeIn">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full border border-amber-200">
+                    Planos Solo & Equipe Pro
+                  </span>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Controle Profissional de Crediário & Fiado com WhatsApp
+                  </h3>
+                </div>
+                <p className="text-xs sm:text-sm text-slate-600 max-w-2xl leading-relaxed">
+                  Gerencie com segurança valores pendentes de clientes de confiança com cálculo automático de vencimentos, alertas de cobrança amigáveis no WhatsApp em 1 clique e quitações parciais sem perda de controle do caixa. Faça upgrade para os planos <strong>Solo</strong> ou <strong>Equipe Pro</strong> para liberar este módulo.
+                </p>
+                <div className="flex flex-wrap items-center gap-4 pt-1 text-2xs text-slate-600 font-semibold">
+                  <span className="flex items-center gap-1 text-slate-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Cobranças via WhatsApp com mensagem pronta
+                  </span>
+                  <span className="flex items-center gap-1 text-slate-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Amortização de pagamentos parciais
+                  </span>
+                  <span className="flex items-center gap-1 text-slate-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Totalizador automático de inadimplência
+                  </span>
+                </div>
+              </div>
+
+              <Link
+                href="/dashboard/planos"
+                className="shrink-0 px-5 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-purple-600/20 transition-all active:scale-95 flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Fazer Upgrade para Liberar</span>
+                <ArrowUpRight className="w-4 h-4" />
+              </Link>
+            </div>
+          )}
+
           {/* Card de Configuração e Ativação do Crediário */}
           <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="space-y-1">
@@ -1420,7 +1620,7 @@ export default function DashboardFinanceiroPage() {
                   Crediário & Contas de Clientes de Confiança
                 </h3>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-200 text-slate-800 uppercase tracking-wider">
-                  Recurso Opcional
+                  {tenantPlanCode === 'FREE' ? 'Recurso Restrito' : 'Recurso Opcional'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 max-w-2xl">
@@ -1430,27 +1630,39 @@ export default function DashboardFinanceiroPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={handleToggleCreditEnabled}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  isCreditEnabled
-                    ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
-                    : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/20'
-                }`}
-              >
-                {isCreditEnabled ? 'Desativar Crediário' : 'Ativar Crediário'}
-              </button>
-
-              {isCreditEnabled && (
-                <button
-                  type="button"
-                  onClick={handleOpenCreateCredit}
-                  className="px-4 py-2 btn-primary-tenant rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+              {tenantPlanCode === 'FREE' ? (
+                <Link
+                  href="/dashboard/planos"
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Nova Conta no Crediário</span>
-                </button>
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Liberar no Plano Solo / Pro</span>
+                </Link>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleToggleCreditEnabled}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      isCreditEnabled
+                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-md shadow-emerald-600/20'
+                    }`}
+                  >
+                    {isCreditEnabled ? 'Desativar Crediário' : 'Ativar Crediário'}
+                  </button>
+
+                  {isCreditEnabled && (
+                    <button
+                      type="button"
+                      onClick={handleOpenCreateCredit}
+                      className="px-4 py-2 btn-primary-tenant rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Nova Conta no Crediário</span>
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -1669,6 +1881,11 @@ export default function DashboardFinanceiroPage() {
           )}
         </div>
       )}
+
+      {/* ==========================================
+          ABA 4: DRE EXECUTIVO (DEMONSTRATIVO DE RESULTADOS DO EXERCÍCIO)
+          ========================================== */}
+      {activeTab === 'DRE' && <DreReportView />}
 
       {/* ==========================================
           MODAL DE LANÇAMENTO (ENTRADA / DESPESA)
@@ -2547,6 +2764,14 @@ export default function DashboardFinanceiroPage() {
         isDestructive={true}
         onConfirm={handleDeleteCredit}
         onClose={() => setCreditDeleteTarget(null)}
+      />
+
+      {/* Modal de Venda Balcão (PDV) */}
+      <QuickSaleModal
+        isOpen={isQuickSaleOpen}
+        onClose={() => setIsQuickSaleOpen(false)}
+        onSaleCompleted={() => loadAllConnectedData(true)}
+        showToast={showToast}
       />
     </div>
   );

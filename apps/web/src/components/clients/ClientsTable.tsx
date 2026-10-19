@@ -12,13 +12,22 @@ import {
   Edit2,
   Trash2,
   ExternalLink,
-  Users
+  Users,
+  FileCheck,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { ClientItem } from './types';
 
 interface ClientsTableProps {
   clients: ClientItem[];
   loading: boolean;
+  totalCount: number;
+  currentPage: number;
+  pageSize: number;
+  totalPages: number;
+  onPageChange: (newPage: number) => void;
+  onPageSizeChange: (newPageSize: number) => void;
   onViewHistory: (client: ClientItem) => void;
   onEdit: (client: ClientItem) => void;
   onToggleBlock: (client: ClientItem) => void;
@@ -28,11 +37,34 @@ interface ClientsTableProps {
 export const ClientsTable: React.FC<ClientsTableProps> = ({
   clients,
   loading,
+  totalCount,
+  currentPage,
+  pageSize,
+  totalPages,
+  onPageChange,
+  onPageSizeChange,
   onViewHistory,
   onEdit,
   onToggleBlock,
   onDelete
 }) => {
+  const from = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const to = Math.min(currentPage * pageSize, totalCount);
+
+  const getPageNumbers = () => {
+    const pages: number[] = [];
+    const maxVisible = 5;
+    let start = Math.max(1, currentPage - 2);
+    let end = Math.min(totalPages, start + maxVisible - 1);
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    return pages;
+  };
+
   const formatPhone = (phone: string) => {
     const digits = phone.replace(/\D/g, '');
     if (digits.length === 11) {
@@ -94,6 +126,7 @@ export const ClientsTable: React.FC<ClientsTableProps> = ({
               <th className="py-4 px-5">Cliente</th>
               <th className="py-4 px-5">Contato / WhatsApp</th>
               <th className="py-4 px-5 text-center">Visitas</th>
+              <th className="py-4 px-5 text-center">Anamnese</th>
               <th className="py-4 px-5">No-Show Shield</th>
               <th className="py-4 px-5 text-right">Ações</th>
             </tr>
@@ -161,6 +194,27 @@ export const ClientsTable: React.FC<ClientsTableProps> = ({
                     <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                       {totalVisits} {totalVisits === 1 ? 'visita' : 'visitas'}
                     </span>
+                  </td>
+
+                  <td className="py-4 px-5 text-center">
+                    {client.anamnesis ? (
+                      <button
+                        onClick={() => onViewHistory(client)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition-colors cursor-pointer"
+                        title="Ver ficha de anamnese preenchida"
+                      >
+                        <FileCheck className="w-3.5 h-3.5" />
+                        Preenchida
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => onViewHistory(client)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-200 hover:bg-slate-200 transition-colors cursor-pointer"
+                        title="Ficha pendente — clique para copiar link ou enviar"
+                      >
+                        Pendente
+                      </button>
+                    )}
                   </td>
 
                   <td className="py-4 px-5">
@@ -235,6 +289,79 @@ export const ClientsTable: React.FC<ClientsTableProps> = ({
           </tbody>
         </table>
       </div>
+
+      {/* Barra de Paginação Integrada */}
+      {!loading && totalCount > 0 && (
+        <div className="border-t border-slate-200/90 bg-slate-50/70 px-5 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          {/* Lado Esquerdo: Intervalo exibido */}
+          <div className="text-slate-600 font-medium">
+            Mostrando <span className="font-bold text-slate-900">{from}</span> a{' '}
+            <span className="font-bold text-slate-900">{to}</span> de{' '}
+            <span className="font-bold text-slate-900">{totalCount}</span> clientes
+          </div>
+
+          {/* Lado Direito: Seletor de Tamanho e Navegação */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 font-medium hidden sm:inline">Exibir:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => onPageSizeChange(Number(e.target.value))}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold focus:outline-none focus:border-purple-600 cursor-pointer"
+              >
+                <option value={10}>10 por pág.</option>
+                <option value={15}>15 por pág.</option>
+                <option value={25}>25 por pág.</option>
+                <option value={50}>50 por pág.</option>
+                <option value={100}>100 por pág.</option>
+              </select>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onPageChange(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Página Anterior"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Anterior</span>
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {getPageNumbers().map((num) => (
+                    <button
+                      key={num}
+                      type="button"
+                      onClick={() => onPageChange(num)}
+                      className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors cursor-pointer flex items-center justify-center ${
+                        num === currentPage
+                          ? 'bg-tenant-primary text-white shadow-2xs font-bold'
+                          : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onPageChange(currentPage + 1)}
+                  disabled={currentPage >= totalPages}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Próxima Página"
+                >
+                  <span className="hidden sm:inline">Próxima</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

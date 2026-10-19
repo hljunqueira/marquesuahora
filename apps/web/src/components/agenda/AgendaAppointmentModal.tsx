@@ -1,8 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Trash2, Loader2 } from 'lucide-react';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { api } from '@/lib/api';
+import { formatLocalDateToYMD } from '@/lib/dateUtils';
 import { InputMask } from '@/components/ui/InputMask';
 import { ScheduleAppointment, ProfessionalItem, ServiceOption } from './types';
 
@@ -11,6 +14,7 @@ interface AgendaAppointmentModalProps {
   initialTime?: string;
   initialProfessionalId?: string;
   existingAppointment?: ScheduleAppointment | null;
+  existingAppointments?: ScheduleAppointment[];
   professionals: ProfessionalItem[];
   services: ServiceOption[];
   onClose: () => void;
@@ -22,12 +26,18 @@ export function AgendaAppointmentModal({
   initialTime,
   initialProfessionalId,
   existingAppointment,
+  existingAppointments = [],
   professionals,
   services,
   onClose,
   onSuccess
 }: AgendaAppointmentModalProps) {
   const isEditing = !!existingAppointment;
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Estados de criação
   const [selectedServiceId, setSelectedServiceId] = useState<string>(
@@ -41,10 +51,8 @@ export function AgendaAppointmentModal({
   );
   const [dateStr, setDateStr] = useState<string>(
     existingAppointment?.date
-      ? typeof existingAppointment.date === 'string'
-        ? existingAppointment.date.slice(0, 10)
-        : new Date(existingAppointment.date).toISOString().slice(0, 10)
-      : initialDate || new Date().toISOString().slice(0, 10)
+      ? formatLocalDateToYMD(existingAppointment.date)
+      : initialDate || formatLocalDateToYMD(new Date())
   );
   const [startTime, setStartTime] = useState<string>(
     existingAppointment?.startTime || initialTime || '09:00'
@@ -68,6 +76,7 @@ export function AgendaAppointmentModal({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
 
   // Garante seleção padrão quando a lista carregar
   useEffect(() => {
@@ -116,10 +125,40 @@ export function AgendaAppointmentModal({
     return () => clearTimeout(handler);
   }, [clientName, isEditing]);
 
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(
+    existingAppointment?.client?.id || null
+  );
+  const [savingClientToCrm, setSavingClientToCrm] = useState(false);
+
   const handleSelectClient = (c: any) => {
     setClientName(c.name);
     setClientPhone(c.phone);
+    setSelectedClientId(c.id);
     setShowSuggestions(false);
+  };
+
+  const handleQuickAddClient = async () => {
+    const cleanPhone = clientPhone.replace(/\D/g, '');
+    if (!clientName.trim() || cleanPhone.length < 10) {
+      setError('Informe nome e telefone completo com DDD para cadastrar a cliente.');
+      return;
+    }
+    setSavingClientToCrm(true);
+    setError(null);
+    try {
+      const res = await api.post('/clients', {
+        name: clientName.trim(),
+        phone: cleanPhone
+      });
+      const newClient = res.data?.data || res.data;
+      if (newClient?.id) {
+        setSelectedClientId(newClient.id);
+      }
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Erro ao cadastrar cliente no CRM.');
+    } finally {
+      setSavingClientToCrm(false);
+    }
   };
 
   // Cálculo de Preço e Duração Totais (Combo de serviços)
@@ -147,6 +186,56 @@ export function AgendaAppointmentModal({
     return { totalPrice, totalDuration, calculatedEndTime };
   }, [services, allSelectedServiceIds, startTime]);
 
+  // Detecção em tempo real de colisão com horários já ocupados
+  const conflictSchedule = useMemo(() => {
+    if (!existingAppointments || existingAppointments.length === 0 || !startTime || !dateStr) {
+      return null;
+    }
+
+    const selectedProf = selectedProfessionalId;
+    const targetDuration = summary.totalDuration || 30;
+
+    // Converte startTime para minutos do dia
+    const [sh, sm] = startTime.split(':').map(Number);
+    const newStartMin = (sh || 0) * 60 + (sm || 0);
+    const newEndMin = newStartMin + targetDuration;
+
+    for (const appt of existingAppointments) {
+      if (isEditing && appt.id === existingAppointment?.id) continue;
+      if (appt.status === 'CANCELLED') continue;
+
+      // Mesma data YYYY-MM-DD
+      const apptDateStr =
+        typeof appt.date === 'string'
+          ? appt.date.slice(0, 10)
+          : formatLocalDateToYMD(appt.date);
+      if (apptDateStr !== dateStr) continue;
+
+      // Mesmo profissional
+      if (selectedProf && appt.professionalId && appt.professionalId !== selectedProf) continue;
+
+      // Converte horários de início e fim existentes
+      const [ash, asm] = (appt.startTime || '00:00').split(':').map(Number);
+      const [aeh, aem] = (appt.endTime || '00:00').split(':').map(Number);
+      const apptStartMin = (ash || 0) * 60 + (asm || 0);
+      const apptEndMin = (aeh || 0) * 60 + (aem || 0);
+
+      // Sobreposição: newStart < apptEnd && newEnd > apptStart
+      if (newStartMin < apptEndMin && newEndMin > apptStartMin) {
+        return appt;
+      }
+    }
+    return null;
+  }, [
+    existingAppointments,
+    startTime,
+    dateStr,
+    selectedProfessionalId,
+    summary.totalDuration,
+    isEditing,
+    existingAppointment
+  ]);
+
   // Submissão de novo agendamento manual ou edição
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,12 +249,27 @@ export function AgendaAppointmentModal({
       return;
     }
 
+    if (conflictSchedule) {
+      setError(
+        `Horário Indisponível: O período selecionado (${startTime} às ${summary.calculatedEndTime}) colide com o agendamento de ${conflictSchedule.client?.name || 'outra cliente'} (${conflictSchedule.startTime} às ${conflictSchedule.endTime}). Por favor, escolha outro horário livre.`
+      );
+      return;
+    }
+
     setLoading(true);
     setError(null);
 
     try {
-      const parsedCustomPrice = customPrice !== '' ? parseFloat(customPrice) : summary.totalPrice;
-      const finalPriceToSend = !isNaN(parsedCustomPrice) ? parsedCustomPrice : undefined;
+      let finalPriceToSend: number | undefined = undefined;
+      if (customPrice !== '') {
+        const cleanPrice = String(customPrice).replace(/[^\d.,]/g, '').replace(',', '.');
+        const num = parseFloat(cleanPrice);
+        if (!isNaN(num)) {
+          finalPriceToSend = num;
+        }
+      } else if (summary.totalPrice > 0) {
+        finalPriceToSend = summary.totalPrice;
+      }
 
       if (isEditing) {
         await api.patch(`/schedules/${existingAppointment.id}`, {
@@ -191,8 +295,12 @@ export function AgendaAppointmentModal({
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(
+      const apiMsg =
         err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message;
+      setError(
+        apiMsg ||
           'Não foi possível salvar o agendamento. Verifique se o horário está disponível.'
       );
     } finally {
@@ -211,7 +319,7 @@ export function AgendaAppointmentModal({
       onSuccess();
       onClose();
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao alterar status.');
+      setError(err?.response?.data?.message || 'Erro ao alterar status.');
     } finally {
       setLoading(false);
     }
@@ -235,14 +343,16 @@ export function AgendaAppointmentModal({
     window.open(`https://wa.me/${phoneWithDdd}?text=${msg}`, '_blank');
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
         onClick={(e) => {
           e.stopPropagation();
           setShowSuggestions(false);
         }}
-        className="relative max-w-lg w-full bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[92vh]"
+        className="relative max-w-lg w-full bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl border border-slate-200 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[92vh]"
       >
         {/* Cabeçalho */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
@@ -337,11 +447,42 @@ export function AgendaAppointmentModal({
                 mask="phone"
                 disabled={isEditing}
                 value={clientPhone}
-                onChangeValue={(formatted) => setClientPhone(formatted)}
+                onChangeValue={(formatted) => {
+                  setClientPhone(formatted);
+                  setSelectedClientId(null);
+                }}
                 required
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-medium outline-hidden focus:border-purple-600 focus:ring-2 focus:ring-purple-600/20 disabled:bg-slate-50"
               />
             </div>
+
+            {/* Status do Cliente: Cadastrado no CRM vs Nova Cliente com Atalho Rápido */}
+            {!isEditing && clientName.trim().length >= 2 && (
+              <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs">
+                {selectedClientId ? (
+                  <div className="flex items-center gap-1.5 text-emerald-700 font-semibold text-[11.5px]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                    <span>Cliente cadastrada no CRM</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-slate-600 font-medium text-[11.5px]">
+                    <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                    <span>Nova cliente (salva automaticamente ao agendar)</span>
+                  </div>
+                )}
+
+                {!selectedClientId && clientPhone.replace(/\D/g, '').length >= 10 && (
+                  <button
+                    type="button"
+                    onClick={handleQuickAddClient}
+                    disabled={savingClientToCrm}
+                    className="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:border-purple-600 text-purple-700 font-bold text-[11px] shadow-2xs hover:bg-purple-50 transition-colors cursor-pointer shrink-0"
+                  >
+                    {savingClientToCrm ? 'Salvando...' : '+ Cadastrar no CRM'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Seleção de Serviços e Profissional */}
@@ -533,6 +674,23 @@ export function AgendaAppointmentModal({
             </div>
           </div>
 
+          {/* Alerta Educativo de Conflito de Horário */}
+          {conflictSchedule && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex flex-col gap-1 shadow-2xs">
+              <span className="font-bold text-amber-900 flex items-center gap-1.5">
+                Horário Ocupado neste Período
+              </span>
+              <span className="text-slate-700">
+                O intervalo das <strong>{startTime}</strong> às <strong>{summary.calculatedEndTime}</strong> colide com o atendimento de{' '}
+                <strong className="text-amber-950">{conflictSchedule.client?.name || 'outra cliente'}</strong>{' '}
+                ({conflictSchedule.startTime} às {conflictSchedule.endTime}).
+              </span>
+              <span className="text-[11px] text-amber-700">
+                Selecione outro horário livre ou adeque os minutos de atendimento para confirmar.
+              </span>
+            </div>
+          )}
+
           {/* Observações */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
@@ -576,11 +734,7 @@ export function AgendaAppointmentModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (confirm('Deseja realmente cancelar este agendamento?')) {
-                      handleUpdateStatus('CANCELLED');
-                    }
-                  }}
+                  onClick={() => setIsCancelConfirmOpen(true)}
                   className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 transition-colors cursor-pointer"
                 >
                   Cancelar
@@ -615,6 +769,22 @@ export function AgendaAppointmentModal({
           </div>
         </form>
       </div>
-    </div>
+
+      {/* Confirmação de Cancelamento de Agendamento */}
+      <ConfirmModal
+        isOpen={isCancelConfirmOpen}
+        title="Cancelar este Agendamento?"
+        description="Tem certeza que deseja cancelar este agendamento? O status será alterado para cancelado e o cliente será notificado."
+        confirmLabel="Sim, Cancelar"
+        isDestructive={true}
+        isLoading={loading}
+        onConfirm={() => {
+          setIsCancelConfirmOpen(false);
+          handleUpdateStatus('CANCELLED');
+        }}
+        onClose={() => setIsCancelConfirmOpen(false)}
+      />
+    </div>,
+    document.body
   );
 }

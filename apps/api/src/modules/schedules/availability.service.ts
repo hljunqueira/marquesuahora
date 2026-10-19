@@ -7,12 +7,19 @@ import {
   ExistingBooking,
   CalculatedSlot
 } from '@marquesuahora/shared';
+import { checkBrazilianHoliday } from '../../utils/brazilian-holidays';
+import {
+  parseYMDToSafeUtcDate,
+  getBrazilTodayYMD,
+  getBrazilNowMinutes
+} from '../../utils/date-utils';
 
 // Motor de cálculo de disponibilidade de horários e regras semanais
 
 export interface DayAvailability {
   date: string; // YYYY-MM-DD
   isOpen: boolean;
+  reason?: string;
   totalSlots: number;
   slots: {
     morning: CalculatedSlot[];
@@ -42,6 +49,24 @@ export class AvailabilityService {
       return {
         date: dateStr,
         isOpen: false,
+        reason: 'Estabelecimento não localizado.',
+        totalSlots: 0,
+        slots: { morning: [], afternoon: [], night: [] }
+      };
+    }
+
+    // 0. Checagem de Feriado Nacional Brasileiro (Blindagem de Feriados Oficiais)
+    const blockNational = tenant.blockNationalHolidays ?? true;
+    const exceptions: string[] = Array.isArray(tenant.holidayExceptions)
+      ? (tenant.holidayExceptions as string[])
+      : [];
+
+    const holiday = checkBrazilianHoliday(dateStr);
+    if (holiday && blockNational && !exceptions.includes(dateStr)) {
+      return {
+        date: dateStr,
+        isOpen: false,
+        reason: `Feriado Nacional: ${holiday.name}`,
         totalSlots: 0,
         slots: { morning: [], afternoon: [], night: [] }
       };
@@ -60,6 +85,7 @@ export class AvailabilityService {
       return {
         date: dateStr,
         isOpen: false,
+        reason: 'Nenhum serviço disponível para agendamento online.',
         totalSlots: 0,
         slots: { morning: [], afternoon: [], night: [] }
       };
@@ -70,9 +96,8 @@ export class AvailabilityService {
       0
     );
 
-    // 2. Data e dia da semana (0 = Domingo a 6 = Sábado)
-    const targetDate = new Date(`${dateStr}T00:00:00`);
-    const dayOfWeek = targetDate.getDay();
+    // 2. Data e dia da semana (0 = Domingo a 6 = Sábado) via parse seguro UTC
+    const { targetDate, dayOfWeek } = parseYMDToSafeUtcDate(dateStr);
 
     // 3. Busca profissionais aptos para executar os serviços
     const candidateProfessionals = await prisma.professional.findMany({
@@ -92,12 +117,21 @@ export class AvailabilityService {
       return {
         date: dateStr,
         isOpen: true,
+        reason: 'Nenhum profissional disponível para os serviços selecionados nesta data.',
         totalSlots: 0,
         slots: { morning: [], afternoon: [], night: [] }
       };
     }
 
     // 4. Busca regras de disponibilidade semanais (AvailabilityRule)
+    // Verifica se o salão possui regras semanais cadastradas para o escopo geral
+    const totalTenantRules = await prisma.availabilityRule.count({
+      where: {
+        tenantId,
+        professionalId: null
+      }
+    });
+
     const availabilityRules = await prisma.availabilityRule.findMany({
       where: {
         tenantId,
@@ -135,8 +169,8 @@ export class AvailabilityService {
           }
         }
       }
-    } else {
-      // Fallback para horários de abertura/fechamento do estabelecimento
+    } else if (totalTenantRules === 0) {
+      // Fallback APENAS se o salão nunca configurou a grade semanal de dias
       if (tenant.openingTime && tenant.closingTime && tenant.openingTime !== '00:00') {
         for (const prof of candidateProfessionals) {
           windows.push({
@@ -147,12 +181,23 @@ export class AvailabilityService {
           });
         }
       }
+    } else {
+      // O salão configurou sua grade e este dia da semana está marcado como fechado!
+      const weekdayNames = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+      return {
+        date: dateStr,
+        isOpen: false,
+        reason: `Fechado aos ${weekdayNames[dayOfWeek]}s`,
+        totalSlots: 0,
+        slots: { morning: [], afternoon: [], night: [] }
+      };
     }
 
     if (windows.length === 0) {
       return {
         date: dateStr,
         isOpen: false,
+        reason: 'Sem horários de atendimento configurados para esta data.',
         totalSlots: 0,
         slots: { morning: [], afternoon: [], night: [] }
       };
@@ -169,6 +214,20 @@ export class AvailabilityService {
         ]
       }
     });
+
+    // Checa se há recesso geral ou feriado municipal de dia inteiro para a loja
+    const fullDayGeneralBlock = blocksFromDb.find(
+      (b) => !b.professionalId && b.startTime <= '06:00' && b.endTime >= '22:00'
+    );
+    if (fullDayGeneralBlock) {
+      return {
+        date: dateStr,
+        isOpen: false,
+        reason: fullDayGeneralBlock.reason || 'Recesso / Bloqueio do Estabelecimento',
+        totalSlots: 0,
+        slots: { morning: [], afternoon: [], night: [] }
+      };
+    }
 
     const blocks: TimeBlock[] = blocksFromDb.map((b) => ({
       startTime: b.startTime,
@@ -198,11 +257,11 @@ export class AvailabilityService {
       professionalId: s.professionalId
     }));
 
-    // 7. Horário atual para filtrar horários do passado quando dateStr for hoje
-    const now = new Date();
-    const isToday = targetDate.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
+    // 7. Horário oficial de Brasília (UTC-3) para filtrar horários do passado quando dateStr for hoje
+    const brazilTodayStr = getBrazilTodayYMD();
+    const isToday = dateStr === brazilTodayStr;
     const minAdvanceMins = tenant.minAdvanceBookingMinutes || 30;
-    const nowMinutesToday = isToday ? now.getHours() * 60 + now.getMinutes() + minAdvanceMins : null;
+    const nowMinutesToday = isToday ? getBrazilNowMinutes() + minAdvanceMins : null;
 
     // 8. Executa o cálculo determinístico
     const allSlots = calculateAvailableSlots({

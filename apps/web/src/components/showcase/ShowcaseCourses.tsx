@@ -2,7 +2,8 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { GraduationCap, Play, MessageCircle, Sparkles } from 'lucide-react';
+import { GraduationCap, Play, MessageCircle } from 'lucide-react';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { CourseItem, TenantShowcase } from './types';
 import { CourseLessonModal } from './CourseLessonModal';
 
@@ -20,7 +21,7 @@ export function ShowcaseCourses({ tenant }: ShowcaseCoursesProps) {
     return null;
   }
 
-  const brandColor = tenant.primaryColor || '#7C3AED';
+  const brandColor = tenant.primaryColor || '#5c0701';
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm">
@@ -38,9 +39,12 @@ export function ShowcaseCourses({ tenant }: ShowcaseCoursesProps) {
 
       <div className="space-y-4">
         {tenant.courses.map((course) => {
-          const buyUrl = `https://wa.me/55${tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
-            `Olá! Tenho interesse no curso "${course.title}". Como funciona a matrícula e formas de pagamento?`
-          )}`;
+          const rawPhone = tenant.phone ? tenant.phone.replace(/\D/g, '') : '';
+          const buyUrl = rawPhone
+            ? `https://wa.me/55${rawPhone}?text=${encodeURIComponent(
+                `Olá! Tenho interesse no curso "${course.title}". Como funciona a matrícula e formas de pagamento?`
+              )}`
+            : '#agendamento';
 
           return (
             <div
@@ -51,9 +55,10 @@ export function ShowcaseCourses({ tenant }: ShowcaseCoursesProps) {
                 {course.coverUrl && (
                   <div className="relative w-full sm:w-36 h-28 rounded-xl overflow-hidden bg-slate-100 flex-shrink-0">
                     <Image
-                      src={course.coverUrl}
+                      src={resolveImageUrl(course.coverUrl)}
                       alt={course.title}
                       fill
+                      unoptimized
                       className="object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                   </div>

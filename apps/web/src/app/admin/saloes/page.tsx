@@ -212,6 +212,9 @@ export default function AdminSaloesPage() {
         }
         localStorage.setItem('auth_token', data.token);
         localStorage.setItem('@marcatuahora:token', data.token);
+        if (data.refreshToken) {
+          localStorage.setItem('refresh_token', data.refreshToken);
+        }
         localStorage.setItem('user_data', JSON.stringify(data.owner));
         localStorage.setItem('tenant_data', JSON.stringify(data.tenant));
         localStorage.setItem(

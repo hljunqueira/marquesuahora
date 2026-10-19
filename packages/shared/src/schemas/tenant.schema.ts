@@ -75,48 +75,71 @@ export const updateTenantSettingsSchema = z.object({
   planCode: z.string().optional(),
   name: z.string().min(2).optional(),
   legalName: z.string().optional().nullable(),
-  description: z.string().max(500).optional().nullable(),
-  niche: z.enum(businessNiches).optional(),
+  description: z.string().max(2000).optional().nullable(),
+  documentType: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(['CNPJ', 'CPF']).optional().nullable()),
+  documentNumber: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((val) => (val ? onlyDigits(val) : undefined)),
+  niche: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(businessNiches).optional()),
   phone: z
     .string()
-    .transform((val) => onlyDigits(val))
-    .optional(),
+    .nullable()
+    .optional()
+    .transform((val) => (val ? onlyDigits(val) : '')),
   instagramUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
-  themeTemplate: z.enum(themeTemplates).optional(),
-  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-  secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
-  accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
+  themeTemplate: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(themeTemplates).optional()),
+  primaryColor: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()),
+  secondaryColor: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()),
+  accentColor: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()),
   logoUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+  coverUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   googleReviewUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   npsFeedbackEnabled: z.boolean().optional(),
   depositRequired: z.boolean().optional(),
-  depositType: z.enum(['FIXED', 'PERCENTAGE']).optional(),
+  depositType: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(['FIXED', 'PERCENTAGE']).optional()),
   depositAmount: z.number().min(0).optional(),
   depositOnFirstBooking: z.boolean().optional(),
-  depositFirstBookingType: z.enum(['FIXED', 'PERCENTAGE']).optional(),
+  depositFirstBookingType: z
+    .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(['FIXED', 'PERCENTAGE']).optional()),
   depositFirstBookingValue: z.number().min(0).optional(),
   depositFirstBookingPercent: z.number().min(0).max(100).optional(),
   pixKey: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
-  pixKeyType: z.enum(['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'RANDOM']).optional().nullable(),
+  pixKeyType: z
+    .preprocess((v) => (v === '' || !v ? null : v), z.enum(['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'RANDOM']).optional().nullable()),
   pixKeyHolder: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
   maxNoShowsAllowed: z.number().int().min(1).max(10).optional(),
   churnRecoveryEnabled: z.boolean().optional(),
   churnAlertDays: z.number().int().min(15).max(180).optional(),
+  welcomeMessageEnabled: z.boolean().optional(),
+  welcomeMessageCustom: z.string().max(2000).optional().nullable(),
   birthdayMessageEnabled: z.boolean().optional(),
-  birthdayMessageCustom: z.string().max(300).optional().nullable(),
+  birthdayMessageCustom: z.string().max(1000).optional().nullable(),
   bufferMinutes: z.number().int().min(0).max(60).optional(),
   openingTime: z.string().optional(),
   closingTime: z.string().optional(),
   slotIntervalMinutes: z.number().int().min(5).max(120).optional(),
   minAdvanceBookingMinutes: z.number().int().min(0).optional(),
   maxAdvanceBookingDays: z.number().int().min(1).max(90).optional(),
-  addressStreet: z.string().optional(),
-  addressNumber: z.string().optional(),
-  addressComplement: z.string().optional().nullable(),
-  addressNeighborhood: z.string().optional(),
-  addressCity: z.string().optional(),
-  addressState: z.string().optional(),
-  addressZip: z.string().optional()
+  blockNationalHolidays: z.boolean().optional(),
+  holidayExceptions: z.array(z.string()).optional(),
+  addressStreet: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  addressNumber: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  addressComplement: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+  addressNeighborhood: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  addressCity: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  addressState: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  addressZip: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  galleryPhotos: z.array(z.string()).optional(),
+  aftercareGuides: z.any().optional()
 });
 
 export type OnboardingInput = z.infer<typeof onboardingSchema>;

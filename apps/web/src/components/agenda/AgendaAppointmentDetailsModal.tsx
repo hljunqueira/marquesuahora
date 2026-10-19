@@ -1,10 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Loader2, CheckCircle2, AlertCircle, Send } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { api } from '@/lib/api';
 import { resolveImageUrl } from '@/lib/imageUrl';
+import { formatLocalDateToYMD } from '@/lib/dateUtils';
 import { ScheduleAppointment, ProfessionalItem } from './types';
 
 interface AgendaAppointmentDetailsModalProps {
@@ -22,6 +24,11 @@ export function AgendaAppointmentDetailsModal({
   onSuccess,
   onOpenCheckout
 }: AgendaAppointmentDetailsModalProps) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,9 +41,7 @@ export function AgendaAppointmentDetailsModal({
 
   // Estados de edição inline
   const [editDate, setEditDate] = useState(
-    typeof appointment.date === 'string'
-      ? appointment.date.slice(0, 10)
-      : new Date(appointment.date).toISOString().slice(0, 10)
+    formatLocalDateToYMD(appointment.date)
   );
   const [editStartTime, setEditStartTime] = useState(appointment.startTime || '09:00');
   const [editProfessionalId, setEditProfessionalId] = useState(
@@ -267,6 +272,24 @@ export function AgendaAppointmentDetailsModal({
     }
   };
 
+  const [statusColors, setStatusColors] = useState<any>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('marquesuahora_agenda_status_colors');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    const handleStatusSync = (e: any) => {
+      if (e?.detail) setStatusColors(e.detail);
+    };
+    window.addEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+    return () => window.removeEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+  }, []);
+
   const statusBadges = {
     CONFIRMED: { label: 'Confirmado', bg: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     IN_SERVICE: { label: 'Em Atendimento', bg: 'bg-purple-50 text-purple-700 border-purple-200' },
@@ -279,11 +302,13 @@ export function AgendaAppointmentDetailsModal({
     }
   }[selectedStatus] || { label: selectedStatus, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative max-w-4xl w-full bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200 flex flex-col max-h-[92vh]"
+        className="relative max-w-4xl w-full bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl border border-slate-200 flex flex-col h-[94dvh] sm:h-auto sm:max-h-[92vh]"
       >
         {/* Topo do Modal */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
@@ -340,9 +365,20 @@ export function AgendaAppointmentDetailsModal({
 
             <div className="flex items-center gap-2">
               <span
-                className={`px-3 py-1 rounded-full text-xs font-bold border ${statusBadges.bg}`}
+                className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1.5 shadow-2xs ${
+                  statusColors?.[selectedStatus] ? '' : statusBadges.bg
+                }`}
+                style={statusColors?.[selectedStatus] ? {
+                  backgroundColor: `${statusColors[selectedStatus]}15`,
+                  color: statusColors[selectedStatus],
+                  borderColor: `${statusColors[selectedStatus]}40`
+                } : undefined}
               >
-                • {statusBadges.label}
+                <span
+                  className="w-2 h-2 rounded-full shrink-0"
+                  style={{ backgroundColor: statusColors?.[selectedStatus] || '#64748b' }}
+                />
+                <span>{statusBadges.label}</span>
               </span>
             </div>
           </div>
@@ -979,6 +1015,7 @@ export function AgendaAppointmentDetailsModal({
         onConfirm={executeRemovePhoto}
         onClose={() => setPhotoToRemove(null)}
       />
-    </div>
+    </div>,
+    document.body
   );
 }

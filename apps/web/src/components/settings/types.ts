@@ -1,4 +1,4 @@
-export type SettingsTab = 'DATA' | 'VISUAL' | 'BOOKING' | 'SHIELD' | 'AUTOMATIONS' | 'NOTIFICATIONS' | 'WHATSAPP' | 'PLAN';
+export type SettingsTab = 'DATA' | 'VISUAL' | 'BOOKING' | 'AFTERCARE' | 'SHIELD' | 'AUTOMATIONS' | 'NOTIFICATIONS' | 'WHATSAPP' | 'PLAN';
 
 export interface TenantSettings {
   id: string;
@@ -12,6 +12,7 @@ export interface TenantSettings {
   instagramUrl?: string | null;
   niche: string;
   logoUrl?: string | null;
+  coverUrl?: string | null;
   themeTemplate: string;
   primaryColor: string;
   secondaryColor: string;
@@ -29,6 +30,10 @@ export interface TenantSettings {
   bufferMinutes: number;
   minAdvanceBookingMinutes: number;
   maxAdvanceBookingDays: number;
+  blockNationalHolidays?: boolean;
+  holidayExceptions?: string[];
+  welcomeMessageEnabled?: boolean;
+  welcomeMessageCustom?: string | null;
   birthdayMessageEnabled: boolean;
   birthdayMessageCustom?: string | null;
   googleReviewUrl?: string | null;
@@ -47,6 +52,7 @@ export interface TenantSettings {
   churnRecoveryEnabled: boolean;
   churnAlertDays: number;
   billingStatus: string;
+  aftercareGuides?: any[];
   plan?: {
     id: string;
     name: string;

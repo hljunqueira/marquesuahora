@@ -426,7 +426,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(404).send({ error: 'Sem administrador', message: 'Esta loja não possui um usuário administrador vinculado.' });
     }
 
-    // Emite token temporário de 1 hora de impersonação
+    // Emite token duradouro de 30 dias para sessão contínua
     const impersonateToken = app.jwt.sign(
       {
         sub: owner.id,
@@ -437,7 +437,12 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
         isImpersonated: true,
         impersonatedBy: request.user.sub
       },
-      { expiresIn: '1h' }
+      { expiresIn: '30d' }
+    );
+
+    const refreshToken = app.jwt.sign(
+      { sub: owner.id, tokenType: 'refresh' },
+      { expiresIn: '90d' }
     );
 
     await prisma.auditLog.create({
@@ -456,6 +461,16 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({
       message: `Sessão de suporte iniciada para ${tenant.name}.`,
       token: impersonateToken,
+      refreshToken,
+      owner: {
+        id: owner.id,
+        name: owner.name,
+        email: owner.email,
+        role: owner.role,
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug
+      },
       tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug }
     });
   });

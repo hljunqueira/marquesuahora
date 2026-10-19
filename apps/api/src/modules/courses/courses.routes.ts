@@ -1,12 +1,23 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
-import { NotificationCategory, NotificationPriority } from '@prisma/client';
+import { NotificationCategory, NotificationPriority, TransactionType, PaymentMethod } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcherService } from '../notifications/dispatcher.service';
 import { EvolutionService } from '../automation/evolution.service';
 import { WhatsappTemplateEngine } from '../notifications/template-engine';
 import { EmailService } from '../notifications/email.service';
+
+const certificateConfigSchema = z.object({
+  logoUrl: z.string().optional().nullable(),
+  instructorName: z.string().optional().nullable(),
+  instructorTitle: z.string().optional().nullable(),
+  signatureUrl: z.string().optional().nullable(),
+  hours: z.coerce.number().optional().nullable(),
+  borderStyle: z.string().optional().default('GOLD'),
+  customText: z.string().optional().nullable(),
+  programmaticContent: z.string().optional().nullable()
+}).optional().nullable();
 
 export const coursesRoutes: FastifyPluginAsync = async (app) => {
   // Todas as rotas de cursos exigem autenticação do tenant
@@ -40,11 +51,100 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
       return reply.send(courses);
     });
 
+    // GET /courses/analytics - Estatísticas consolidadas do módulo de cursos
+    authScope.get('/analytics', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const [coursesCount, accesses, completedCount] = await Promise.all([
+        prisma.course.count({ where: { tenantId } }),
+        prisma.courseAccess.findMany({
+          where: { course: { tenantId } },
+          select: {
+            id: true,
+            isActive: true,
+            completedAt: true,
+            course: { select: { price: true } }
+          }
+        }),
+        prisma.courseAccess.count({
+          where: { course: { tenantId }, completedAt: { not: null } }
+        })
+      ]);
+
+      const totalStudents = accesses.length;
+      const activeStudents = accesses.filter((a) => a.isActive).length;
+      const estimatedRevenue = accesses.reduce((acc, curr) => acc + Number(curr.course?.price || 0), 0);
+
+      return reply.send({
+        totalCourses: coursesCount,
+        totalStudents,
+        activeStudents,
+        certifiedStudents: completedCount,
+        estimatedRevenue
+      });
+    });
+
+    // GET /courses/subscribers - Listar todos os acessos/alunas das formações do tenant (declarado antes de /:id)
+    authScope.get('/subscribers', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const { courseId, search } = request.query as { courseId?: string; search?: string };
+
+      const accesses = await prisma.courseAccess.findMany({
+        where: {
+          course: {
+            tenantId,
+            ...(courseId ? { id: courseId } : {})
+          },
+          ...(search
+            ? {
+                OR: [
+                  { phone: { contains: search.replace(/\D/g, '') } },
+                  { client: { name: { contains: search, mode: 'insensitive' } } }
+                ]
+              }
+            : {})
+        },
+        include: {
+          course: {
+            select: {
+              id: true,
+              title: true,
+              price: true,
+              coverUrl: true
+            }
+          },
+          client: true
+        },
+        orderBy: { grantedAt: 'desc' }
+      });
+
+      return reply.send(Array.isArray(accesses) ? accesses : []);
+    });
+
     // POST /courses - Criar novo curso
     authScope.post('/', async (request, reply) => {
       const tenantId = request.user.tenantId;
       if (!tenantId) {
         return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        include: { plan: true }
+      });
+
+      if (tenant?.plan && !tenant.plan.hasCourses) {
+        return reply.status(403).send({
+          error: 'Recurso Bloqueado',
+          message: 'O módulo de Cursos Online para Alunas está disponível a partir do plano Equipe Pro. Faça o upgrade para desbloquear.'
+        });
       }
 
       const schema = z.object({
@@ -54,7 +154,8 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         coverUrl: z.string().optional().nullable(),
         videoUrl: z.string().optional().nullable(),
         sortOrder: z.coerce.number().int().default(0),
-        isActive: z.boolean().default(true)
+        isActive: z.boolean().default(true),
+        certificateConfig: certificateConfigSchema
       });
 
       const body = schema.parse(request.body);
@@ -68,7 +169,8 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
           coverUrl: body.coverUrl || null,
           videoUrl: body.videoUrl || null,
           sortOrder: body.sortOrder,
-          isActive: body.isActive
+          isActive: body.isActive,
+          certificateConfig: body.certificateConfig !== undefined ? (body.certificateConfig as any) : undefined
         }
       });
 
@@ -141,7 +243,8 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
         coverUrl: z.string().optional().nullable(),
         videoUrl: z.string().optional().nullable(),
         sortOrder: z.coerce.number().int().optional(),
-        isActive: z.boolean().optional()
+        isActive: z.boolean().optional(),
+        certificateConfig: certificateConfigSchema
       });
 
       const body = schema.parse(request.body);
@@ -155,7 +258,8 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
           ...(body.coverUrl !== undefined ? { coverUrl: body.coverUrl } : {}),
           ...(body.videoUrl !== undefined ? { videoUrl: body.videoUrl } : {}),
           ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
-          ...(body.isActive !== undefined ? { isActive: body.isActive } : {})
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
+          ...(body.certificateConfig !== undefined ? { certificateConfig: body.certificateConfig as any } : {})
         }
       });
 
@@ -363,47 +467,6 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
     // 3. ASSINANTES / ALUNAS (ACESSOS)
     // =========================================================================
 
-    // GET /courses/subscribers - Listar todos os acessos/alunas das formações do tenant
-    authScope.get('/subscribers', async (request, reply) => {
-      const tenantId = request.user.tenantId;
-      if (!tenantId) {
-        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
-      }
-
-      const { courseId, search } = request.query as { courseId?: string; search?: string };
-
-      const accesses = await prisma.courseAccess.findMany({
-        where: {
-          course: {
-            tenantId,
-            ...(courseId ? { id: courseId } : {})
-          },
-          ...(search
-            ? {
-                OR: [
-                  { phone: { contains: search.replace(/\D/g, '') } },
-                  { client: { name: { contains: search, mode: 'insensitive' } } }
-                ]
-              }
-            : {})
-        },
-        include: {
-          course: {
-            select: {
-              id: true,
-              title: true,
-              price: true,
-              coverUrl: true
-            }
-          },
-          client: true
-        },
-        orderBy: { grantedAt: 'desc' }
-      });
-
-      return reply.send(accesses);
-    });
-
     // POST /courses/:id/access - Conceder acesso a uma aluna
     authScope.post('/:id/access', async (request, reply) => {
       const tenantId = request.user.tenantId;
@@ -422,7 +485,10 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
 
       const schema = z.object({
         clientName: z.string().min(2, 'Nome da aluna é obrigatório.'),
-        phone: z.string().min(10, 'Telefone com DDD é obrigatório.')
+        phone: z.string().min(10, 'Telefone com DDD é obrigatório.'),
+        registerPayment: z.boolean().optional().default(false),
+        paymentAmount: z.coerce.number().min(0).optional(),
+        paymentMethod: z.enum(['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'CASH']).optional().default('PIX')
       });
 
       const body = schema.parse(request.body);
@@ -472,6 +538,24 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
           client: true
         }
       });
+
+      // Se solicitado, registra entrada no fluxo de caixa
+      if (body.registerPayment && body.paymentAmount && body.paymentAmount > 0) {
+        try {
+          await prisma.financialEntry.create({
+            data: {
+              tenantId,
+              type: TransactionType.INCOME,
+              amount: body.paymentAmount,
+              description: `Matrícula Curso: ${course.title} - ${client.name}`,
+              paymentMethod: body.paymentMethod as PaymentMethod,
+              paidAt: new Date()
+            }
+          });
+        } catch (finErr) {
+          console.error('Erro ao registrar entrada financeira da matrícula:', finErr);
+        }
+      }
 
       try {
         await NotificationsService.create({
@@ -523,6 +607,110 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
       }).catch(() => null);
 
       return reply.status(201).send(access);
+    });
+
+    // POST /courses/access/:accessId/certificate - Emitir certificado para aluna
+    authScope.post('/access/:accessId/certificate', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+      const { accessId } = request.params as { accessId: string };
+
+      const access = await prisma.courseAccess.findFirst({
+        where: { id: accessId, course: { tenantId } },
+        include: {
+          course: true,
+          client: true
+        }
+      });
+
+      if (!access) {
+        return reply.status(404).send({ error: 'Não encontrado', message: 'Matrícula de aluna não encontrada.' });
+      }
+
+      // Gera código verificador único se ainda não existir
+      let code = access.certificateCode;
+      if (!code) {
+        const crypto = await import('crypto');
+        const randomPart = crypto.randomBytes(4).toString('hex').toUpperCase();
+        code = `MSH-CERT-${randomPart}`;
+      }
+
+      const completedAt = access.completedAt || new Date();
+
+      const updated = await prisma.courseAccess.update({
+        where: { id: accessId },
+        data: {
+          certificateCode: code,
+          completedAt
+        },
+        include: {
+          course: true,
+          client: true
+        }
+      });
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, slug: true, phone: true }
+      });
+
+      const certConfig = (updated.course.certificateConfig as any) || {};
+
+      const certificateData = {
+        code: updated.certificateCode,
+        completedAt: updated.completedAt,
+        studentName: updated.client?.name || 'Aluna',
+        studentPhone: updated.phone,
+        courseTitle: updated.course.title,
+        tenantName: tenant?.name || 'MarqueSuaHora',
+        tenantSlug: tenant?.slug || '',
+        certificateConfig: certConfig,
+        verificationUrl: `https://marquesuahora.com.br/validar/${updated.certificateCode}`
+      };
+
+      return reply.send(certificateData);
+    });
+
+    // GET /courses/access/:accessId/certificate - Obter dados do certificado
+    authScope.get('/access/:accessId/certificate', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+      const { accessId } = request.params as { accessId: string };
+
+      const access = await prisma.courseAccess.findFirst({
+        where: { id: accessId, course: { tenantId } },
+        include: {
+          course: true,
+          client: true
+        }
+      });
+
+      if (!access || !access.certificateCode) {
+        return reply.status(404).send({ error: 'Certificado não emitido', message: 'Esta aluna ainda não possui certificado emitido.' });
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { name: true, slug: true, phone: true }
+      });
+
+      const certConfig = (access.course.certificateConfig as any) || {};
+
+      return reply.send({
+        code: access.certificateCode,
+        completedAt: access.completedAt,
+        studentName: access.client?.name || 'Aluna',
+        studentPhone: access.phone,
+        courseTitle: access.course.title,
+        tenantName: tenant?.name || 'MarqueSuaHora',
+        tenantSlug: tenant?.slug || '',
+        certificateConfig: certConfig,
+        verificationUrl: `https://marquesuahora.com.br/validar/${access.certificateCode}`
+      });
     });
 
     // PATCH /courses/access/:accessId/toggle - Alternar status de acesso da aluna
@@ -613,7 +801,7 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
 
       const [course, tenant] = await Promise.all([
         prisma.course.findFirst({ where: { id: courseId, tenantId } }),
-        prisma.tenant.findUnique({ where: { id: tenantId } })
+        prisma.tenant.findUnique({ where: { id: tenantId }, include: { plan: true } })
       ]);
 
       if (!course) {
@@ -621,6 +809,20 @@ export const coursesRoutes: FastifyPluginAsync = async (app) => {
       }
       if (!tenant) {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Tenant não encontrado.' });
+      }
+
+      if (tenant.plan && !tenant.plan.hasCourses) {
+        return reply.status(403).send({
+          error: 'Recurso Bloqueado',
+          message: 'O módulo de Cursos Online para Alunas está disponível a partir do plano Equipe Pro.'
+        });
+      }
+
+      if (tenant.plan && !tenant.plan.hasAutoWhatsapp) {
+        return reply.status(403).send({
+          error: 'Recurso Bloqueado',
+          message: 'Envios automáticos via WhatsApp estão disponíveis a partir do plano Profissional Solo.'
+        });
       }
 
       const broadcastSchema = z.object({

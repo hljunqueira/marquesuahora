@@ -9,12 +9,14 @@ import {
   NotificationCategory,
   NotificationPriority,
   TransactionType,
-  PaymentMethod
+  PaymentMethod,
+  CreditAccountStatus
 } from '@prisma/client';
 import { whatsappQueue } from '../automation/queues';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationDispatcherService } from '../notifications/dispatcher.service';
 import { parseTimeToMinutes, formatMinutesToTime } from '@marquesuahora/shared';
+import { getBrazilTodayYMD, parseYMDToSafeUtcDate } from '../../utils/date-utils';
 
 export const schedulesRoutes: FastifyPluginAsync = async (app) => {
   // =========================================================================
@@ -86,13 +88,15 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(400).send({ error: 'Inválido', message: 'Informe o slug ou tenantId.' });
     }
 
-    const baseDate = query.startDate ? new Date(`${query.startDate}T00:00:00`) : new Date();
+    const baseDateStr = query.startDate || getBrazilTodayYMD();
+    const { targetDate: baseDate } = parseYMDToSafeUtcDate(baseDateStr);
     const daysResults = [];
 
     for (let i = 0; i < 7; i++) {
       const d = new Date(baseDate);
-      d.setDate(d.getDate() + i);
+      d.setUTCDate(baseDate.getUTCDate() + i);
       const dateStr = d.toISOString().slice(0, 10);
+      const dayOfWeek = d.getUTCDay();
 
       const dayAvail = await AvailabilityService.getAvailableSlots({
         tenantId,
@@ -102,7 +106,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
 
       daysResults.push({
         date: dateStr,
-        dayOfWeek: d.getDay(),
+        dayOfWeek,
         isOpen: dayAvail.isOpen,
         hasAvailableSlots: dayAvail.totalSlots > 0,
         totalSlots: dayAvail.totalSlots
@@ -126,12 +130,12 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
       }
 
-      const now = new Date();
-      const todayStr = now.toISOString().slice(0, 10);
-      const todayDate = new Date(`${todayStr}T00:00:00`);
+      const todayStr = getBrazilTodayYMD();
+      const { targetDate: todayDate } = parseYMDToSafeUtcDate(todayStr);
 
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+      const [y, m] = todayStr.split('-').map(Number);
+      const startOfMonth = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+      const endOfMonth = new Date(Date.UTC(y, m, 0, 23, 59, 59));
 
       const [
         todayBookings,
@@ -233,7 +237,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         status: z.nativeEnum(ScheduleStatus).optional(),
         search: z.string().optional(),
         page: z.coerce.number().int().min(1).default(1),
-        limit: z.coerce.number().int().min(1).max(100).default(20)
+        limit: z.coerce.number().int().min(1).max(2000).default(50)
       });
 
       const query = querySchema.parse(request.query);
@@ -246,8 +250,8 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         ...(query.startDate || query.endDate
           ? {
               date: {
-                ...(query.startDate ? { gte: new Date(`${query.startDate}T00:00:00`) } : {}),
-                ...(query.endDate ? { lte: new Date(`${query.endDate}T23:59:59`) } : {})
+                ...(query.startDate ? { gte: parseYMDToSafeUtcDate(query.startDate).targetDate } : {}),
+                ...(query.endDate ? { lte: parseYMDToSafeUtcDate(query.endDate).targetDate } : {})
               }
             }
           : {}),
@@ -267,13 +271,17 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
           : {})
       };
 
+      const orderByClause = (query.startDate && query.endDate)
+        ? [{ date: 'asc' as const }, { startTime: 'asc' as const }]
+        : [{ date: 'desc' as const }, { startTime: 'desc' as const }];
+
       const [total, data] = await Promise.all([
         prisma.schedule.count({ where: whereClause }),
         prisma.schedule.findMany({
           where: whereClause,
           skip,
           take: query.limit,
-          orderBy: [{ date: 'desc' }, { startTime: 'desc' }],
+          orderBy: orderByClause,
           include: {
             client: true,
             professional: true,
@@ -309,8 +317,8 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         where: {
           tenantId,
           date: {
-            gte: new Date(`${startDate || new Date().toISOString().slice(0, 10)}T00:00:00`),
-            lte: new Date(`${endDate || new Date().toISOString().slice(0, 10)}T23:59:59`)
+            gte: parseYMDToSafeUtcDate(startDate || getBrazilTodayYMD()).targetDate,
+            lte: parseYMDToSafeUtcDate(endDate || getBrazilTodayYMD()).targetDate
           },
           ...(professionalId ? { professionalId } : {})
         },
@@ -338,12 +346,12 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
             select: { id: true, name: true, color: true }
           },
           service: {
-            select: { id: true, name: true, price: true, durationMinutes: true }
+            select: { id: true, name: true, price: true, durationMinutes: true, color: true }
           },
           items: {
             select: {
               service: {
-                select: { id: true, name: true, price: true, durationMinutes: true }
+                select: { id: true, name: true, price: true, durationMinutes: true, color: true }
               }
             }
           }
@@ -614,6 +622,231 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         message: `Sinal de R$ ${depositAmountNumber.toFixed(2).replace('.', ',')} confirmado e horário garantido!`,
         schedule: result.updatedSchedule,
         financialEntry: result.financialEntry
+      });
+    });
+
+    // POST /schedules/:id/checkout - Fechamento completo de Comanda & PDV Balcão
+    authScope.post('/:id/checkout', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const { id } = request.params as { id: string };
+
+      const checkoutSchema = z.object({
+        items: z.array(
+          z.object({
+            type: z.enum(['SERVICE', 'PRODUCT']),
+            itemId: z.string(),
+            name: z.string(),
+            quantity: z.number().int().positive().default(1),
+            unitPrice: z.number().min(0),
+            professionalId: z.string().optional().nullable()
+          })
+        ).min(1, 'Adicione pelo menos um serviço ou produto à comanda.'),
+        payments: z.array(
+          z.object({
+            method: z.enum(['PIX', 'CREDIT_CARD', 'DEBIT_CARD', 'CASH', 'CREDIT_ACCOUNT']),
+            amount: z.number().positive('O valor de cada pagamento deve ser maior que zero.'),
+            dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+          })
+        ).default([]),
+        discountAmount: z.number().min(0).default(0),
+        notes: z.string().max(1000).optional().nullable()
+      });
+
+      const data = checkoutSchema.parse(request.body);
+
+      const existing = await prisma.schedule.findFirst({
+        where: { id, tenantId },
+        include: {
+          client: true,
+          service: true,
+          professional: true
+        }
+      });
+
+      if (!existing) {
+        return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
+      }
+
+      // Calcula totais
+      const itemsSubtotal = data.items.reduce((acc, it) => acc + (it.unitPrice * it.quantity), 0);
+      const discount = Math.min(data.discountAmount, itemsSubtotal);
+      const finalTotal = Math.max(0, itemsSubtotal - discount);
+
+      // Sinal antecipado já quitado
+      const depositPaidVal = existing.depositPaid ? Number(existing.depositAmount || 0) : 0;
+      const balanceToPay = Math.max(0, finalTotal - depositPaidVal);
+
+      // Soma dos pagamentos fornecidos
+      const totalPaidInCheckout = data.payments.reduce((acc, p) => acc + p.amount, 0);
+
+      // Validação de tolerância de centavos
+      if (Math.abs(totalPaidInCheckout - balanceToPay) > 0.05) {
+        return reply.status(400).send({
+          error: 'Valor Divergente',
+          message: `A soma dos pagamentos (R$ ${totalPaidInCheckout.toFixed(2).replace('.', ',')}) deve ser igual ao saldo a pagar (R$ ${balanceToPay.toFixed(2).replace('.', ',')}).`
+        });
+      }
+
+      // Verifica estoque dos produtos antes de iniciar a transação
+      for (const item of data.items) {
+        if (item.type === 'PRODUCT') {
+          const product = await prisma.product.findFirst({
+            where: { id: item.itemId, tenantId }
+          });
+          if (!product) {
+            return reply.status(404).send({ error: 'Não encontrado', message: `Produto "${item.name}" não encontrado.` });
+          }
+          if (product.stockQuantity < item.quantity) {
+            return reply.status(400).send({
+              error: 'Estoque Insuficiente',
+              message: `O produto "${product.name}" possui apenas ${product.stockQuantity} unidades em estoque.`
+            });
+          }
+        }
+      }
+
+      // Checa se já existe FinancialEntry vinculado ao agendamento
+      const existingFinancial = await prisma.financialEntry.findUnique({
+        where: { scheduleId: id }
+      });
+
+      const result = await prisma.$transaction(async (tx) => {
+        // 1. Atualiza Schedule
+        const updatedSchedule = await tx.schedule.update({
+          where: { id },
+          data: {
+            status: ScheduleStatus.COMPLETED,
+            totalPrice: finalTotal,
+            notes: data.notes?.trim() || existing.notes
+          },
+          include: {
+            client: true,
+            service: true,
+            professional: true
+          }
+        });
+
+        // 2. Dá baixa no estoque de cada produto
+        const stockNotifications: Array<{ name: string; quantity: number; minStock: number }> = [];
+        for (const item of data.items) {
+          if (item.type === 'PRODUCT') {
+            const updatedProduct = await tx.product.update({
+              where: { id: item.itemId },
+              data: {
+                stockQuantity: { decrement: item.quantity }
+              }
+            });
+
+            if (updatedProduct.stockQuantity <= updatedProduct.minStock) {
+              stockNotifications.push({
+                name: updatedProduct.name,
+                quantity: updatedProduct.stockQuantity,
+                minStock: updatedProduct.minStock
+              });
+            }
+          }
+        }
+
+        // 3. Processa cada pagamento
+        const createdEntries = [];
+        const createdCreditAccounts = [];
+        let usedScheduleIdForFirstEntry = Boolean(existingFinancial);
+
+        for (const pay of data.payments) {
+          if (pay.method === 'CREDIT_ACCOUNT') {
+            // Cria conta no Crediário / Fiado
+            const dueDate = pay.dueDate ? new Date(`${pay.dueDate}T00:00:00`) : new Date(Date.now() + 15 * 86400000);
+            const creditAcc = await tx.creditAccount.create({
+              data: {
+                tenantId,
+                clientId: existing.clientId,
+                clientName: existing.client?.name || 'Cliente Balcão',
+                clientPhone: existing.client?.phone || '',
+                serviceOrDescription: `Comanda #${id.slice(0, 8)}: ${data.items.map((i) => i.name).join(', ')}`,
+                totalAmount: pay.amount,
+                paidAmount: 0,
+                remainingAmount: pay.amount,
+                dueDate,
+                status: CreditAccountStatus.OPEN,
+                notes: `Origem: Comanda do agendamento #${id}`
+              }
+            });
+            createdCreditAccounts.push(creditAcc);
+          } else {
+            // Pagamento imediato (PIX, CARTAO, DINHEIRO) -> Lança no Financeiro
+            const pMethod = pay.method as PaymentMethod;
+            const canUseScheduleId = !usedScheduleIdForFirstEntry;
+            if (canUseScheduleId) {
+              usedScheduleIdForFirstEntry = true;
+            }
+
+            const entry = await tx.financialEntry.create({
+              data: {
+                tenantId,
+                scheduleId: canUseScheduleId ? id : null,
+                professionalId: existing.professionalId,
+                type: TransactionType.INCOME,
+                amount: pay.amount,
+                depositDeducted: depositPaidVal,
+                description: `Recebimento Comanda #${id.slice(0, 8)} (${pMethod}): ${existing.client?.name || 'Cliente'}`,
+                paymentMethod: pMethod,
+                paidAt: new Date()
+              }
+            });
+            createdEntries.push(entry);
+          }
+        }
+
+        // 4. Auditoria
+        await tx.auditLog.create({
+          data: {
+            userId: request.user.sub,
+            tenantId,
+            action: 'SCHEDULE_CHECKOUT',
+            entityType: 'Schedule',
+            entityId: id,
+            details: {
+              items: data.items,
+              finalTotal,
+              discount,
+              depositPaidVal,
+              payments: data.payments
+            },
+            ipAddress: request.ip,
+            userAgent: request.headers['user-agent']
+          }
+        }).catch(() => null);
+
+        return {
+          updatedSchedule,
+          createdEntries,
+          createdCreditAccounts,
+          stockNotifications
+        };
+      });
+
+      // Dispara alertas assíncronos de estoque se algum produto zerou ou baixou do limite
+      for (const alertItem of result.stockNotifications) {
+        NotificationsService.create({
+          tenantId,
+          category: NotificationCategory.PRODUCT,
+          priority: alertItem.quantity === 0 ? NotificationPriority.HIGH : NotificationPriority.MEDIUM,
+          title: alertItem.quantity === 0 ? 'Estoque Esgotado' : 'Estoque Baixo',
+          message: `O produto "${alertItem.name}" possui apenas ${alertItem.quantity} unidade(s) restantes após fechamento de comanda.`,
+          link: '/dashboard/produtos'
+        }).catch(() => null);
+      }
+
+      return reply.status(200).send({
+        success: true,
+        message: 'Comanda finalizada com sucesso! Financeiro e estoque atualizados.',
+        schedule: result.updatedSchedule,
+        financialEntries: result.createdEntries,
+        creditAccounts: result.createdCreditAccounts
       });
     });
 

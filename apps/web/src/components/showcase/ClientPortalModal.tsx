@@ -21,6 +21,7 @@ import {
   Check
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { InputMask } from '@/components/ui/InputMask';
 
 interface ClientPortalModalProps {
@@ -88,6 +89,14 @@ interface PortalData {
       coverUrl?: string | null;
     }>;
     products?: PortalProduct[];
+    aftercareGuides?: Array<{
+      id: string;
+      title: string;
+      category: string;
+      description?: string;
+      items: string[];
+      isActive: boolean;
+    }>;
   };
   schedules: PortalSchedule[];
 }
@@ -96,7 +105,7 @@ export function ClientPortalModal({
   slug,
   tenantName,
   tenantPhone,
-  brandColor = '#7C3AED',
+  brandColor = '#5c0701',
   onClose
 }: ClientPortalModalProps) {
   const [phone, setPhone] = useState('');
@@ -458,10 +467,10 @@ export function ClientPortalModal({
                               <div className="flex gap-2">
                                 {s.arrivalPhotoUrl && (
                                   <div
-                                    onClick={() => setPreviewPhoto({ url: s.arrivalPhotoUrl!, title: 'Foto de Entrada' })}
+                                    onClick={() => setPreviewPhoto({ url: resolveImageUrl(s.arrivalPhotoUrl)!, title: 'Foto de Entrada' })}
                                     className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 cursor-pointer bg-slate-100 hover:opacity-90 relative"
                                   >
-                                    <img src={s.arrivalPhotoUrl} alt="Entrada" className="w-full h-full object-cover" />
+                                    <img src={resolveImageUrl(s.arrivalPhotoUrl)} alt="Entrada" className="w-full h-full object-cover" />
                                     <span className="absolute bottom-0 inset-x-0 bg-black/60 text-white text-[8px] text-center py-0.5 font-bold">
                                       Antes
                                     </span>
@@ -469,10 +478,10 @@ export function ClientPortalModal({
                                 )}
                                 {s.resultPhotoUrl && (
                                   <div
-                                    onClick={() => setPreviewPhoto({ url: s.resultPhotoUrl!, title: 'Resultado Final' })}
+                                    onClick={() => setPreviewPhoto({ url: resolveImageUrl(s.resultPhotoUrl)!, title: 'Resultado Final' })}
                                     className="w-16 h-16 rounded-xl overflow-hidden border border-slate-200 cursor-pointer bg-slate-100 hover:opacity-90 relative"
                                   >
-                                    <img src={s.resultPhotoUrl} alt="Saída" className="w-full h-full object-cover" />
+                                    <img src={resolveImageUrl(s.resultPhotoUrl)} alt="Saída" className="w-full h-full object-cover" />
                                     <span className="absolute bottom-0 inset-x-0 bg-emerald-900/80 text-white text-[8px] text-center py-0.5 font-bold">
                                       Depois
                                     </span>
@@ -552,7 +561,7 @@ export function ClientPortalModal({
                               <div className="relative w-full h-28 rounded-xl overflow-hidden bg-slate-100 mb-2.5 flex items-center justify-center border border-slate-200/60">
                                 {prod.imageUrl ? (
                                   <img
-                                    src={prod.imageUrl}
+                                    src={resolveImageUrl(prod.imageUrl)}
                                     alt={prod.name}
                                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                                   />
@@ -621,182 +630,110 @@ export function ClientPortalModal({
                     </div>
                   </div>
 
-                  {/* Seletor de Categoria do Guia */}
-                  <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                    {[
-                      { key: 'cilios', label: 'Cílios & Olhar' },
-                      { key: 'unhas', label: 'Unhas em Gel' },
-                      { key: 'cabelo', label: 'Cabelos & Químicas' },
-                      { key: 'barba', label: 'Barba & Cabelo Masculino' },
-                      { key: 'estetica', label: 'Pele & Estética' }
-                    ].map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => setAftercareCategory(item.key)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
-                          aftercareCategory === item.key
-                            ? 'bg-slate-900 text-white'
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Seletor e Conteúdo Dinâmico por Guia de Cuidado */}
+                  {(() => {
+                    const activeGuides = (portalData?.tenant.aftercareGuides || []).filter(
+                      (g) => g.isActive !== false
+                    );
 
-                  {/* Conteúdo Dinâmico por Categoria de Cuidado */}
-                  <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-3 text-xs leading-relaxed text-slate-700">
-                    {aftercareCategory === 'cilios' && (
-                      <div className="space-y-2.5">
-                        <h6 className="font-bold text-slate-900 text-sm">
-                          Cuidados com Extensão de Cílios e Lash Lifting
-                        </h6>
-                        <ul className="space-y-2">
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Primeiras 24 horas:</strong> Evite contato com água, vapor quente (saunas e banhos muito quentes) e lágrimas para cura perfeita do adesivo.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Higienização diária:</strong> Lave com espuma neutra específica ou shampoo de bebê diluído, sem esfregar os olhos.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Zero produtos oleosos:</strong> Não use demaquilantes bifásicos, óleos ou rímel à prova d'água na região dos olhos.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Escovação correta:</strong> Penteie delicadamente apenas quando os fios estiverem secos, utilizando a escovinha fornecida.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Prazo ideal de manutenção:</strong> Entre 15 e 21 dias para manter a densidade uniforme e preservar o fio natural.</span>
-                          </li>
-                        </ul>
-                      </div>
-                    )}
+                    if (activeGuides.length === 0) {
+                      return (
+                        <div className="p-8 text-center bg-white rounded-2xl border border-slate-200/80 space-y-3">
+                          <p className="text-xs font-semibold text-slate-700">
+                            Nenhum guia de cuidados cadastrado no momento.
+                          </p>
+                          <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                            Para tirar qualquer dúvida sobre o pós-procedimento do seu atendimento, entre em contato direto com a recepção pelo WhatsApp.
+                          </p>
+                          {portalData?.tenant.phone && (
+                            <a
+                              href={`https://wa.me/55${portalData.tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                                'Olá! Gostaria de tirar uma dúvida sobre os cuidados recomendados após o meu atendimento.'
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold transition-all shadow-xs"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>Falar no WhatsApp</span>
+                            </a>
+                          )}
+                        </div>
+                      );
+                    }
 
-                    {aftercareCategory === 'unhas' && (
-                      <div className="space-y-2.5">
-                        <h6 className="font-bold text-slate-900 text-sm">
-                          Cuidados com Alongamento em Gel, Fibra e Esmaltação em Gel
-                        </h6>
-                        <ul className="space-y-2">
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Unhas são joias, não ferramentas:</strong> Evite abrir latas, raspar etiquetas ou digitar com as pontas das unhas para não causar microfraturas.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Uso de luvas:</strong> Utilize luvas de borracha ao manusear produtos de limpeza, cloro, alvejantes ou acetona pura.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Hidratação de cutículas:</strong> Aplique óleo para cutículas ou sérum hidratante diariamente antes de dormir.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Não arranque ou descasque:</strong> Em caso de descolamento, agende um reparo. Arrancar puxa camadas de queratina da sua lâmina natural.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Manutenção preventiva:</strong> Realize a manutenção a cada 18 a 25 dias para evitar acúmulo de umidade e proliferação de fungos.</span>
-                          </li>
-                        </ul>
-                      </div>
-                    )}
+                    const selectedGuide =
+                      activeGuides.find((g) => g.id === aftercareCategory) || activeGuides[0];
 
-                    {aftercareCategory === 'cabelo' && (
-                      <div className="space-y-2.5">
-                        <h6 className="font-bold text-slate-900 text-sm">
-                          Cuidados com Cabelos, Mechas, Alisamentos e Cronograma Capilar
-                        </h6>
-                        <ul className="space-y-2">
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Proteção térmica inegociável:</strong> Sempre aplique protetor térmico com proteção UV antes de utilizar secador, chapinha ou babyliss.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Temperatura da água:</strong> Lave com água morna a fria. A água fervente abre as cutículas, acelera o desbotamento e resseca os fios.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Cronograma de hidratação:</strong> Alterne máscaras de hidratação e nutrição semanalmente, e reconstrução a cada 15 dias para cabelos com química.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Nunca durma de cabelo molhado:</strong> Cabelo úmido sofre atrito com o travesseiro, quebrando com facilidade e favorecendo fungos no couro cabeludo.</span>
-                          </li>
-                        </ul>
-                      </div>
-                    )}
+                    return (
+                      <>
+                        <div className="flex gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                          {activeGuides.map((guide) => (
+                            <button
+                              key={guide.id}
+                              type="button"
+                              onClick={() => setAftercareCategory(guide.id)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap cursor-pointer ${
+                                selectedGuide?.id === guide.id
+                                  ? 'bg-slate-900 text-white'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                            >
+                              {guide.title}
+                            </button>
+                          ))}
+                        </div>
 
-                    {aftercareCategory === 'barba' && (
-                      <div className="space-y-2.5">
-                        <h6 className="font-bold text-slate-900 text-sm">
-                          Cuidados com Barba e Cabelo Masculino
-                        </h6>
-                        <ul className="space-y-2">
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Hidratação da pele sob a barba:</strong> Use balm ou óleo de barba diariamente para prevenir ressecamento, caspa da barba e coceira.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Pente correto:</strong> Utilize pente de madeira para desembaraçar e distribuir a oleosidade natural sem gerar eletricidade estática.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Pós-barba suave:</strong> Use loção sem álcool para acalmar a pele e fechar os poros após o corte e alinhamento da barba.</span>
-                          </li>
-                        </ul>
-                      </div>
-                    )}
+                        <div className="p-4 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-3 text-xs leading-relaxed text-slate-700">
+                          {selectedGuide && (
+                            <div className="space-y-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                                  {selectedGuide.category}
+                                </span>
+                                <h6 className="font-bold text-slate-900 text-sm">
+                                  {selectedGuide.title}
+                                </h6>
+                              </div>
+                              {selectedGuide.description && (
+                                <p className="text-[11px] text-slate-500 leading-relaxed">
+                                  {selectedGuide.description}
+                                </p>
+                              )}
+                              <ul className="space-y-2 pt-1">
+                                {selectedGuide.items.map((item, idx) => (
+                                  <li key={idx} className="flex items-start gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
+                                    <span>{item}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
 
-                    {aftercareCategory === 'estetica' && (
-                      <div className="space-y-2.5">
-                        <h6 className="font-bold text-slate-900 text-sm">
-                          Cuidados com Tratamentos de Pele e Estética Facial/Corporal
-                        </h6>
-                        <ul className="space-y-2">
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Protetor solar obrigatório:</strong> Use protetor FPS 50+ todos os dias, reaplicando a cada 3 horas, mesmo em dias nublados ou em ambientes fechados.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Ingestão de água:</strong> Beba no mínimo 2 litros de água nas 48h seguintes para auxiliar na drenagem linfática e regeneração celular.</span>
-                          </li>
-                          <li className="flex items-start gap-2">
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-900 mt-1.5 shrink-0" />
-                            <span><strong>Evite atrito e produtos abrasivos:</strong> Não use ácidos ou esfoliantes nas primeiras 72 horas após peelings, limpezas de pele ou microagulhamento.</span>
-                          </li>
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Dúvidas no WhatsApp */}
-                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                      <span className="text-[11px] text-slate-500">
-                        Ficou com alguma dúvida sobre o pós-procedimento?
-                      </span>
-                      {portalData?.tenant.phone && (
-                        <a
-                          href={`https://wa.me/55${portalData.tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
-                            'Olá! Gostaria de tirar uma dúvida sobre os cuidados recomendados após o meu atendimento.'
-                          )}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors"
-                        >
-                          <MessageCircle className="w-3.5 h-3.5 text-slate-600" />
-                          <span>Falar com o Salão</span>
-                        </a>
-                      )}
-                    </div>
-                  </div>
+                          {/* Dúvidas no WhatsApp */}
+                          <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                            <span className="text-[11px] text-slate-500">
+                              Ficou com alguma dúvida sobre o pós-procedimento?
+                            </span>
+                            {portalData?.tenant.phone && (
+                              <a
+                                href={`https://wa.me/55${portalData.tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                                  'Olá! Gostaria de tirar uma dúvida sobre os cuidados recomendados após o meu atendimento.'
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition-colors"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5 text-slate-600" />
+                                <span>Falar com o Salão</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -1001,7 +938,7 @@ export function ClientPortalModal({
               </button>
             </div>
             <div className="p-2 flex items-center justify-center bg-black">
-              <img src={previewPhoto.url} alt={previewPhoto.title} className="max-h-[70vh] object-contain rounded-lg" />
+              <img src={resolveImageUrl(previewPhoto.url)} alt={previewPhoto.title} className="max-h-[70vh] object-contain rounded-lg" />
             </div>
           </div>
         </div>

@@ -44,7 +44,7 @@ export function CourseLessonModal({
   courseTitle,
   slug,
   onClose,
-  brandColor = '#7C3AED'
+  brandColor = '#5c0701'
 }: CourseLessonModalProps) {
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);

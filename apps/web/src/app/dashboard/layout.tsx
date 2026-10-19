@@ -26,7 +26,8 @@ import {
   GraduationCap,
   Award,
   CheckCheck,
-  CreditCard
+  CreditCard,
+  Camera
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { resolveImageUrl } from '@/lib/imageUrl';
@@ -38,6 +39,7 @@ const NAV_ITEMS = [
   { href: '/dashboard/agendamentos', label: 'Agendamentos', icon: ClipboardList },
   { href: '/dashboard/clientes', label: 'Clientes & CRM', icon: Users },
   { href: '/dashboard/servicos', label: 'Serviços', icon: Scissors },
+  { href: '/dashboard/galeria', label: 'Galeria & Fotos', icon: Camera },
   { href: '/dashboard/equipe', label: 'Equipe', icon: UserCheck },
   { href: '/dashboard/financeiro', label: 'Financeiro', icon: DollarSign },
   { href: '/dashboard/produtos', label: 'Produtos', icon: ShoppingBag },
@@ -54,6 +56,7 @@ const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
   '/dashboard/clientes': { title: 'Clientes & CRM', subtitle: 'Histórico completo, aniversariantes e retenção' },
   '/dashboard/reputacao': { title: 'Reputação & Google', subtitle: 'Pesquisa NPS automática e avaliações no Google Maps' },
   '/dashboard/servicos': { title: 'Serviços & Catálogo', subtitle: 'Procedimentos, valores, durações e encaixes simultâneos' },
+  '/dashboard/galeria': { title: 'Galeria & Inspirações', subtitle: 'Fotos de trabalhos, unhas e procedimentos exibidos na vitrine online' },
   '/dashboard/produtos': { title: 'Produtos & Estoque', subtitle: 'Cosméticos, produtos de bancada e itens em destaque na vitrine' },
   '/dashboard/cursos': { title: 'Cursos & Alunas', subtitle: 'Gestão de cursos, videoaulas, alunas e certificação profissional' },
   '/dashboard/assinantes': { title: 'Cursos & Alunas', subtitle: 'Gestão de cursos, videoaulas, alunas e certificação profissional' },
@@ -73,7 +76,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [subscriberLogo, setSubscriberLogo] = useState<string | null>(null);
   const [subscriberName, setSubscriberName] = useState<string>('');
   const [tenantSlug, setTenantSlug] = useState<string>('');
-  const [subscriberPrimaryColor, setSubscriberPrimaryColor] = useState<string>('#7C3AED');
+  const [subscriberPrimaryColor, setSubscriberPrimaryColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#5c0701';
+    }
+    return '#5c0701';
+  });
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const notificationRef = React.useRef<HTMLDivElement>(null);
 
@@ -412,7 +420,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* CABEÇALHO MOBILE COM NOME DO ESPAÇO */}
-      <header className="md:hidden flex items-center justify-between px-4 py-2.5 bg-white text-slate-800 border-b border-slate-200/80 sticky top-0 z-40 shadow-xs">
+      <header className="md:hidden flex items-center justify-between px-4 py-2.5 bg-white text-slate-800 border-b border-slate-200/80 sticky top-0 z-20 shadow-xs">
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative w-28 h-8 shrink-0">
             <Image
@@ -542,16 +550,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </span>
               )}
             </button>
-
-            {/* Modal Completo de Notificações com Categorias e Filtro de Lidas */}
-            <NotificationsModal
-              isOpen={notificationsModalOpen}
-              onClose={() => setNotificationsModalOpen(false)}
-              primaryColor={subscriberPrimaryColor}
-              onSummaryUpdate={(s) => setUnreadCount(s.unreadTotal)}
-            />
           </div>
         </header>
+
+        {/* Modal Completo de Notificações com Categorias e Filtro de Lidas (fora do stacking context do header) */}
+        <NotificationsModal
+          isOpen={notificationsModalOpen}
+          onClose={() => setNotificationsModalOpen(false)}
+          primaryColor={subscriberPrimaryColor}
+          onSummaryUpdate={(s) => setUnreadCount(s.unreadTotal)}
+        />
 
         {/* View renderizada dentro do container com espaçamento aprimorado e expansivo */}
         <div className="p-4 sm:p-6 lg:p-8 flex-1 w-full max-w-[1920px] mx-auto pb-24 md:pb-8">{children}</div>
