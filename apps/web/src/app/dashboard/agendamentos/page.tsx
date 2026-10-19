@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { AgendaAppointmentModal } from '@/components/agenda/AgendaAppointmentModal';
+import { AppointmentCheckoutModal } from '@/components/agenda/AppointmentCheckoutModal';
 import { ScheduleAppointment, ProfessionalItem, ServiceOption } from '@/components/agenda/types';
 
 const STATUS_CONFIG: Record<
@@ -54,9 +55,9 @@ const STATUS_CONFIG: Record<
   },
   COMPLETED: {
     label: 'Concluído',
-    bg: 'bg-blue-50',
-    text: 'text-blue-700',
-    border: 'border-blue-200',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200',
     icon: Check
   },
   NO_SHOW: {
@@ -95,6 +96,14 @@ export default function AgendamentosPage() {
   // Modais
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState<ScheduleAppointment | null>(null);
+  const [checkoutAppointment, setCheckoutAppointment] = useState<ScheduleAppointment | null>(null);
+
+  // Toast Notifier
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
 
   // Status Action Menu
   const [openStatusMenuId, setOpenStatusMenuId] = useState<string | null>(null);
@@ -227,7 +236,7 @@ export default function AgendamentosPage() {
       fetchSchedules();
       window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
     } catch (err: any) {
-      alert(err?.response?.data?.message || 'Erro ao alterar status.');
+      showToast(err?.response?.data?.message || 'Erro ao alterar status.');
     } finally {
       setUpdatingStatusId(null);
     }
@@ -239,7 +248,7 @@ export default function AgendamentosPage() {
     const phoneWithDdd = cleanPhone.length === 11 || cleanPhone.length === 10 ? `55${cleanPhone}` : cleanPhone;
     const formattedDate = dateStr.slice(8, 10) + '/' + dateStr.slice(5, 7);
     const msg = encodeURIComponent(
-      `Olá, ${clientName}! Passando para confirmar seu horário de *${serviceName}* agendado para o dia *${formattedDate} às ${time}*. Nos vemos em breve! ✨`
+      `Olá, ${clientName}! Passando para confirmar seu horário de *${serviceName}* agendado para o dia *${formattedDate} às ${time}*. Nos vemos em breve!`
     );
     window.open(`https://wa.me/${phoneWithDdd}?text=${msg}`, '_blank');
   };
@@ -587,16 +596,48 @@ export default function AgendamentosPage() {
                                 totalPrice: Number(item.totalPrice),
                                 totalDurationMinutes: item.totalDurationMinutes,
                                 notes: item.notes,
+                                depositAmount: item.depositAmount,
+                                depositPaid: item.depositPaid,
                                 client: item.client,
                                 service: item.service,
                                 professional: item.professional
                               });
                               setIsModalOpen(true);
                             }}
-                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+                            className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
                           >
                             Detalhes
                           </button>
+
+                          {/* Botão Cobrar / Comanda */}
+                          {item.status !== 'CANCELLED' && (
+                            <button
+                              onClick={() => {
+                                setCheckoutAppointment({
+                                  id: item.id,
+                                  clientId: item.clientId || item.client?.id || '',
+                                  serviceId: item.serviceId,
+                                  professionalId: item.professionalId,
+                                  date: item.date ? (typeof item.date === 'string' ? item.date.slice(0, 10) : new Date(item.date).toISOString().slice(0, 10)) : '',
+                                  startTime: item.startTime,
+                                  endTime: item.endTime,
+                                  status: item.status,
+                                  totalPrice: Number(item.totalPrice),
+                                  totalDurationMinutes: item.totalDurationMinutes,
+                                  notes: item.notes,
+                                  depositAmount: item.depositAmount,
+                                  depositPaid: item.depositPaid,
+                                  client: item.client,
+                                  service: item.service,
+                                  professional: item.professional
+                                });
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl text-xs font-bold text-white btn-primary-tenant transition-colors shadow-xs cursor-pointer"
+                              title="Abrir comanda e recebimento financeiro"
+                            >
+                              Cobrar
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -617,14 +658,14 @@ export default function AgendamentosPage() {
               <button
                 disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 font-bold"
+                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 font-bold cursor-pointer"
               >
                 Anterior
               </button>
               <button
                 disabled={page >= Math.ceil(totalCount / limit)}
                 onClick={() => setPage(page + 1)}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 font-bold"
+                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 font-bold cursor-pointer"
               >
                 Próxima
               </button>
@@ -648,6 +689,27 @@ export default function AgendamentosPage() {
             window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
           }}
         />
+      )}
+
+      {/* 5. Modal de Checkout de Comanda */}
+      {checkoutAppointment && (
+        <AppointmentCheckoutModal
+          appointment={checkoutAppointment}
+          onClose={() => setCheckoutAppointment(null)}
+          onSuccess={() => {
+            setCheckoutAppointment(null);
+            fetchSchedules();
+            showToast('Comanda finalizada com sucesso!');
+            window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+          }}
+        />
+      )}
+
+      {/* Toast Notifier */}
+      {toastMsg && (
+        <div className="fixed top-6 right-6 z-60 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl border border-slate-700 animate-in fade-in duration-200">
+          {toastMsg}
+        </div>
       )}
     </div>
   );

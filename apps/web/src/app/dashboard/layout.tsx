@@ -25,35 +25,38 @@ import {
   ClipboardList,
   GraduationCap,
   Award,
-  CheckCheck
+  CheckCheck,
+  CreditCard
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { NotificationsModal } from '@/components/notifications/NotificationsModal';
 
 const NAV_ITEMS = [
-  { href: '/dashboard', label: 'Agenda', icon: Calendar },
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/dashboard/agenda', label: 'Agenda', icon: Calendar },
   { href: '/dashboard/agendamentos', label: 'Agendamentos', icon: ClipboardList },
   { href: '/dashboard/clientes', label: 'Clientes & CRM', icon: Users },
   { href: '/dashboard/servicos', label: 'Serviços', icon: Scissors },
   { href: '/dashboard/equipe', label: 'Equipe', icon: UserCheck },
   { href: '/dashboard/financeiro', label: 'Financeiro', icon: DollarSign },
   { href: '/dashboard/produtos', label: 'Produtos', icon: ShoppingBag },
-  { href: '/dashboard/cursos', label: 'Cursos & Aulas', icon: GraduationCap },
-  { href: '/dashboard/assinantes', label: 'Assinantes & Alunas', icon: Award },
+  { href: '/dashboard/cursos', label: 'Cursos & Alunas', icon: GraduationCap },
+  { href: '/dashboard/planos', label: 'Planos & Assinatura', icon: CreditCard },
   { href: '/dashboard/configuracoes', label: 'Configurações', icon: Settings },
   { href: '/dashboard/suporte', label: 'Suporte & Ajuda', icon: HelpCircle }
 ];
 
 const PAGE_TITLES: Record<string, { title: string; subtitle: string }> = {
-  '/dashboard': { title: 'Agenda do Espaço', subtitle: 'Grade de horários da equipe e atendimentos em tempo real' },
-  '/dashboard/agenda': { title: 'Agenda do Espaço', subtitle: 'Grade de horários da equipe e atendimentos em tempo real' },
+  '/dashboard': { title: 'Dashboard', subtitle: 'Painel operacional e agenda compacta' },
+  '/dashboard/agenda': { title: 'Agenda', subtitle: 'Grade semanal de horários da equipe e atendimentos' },
   '/dashboard/agendamentos': { title: 'Agendamentos', subtitle: 'Listagem completa, confirmações e histórico de atendimentos' },
   '/dashboard/clientes': { title: 'Clientes & CRM', subtitle: 'Histórico completo, aniversariantes e retenção' },
   '/dashboard/reputacao': { title: 'Reputação & Google', subtitle: 'Pesquisa NPS automática e avaliações no Google Maps' },
   '/dashboard/servicos': { title: 'Serviços & Catálogo', subtitle: 'Procedimentos, valores, durações e encaixes simultâneos' },
   '/dashboard/produtos': { title: 'Produtos & Estoque', subtitle: 'Cosméticos, produtos de bancada e itens em destaque na vitrine' },
-  '/dashboard/cursos': { title: 'Cursos & Treinamentos', subtitle: 'Gestão de cursos, videoaulas e materiais de apoio' },
-  '/dashboard/assinantes': { title: 'Assinantes & Alunas', subtitle: 'Controle de acessos, alunas matriculadas e suporte' },
+  '/dashboard/cursos': { title: 'Cursos & Alunas', subtitle: 'Gestão de cursos, videoaulas, alunas e certificação profissional' },
+  '/dashboard/assinantes': { title: 'Cursos & Alunas', subtitle: 'Gestão de cursos, videoaulas, alunas e certificação profissional' },
   '/dashboard/equipe': { title: 'Equipe & Profissionais', subtitle: 'Colaboradores, comissões e cores da agenda' },
   '/dashboard/financeiro': { title: 'Financeiro & Caixa', subtitle: 'Faturamento bruto, repasse de comissões e sinais PIX' },
   '/dashboard/planos': { title: 'Planos & Assinatura', subtitle: 'Consulte os recursos contratados e detalhes da assinatura' },
@@ -110,11 +113,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     )?.[1] || { title: 'Painel', subtitle: '' };
 
   const displayTitle = useMemo(() => {
-    if (pathname === '/dashboard' || pathname === '/dashboard/agenda') {
-      return subscriberName ? `Agenda (${subscriberName})` : 'Agenda do Espaço';
+    if (pathname === '/dashboard') {
+      return 'Dashboard';
+    }
+    if (pathname === '/dashboard/agenda') {
+      return 'Agenda';
     }
     return pageInfo.title;
-  }, [pathname, subscriberName, pageInfo.title]);
+  }, [pathname, pageInfo.title]);
 
   useEffect(() => {
     const loadTenantData = () => {
@@ -204,36 +210,53 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [subscriberPrimaryColor]);
 
-  const handleDirectLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDirectLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        setSubscriberLogo(dataUrl);
-        localStorage.setItem('tenant_logo', dataUrl);
+    if (!file) return;
 
-        try {
-          const td = localStorage.getItem('tenant_data');
-          if (td) {
-            const p = JSON.parse(td);
-            p.logoUrl = dataUrl;
-            localStorage.setItem('tenant_data', JSON.stringify(p));
-          }
-          const mt = localStorage.getItem('@marcatuahora:tenant');
-          if (mt) {
-            const p = JSON.parse(mt);
-            p.logoUrl = dataUrl;
-            localStorage.setItem('@marcatuahora:tenant', JSON.stringify(p));
-          }
-        } catch {
-          // ignore
+    if (file.size > 5 * 1024 * 1024) {
+      console.warn('A imagem do logotipo deve ter no máximo 5MB.');
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await api.post('/uploads', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      const url = res.data?.url || res.data?.relativeUrl;
+      if (!url) throw new Error('URL não retornada pelo servidor');
+
+      // Salva no banco de dados imediatamente
+      await api.put('/tenants/me/settings', { logoUrl: url });
+
+      setSubscriberLogo(url);
+      localStorage.setItem('tenant_logo', url);
+
+      try {
+        const td = localStorage.getItem('tenant_data');
+        if (td) {
+          const p = JSON.parse(td);
+          p.logoUrl = url;
+          localStorage.setItem('tenant_data', JSON.stringify(p));
         }
+        const mt = localStorage.getItem('@marcatuahora:tenant');
+        if (mt) {
+          const p = JSON.parse(mt);
+          p.logoUrl = url;
+          localStorage.setItem('@marcatuahora:tenant', JSON.stringify(p));
+        }
+      } catch {
+        // ignore
+      }
 
-        window.dispatchEvent(new Event('storage'));
-        window.dispatchEvent(new CustomEvent('marquesuahora_tenant_sync'));
-      };
-      reader.readAsDataURL(file);
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('marquesuahora_tenant_sync'));
+    } catch (err) {
+      console.error('Erro ao atualizar logotipo:', err);
+    } finally {
+      if (e.target) e.target.value = '';
     }
   };
 
@@ -287,7 +310,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <div className="relative w-36 h-12 flex items-center justify-center">
                   <img
-                    src={subscriberLogo}
+                    src={resolveImageUrl(subscriberLogo)}
                     alt={subscriberName}
                     className="max-h-12 max-w-full object-contain object-center"
                   />
@@ -343,8 +366,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   href={item.href}
                   style={isActive ? { backgroundColor: subscriberPrimaryColor } : undefined}
                   className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-semibold transition-all relative ${isActive
-                      ? 'text-white shadow-md'
-                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 font-medium'
+                    ? 'text-white shadow-md'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70 font-medium'
                     }`}
                 >
                   <Icon className={`w-4.5 h-4.5 shrink-0 ${isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-600'}`} />
@@ -442,8 +465,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     onClick={() => setMobileMenuOpen(false)}
                     style={isActive ? { backgroundColor: subscriberPrimaryColor } : undefined}
                     className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold ${isActive
-                        ? 'text-white'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                      ? 'text-white'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                       }`}
                   >
                     <Icon className="w-4.5 h-4.5 shrink-0" />
@@ -531,7 +554,55 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         {/* View renderizada dentro do container com espaçamento aprimorado e expansivo */}
-        <div className="p-4 sm:p-6 lg:p-8 flex-1 w-full max-w-[1600px] mx-auto">{children}</div>
+        <div className="p-4 sm:p-6 lg:p-8 flex-1 w-full max-w-[1920px] mx-auto pb-24 md:pb-8">{children}</div>
+
+        {/* BARRA DE NAVEGAÇÃO INFERIOR MOBILE FIXA (Padrão GuruAgenda / App Nativo) */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 h-16 flex items-center justify-around px-2 shadow-lg select-none pb-safe">
+          <Link
+            href="/dashboard"
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition-colors ${
+              pathname === '/dashboard' ? 'text-tenant-primary font-bold' : 'text-slate-500 hover:text-slate-800'
+            }`}
+            style={pathname === '/dashboard' ? { color: subscriberPrimaryColor } : undefined}
+          >
+            <LayoutDashboard className={`w-5 h-5 mb-0.5 ${pathname === '/dashboard' ? 'stroke-[2.5]' : ''}`} />
+            <span className="text-[10px] tracking-tight">Início</span>
+          </Link>
+
+          <Link
+            href="/dashboard/agenda"
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition-colors ${
+              pathname?.startsWith('/dashboard/agenda') ? 'text-tenant-primary font-bold' : 'text-slate-500 hover:text-slate-800'
+            }`}
+            style={pathname?.startsWith('/dashboard/agenda') ? { color: subscriberPrimaryColor } : undefined}
+          >
+            <Calendar className={`w-5 h-5 mb-0.5 ${pathname?.startsWith('/dashboard/agenda') ? 'stroke-[2.5]' : ''}`} />
+            <span className="text-[10px] tracking-tight">Agenda</span>
+          </Link>
+
+          <Link
+            href="/dashboard/clientes"
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition-colors ${
+              pathname?.startsWith('/dashboard/clientes') ? 'text-tenant-primary font-bold' : 'text-slate-500 hover:text-slate-800'
+            }`}
+            style={pathname?.startsWith('/dashboard/clientes') ? { color: subscriberPrimaryColor } : undefined}
+          >
+            <Users className={`w-5 h-5 mb-0.5 ${pathname?.startsWith('/dashboard/clientes') ? 'stroke-[2.5]' : ''}`} />
+            <span className="text-[10px] tracking-tight">Clientes</span>
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className={`flex flex-col items-center justify-center flex-1 py-1 transition-colors ${
+              mobileMenuOpen ? 'text-tenant-primary font-bold' : 'text-slate-500 hover:text-slate-800'
+            }`}
+            style={mobileMenuOpen ? { color: subscriberPrimaryColor } : undefined}
+          >
+            <Menu className="w-5 h-5 mb-0.5" />
+            <span className="text-[10px] tracking-tight">Menu</span>
+          </button>
+        </nav>
       </main>
     </div>
   );

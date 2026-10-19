@@ -4,694 +4,509 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Calendar,
-  Users,
-  CheckCircle2,
   Clock,
-  ChevronRight,
+  Plus,
+  ArrowRight,
+  User,
   Loader2,
-  AlertCircle,
-  Phone,
-  DollarSign,
+  CheckCircle2,
+  Clock3,
+  PlayCircle,
+  XCircle,
   AlertTriangle,
-  CalendarCheck,
-  TrendingUp,
-  BarChart2,
-  X
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { api } from '@/lib/api';
+import { formatLocalDateToYMD, getWeekDays, isSameDay } from '@/lib/dateUtils';
 import { AiVoiceCommandBar } from '@/components/dashboard/AiVoiceCommandBar';
-import { AgendaHeader } from '@/components/agenda/AgendaHeader';
-import { AgendaWeeklyGrid } from '@/components/agenda/AgendaWeeklyGrid';
 import { AgendaAppointmentModal } from '@/components/agenda/AgendaAppointmentModal';
 import { AgendaAppointmentDetailsModal } from '@/components/agenda/AgendaAppointmentDetailsModal';
-import { AgendaBlockModal } from '@/components/agenda/AgendaBlockModal';
-import { AgendaUnblockModal } from '@/components/agenda/AgendaUnblockModal';
+import { AppointmentCheckoutModal } from '@/components/agenda/AppointmentCheckoutModal';
 import {
   ScheduleAppointment,
   ProfessionalItem,
-  ServiceOption,
-  BlockItem
+  ServiceOption
 } from '@/components/agenda/types';
 
-interface DashboardSummary {
-  todayBookings: number;
-  monthRevenue: number;
-  noShowRatePercent: number;
-  activeClientsCount: number;
-  nextAppointments: Array<{
-    id: string;
-    date: string;
-    time: string;
-    endTime: string;
-    client: string;
-    clientPhone: string;
-    service: string;
-    additionalServices: string[];
-    professional: string;
-    professionalColor?: string | null;
-    totalPrice: number;
-    totalDurationMinutes: number;
-    status: string;
-  }>;
+const STATUS_BADGES: Record<
+  string,
+  { label: string; bg: string; text: string; border: string }
+> = {
+  PENDING: {
+    label: 'Pendente',
+    bg: 'bg-amber-50',
+    text: 'text-amber-700',
+    border: 'border-amber-200'
+  },
+  CONFIRMED: {
+    label: 'Confirmado',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200'
+  },
+  IN_SERVICE: {
+    label: 'Em Atendimento',
+    bg: 'bg-purple-50',
+    text: 'text-purple-700',
+    border: 'border-purple-200'
+  },
+  COMPLETED: {
+    label: 'Concluído',
+    bg: 'bg-emerald-50',
+    text: 'text-emerald-700',
+    border: 'border-emerald-200'
+  },
+  NO_SHOW: {
+    label: 'Não Compareceu',
+    bg: 'bg-rose-50',
+    text: 'text-rose-700',
+    border: 'border-rose-200'
+  },
+  CANCELLED: {
+    label: 'Cancelado',
+    bg: 'bg-slate-100',
+    text: 'text-slate-600',
+    border: 'border-slate-200'
+  }
+};
+
+const WEEKDAY_NAMES = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
+
+function getContrastColor(hexColor: string) {
+  if (!hexColor || !hexColor.startsWith('#')) return '#FFFFFF';
+  const hex = hexColor.replace('#', '');
+  if (hex.length !== 6) return '#FFFFFF';
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+  return yiq >= 160 ? '#0F172A' : '#FFFFFF';
 }
 
 export default function DashboardPage() {
-  // ==========================================
-  // ESTADOS DA AGENDA (TOPO DA PÁGINA)
-  // ==========================================
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
-  const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
-  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>('');
-
-  const [appointments, setAppointments] = useState<ScheduleAppointment[]>([]);
-  const [blocks, setBlocks] = useState<BlockItem[]>([]);
-  const [professionals, setProfessionals] = useState<ProfessionalItem[]>([]);
-  const [services, setServices] = useState<ServiceOption[]>([]);
-
-  const [loadingAgenda, setLoadingAgenda] = useState(true);
-  const [errorAgenda, setErrorAgenda] = useState<string | null>(null);
-
-  // Estados dos modais da Agenda
-  const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
-  const [isBlockModalOpen, setIsBlockModalOpen] = useState(false);
-  const [selectedBlockForUnblock, setSelectedBlockForUnblock] = useState<BlockItem | null>(null);
-  const [activeSlot, setActiveSlot] = useState<{
-    date: string;
-    time: string;
-    professionalId?: string;
-  } | null>(null);
-  const [selectedAppointmentForDetails, setSelectedAppointmentForDetails] =
-    useState<ScheduleAppointment | null>(null);
-
-  // ==========================================
-  // ESTADOS DO RESUMO OPERACIONAL (ABAIXO DA AGENDA)
-  // ==========================================
-  const [summaryData, setSummaryData] = useState<DashboardSummary | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState(true);
-
-  // Faixa discreta informativa do Plano Gratuito (Não-Invasiva)
-  const [isFreePlan, setIsFreePlan] = useState(false);
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+    }
+    return '#7C3AED';
+  });
 
   useEffect(() => {
-    const dismissed = localStorage.getItem('marquesuahora_free_banner_dismissed') === 'true';
-    setBannerDismissed(dismissed);
-
-    const cachedCode = localStorage.getItem('marquesuahora_tenant_plan_code');
-    if (cachedCode) {
-      setIsFreePlan(cachedCode === 'FREE');
-    }
-
-    api
-      .get('/tenants/me')
-      .then((res) => {
-        if (res.data) {
-          const code = res.data.plan?.code || res.data.planCode || 'FREE';
-          setIsFreePlan(code === 'FREE');
-          localStorage.setItem('marquesuahora_tenant_plan_code', code);
-        }
-      })
-      .catch(() => {});
+    const syncColor = () => {
+      const saved = localStorage.getItem('tenant_primary_color');
+      if (saved) setTenantPrimaryColor(saved);
+    };
+    syncColor();
+    const handleTenantSync = (e: any) => {
+      if (e?.detail?.primaryColor) {
+        setTenantPrimaryColor(e.detail.primaryColor);
+      } else {
+        syncColor();
+      }
+    };
+    window.addEventListener('storage', syncColor);
+    window.addEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    return () => {
+      window.removeEventListener('storage', syncColor);
+      window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    };
   }, []);
 
-  // Calcula lista de dias visíveis (7 dias para semana ou 1 dia para dia)
-  const visibleDates = useMemo(() => {
-    if (viewMode === 'day') {
-      return [new Date(currentDate)];
-    }
+  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(
+    formatLocalDateToYMD(new Date())
+  );
 
-    const d = new Date(currentDate);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    const monday = new Date(d.setDate(diff));
+  const [appointments, setAppointments] = useState<ScheduleAppointment[]>([]);
+  const [professionals, setProfessionals] = useState<ProfessionalItem[]>([]);
+  const [services, setServices] = useState<ServiceOption[]>([]);
+  const [loading, setLoading] = useState(true);
 
-    const weekDays = [];
-    for (let i = 0; i < 7; i++) {
-      const nextD = new Date(monday);
-      nextD.setDate(monday.getDate() + i);
-      weekDays.push(nextD);
-    }
-    return weekDays;
-  }, [currentDate, viewMode]);
+  // Modais
+  const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
+  const [selectedAppointmentForDetails, setSelectedAppointmentForDetails] =
+    useState<ScheduleAppointment | null>(null);
+  const [checkoutAppointment, setCheckoutAppointment] =
+    useState<ScheduleAppointment | null>(null);
 
-  // Carrega opções de profissionais e serviços (uma única vez)
+  // Toast
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  // Calcula os 7 dias da semana atual usando o utilitário seguro
+  const weekDays = useMemo(() => {
+    return getWeekDays(currentDate);
+  }, [currentDate]);
+
+  // Carrega opções
   useEffect(() => {
     Promise.all([
       api.get('/professionals').catch(() => ({ data: [] })),
       api.get('/services').catch(() => ({ data: [] }))
     ]).then(([profRes, servRes]) => {
-      setProfessionals(profRes.data || []);
-      setServices(servRes.data || []);
+      const pList = Array.isArray(profRes.data) ? profRes.data : (profRes.data?.data || []);
+      const sList = Array.isArray(servRes.data) ? servRes.data : (servRes.data?.data || []);
+      setProfessionals(Array.isArray(pList) ? pList : []);
+      setServices(Array.isArray(sList) ? sList : []);
     });
   }, []);
 
-  // Carrega agendamentos e bloqueios reais para a grade (com suporte a refetch silencioso de fundo)
-  const fetchCalendarData = useCallback((silent = false) => {
-    if (visibleDates.length === 0) return;
+  // Busca agendamentos da semana
+  const fetchWeekAppointments = useCallback(async (silent = false) => {
+    if (weekDays.length === 0) return;
+    if (!silent) setLoading(true);
 
-    if (!silent) {
-      setLoadingAgenda(true);
-      setErrorAgenda(null);
-    }
+    const startDate = formatLocalDateToYMD(weekDays[0]);
+    const endDate = formatLocalDateToYMD(weekDays[weekDays.length - 1]);
 
-    const startDate = visibleDates[0].toISOString().slice(0, 10);
-    const endDate = visibleDates[visibleDates.length - 1].toISOString().slice(0, 10);
-
-    const params = new URLSearchParams({ startDate, endDate });
-    if (selectedProfessionalId) {
-      params.set('professionalId', selectedProfessionalId);
-    }
-
-    Promise.all([
-      api.get(`/schedules/calendar?${params.toString()}`),
-      api.get(`/blocks?${params.toString()}`).catch(() => ({ data: [] }))
-    ])
-      .then(([schedRes, blocksRes]) => {
-        setAppointments(schedRes.data || []);
-        setBlocks(blocksRes.data || []);
-      })
-      .catch((err) => {
-        if (!silent) {
-          setErrorAgenda(
-            err?.response?.data?.message || 'Não foi possível carregar os dados da agenda.'
-          );
-        }
-      })
-      .finally(() => {
-        if (!silent) {
-          setLoadingAgenda(false);
-        }
+    try {
+      const res = await api.get('/schedules', {
+        params: { startDate, endDate }
       });
-  }, [visibleDates, selectedProfessionalId]);
-
-  // Carrega resumo de métricas do negócio (com suporte a refetch silencioso)
-  const fetchDashboardSummary = useCallback((silent = false) => {
-    if (!silent) {
-      setLoadingSummary(true);
+      const list = res.data?.data || res.data?.schedules || (Array.isArray(res.data) ? res.data : []);
+      setAppointments(Array.isArray(list) ? list : []);
+    } catch {
+      setAppointments([]);
+    } finally {
+      if (!silent) setLoading(false);
     }
-    api
-      .get('/schedules/dashboard-summary')
-      .then((res) => {
-        setSummaryData(res.data);
-      })
-      .catch(() => {
-        // silencioso
-      })
-      .finally(() => {
-        if (!silent) {
-          setLoadingSummary(false);
-        }
-      });
-  }, []);
-
-  // Dispara buscas principais
-  useEffect(() => {
-    fetchCalendarData();
-  }, [fetchCalendarData]);
+  }, [weekDays]);
 
   useEffect(() => {
-    fetchDashboardSummary();
-  }, [fetchDashboardSummary]);
+    fetchWeekAppointments();
 
-  // Atualização unificada após qualquer operação na agenda
-  const handleCalendarRefresh = () => {
-    fetchCalendarData();
-    fetchDashboardSummary();
-  };
-
-  // Revalidação Automática Inteligente em Segundo Plano:
-  // 1. Polling silencioso a cada 30 segundos (sem piscar a tela)
-  // 2. Foco na janela / Alternância de aba (quando a recepcionista volta do WhatsApp ou de outra aba)
-  // 3. Sincronização global via evento 'marquesuahora_agenda_sync'
-  useEffect(() => {
-    const handleRevalidate = () => {
+    const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
-        fetchCalendarData(true);
-        fetchDashboardSummary(true);
+        fetchWeekAppointments(true);
       }
-    };
+    }, 20000);
 
-    const interval = setInterval(handleRevalidate, 30000);
-    window.addEventListener('focus', handleRevalidate);
-    document.addEventListener('visibilitychange', handleRevalidate);
-    window.addEventListener('marquesuahora_agenda_sync', handleRevalidate);
+    const handleSync = () => fetchWeekAppointments(true);
+    window.addEventListener('marquesuahora_agenda_sync', handleSync);
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('focus', handleRevalidate);
-      document.removeEventListener('visibilitychange', handleRevalidate);
-      window.removeEventListener('marquesuahora_agenda_sync', handleRevalidate);
+      window.removeEventListener('marquesuahora_agenda_sync', handleSync);
     };
-  }, [fetchCalendarData, fetchDashboardSummary]);
+  }, [fetchWeekAppointments]);
 
-  // Navegação de datas
-  const navigatePrev = () => {
-    const d = new Date(currentDate);
-    d.setDate(d.getDate() - (viewMode === 'week' ? 7 : 1));
-    setCurrentDate(d);
-  };
+  // Agendamentos filtrados para o dia selecionado
+  const dayAppointments = useMemo(() => {
+    const list = Array.isArray(appointments) ? appointments : [];
+    return list
+      .filter((appt) => {
+        const apptDate = formatLocalDateToYMD(appt.date);
+        return apptDate === selectedDateStr;
+      })
+      .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
+  }, [appointments, selectedDateStr]);
 
-  const navigateNext = () => {
-    const d = new Date(currentDate);
-    d.setDate(d.getDate() + (viewMode === 'week' ? 7 : 1));
-    setCurrentDate(d);
-  };
-
-  const navigateToday = () => {
-    setCurrentDate(new Date());
-  };
-
-  const handleSlotClick = (dateStr: string, timeStr: string, professionalId?: string) => {
-    setActiveSlot({ date: dateStr, time: timeStr, professionalId });
-    setIsNewBookingModalOpen(true);
-  };
-
-  const handleAppointmentClick = (appt: ScheduleAppointment) => {
-    setSelectedAppointmentForDetails(appt);
-  };
-
-  const handleReschedule = async (
-    appointmentId: string,
-    targetDateStr: string,
-    targetTimeStr: string,
-    targetProfessionalId?: string
-  ) => {
-    setAppointments((prev) =>
-      prev.map((a) =>
-        a.id === appointmentId
-          ? {
-              ...a,
-              date: targetDateStr,
-              startTime: targetTimeStr,
-              professionalId: targetProfessionalId || a.professionalId
-            }
-          : a
-      )
-    );
-
-    try {
-      await api.patch(`/schedules/${appointmentId}`, {
-        dateStr: targetDateStr,
-        startTime: targetTimeStr,
-        professionalId: targetProfessionalId || undefined
-      });
-      handleCalendarRefresh();
-    } catch (err: any) {
-      alert(err?.response?.data?.message || 'Não foi possível mover o agendamento.');
-      handleCalendarRefresh();
+  // Contagem de atendimentos por dia da semana
+  const countByDate = useMemo(() => {
+    const map: Record<string, number> = {};
+    const list = Array.isArray(appointments) ? appointments : [];
+    for (const appt of list) {
+      if (appt.status === 'CANCELLED') continue;
+      const d = formatLocalDateToYMD(appt.date);
+      map[d] = (map[d] || 0) + 1;
     }
-  };
-
-  const handleUpdateStatus = async (id: string, newStatus: string) => {
-    try {
-      await api.post(`/schedules/${id}/status`, { status: newStatus });
-      handleCalendarRefresh();
-    } catch (err: any) {
-      alert(err?.response?.data?.message || 'Falha ao atualizar status.');
-    }
-  };
-
-  // Estatísticas do período visível para o cabeçalho da agenda
-  const stats = useMemo(() => {
-    const nonCancelled = appointments.filter((a) => a.status !== 'CANCELLED');
-    const totalAppointments = nonCancelled.length;
-    const totalRevenue = nonCancelled.reduce(
-      (acc, a) => acc + Number(a.totalPrice || 0),
-      0
-    );
-    return { totalAppointments, totalRevenue };
+    return map;
   }, [appointments]);
 
+  // Extrai apenas o primeiro nome da cliente para visualização rápida no celular
+  const getFirstName = (fullName: string) => {
+    if (!fullName) return 'Cliente';
+    const parts = fullName.trim().split(' ');
+    return parts[0];
+  };
+
+  const handlePrevWeek = () => {
+    const prev = new Date(currentDate);
+    prev.setDate(prev.getDate() - 7);
+    setCurrentDate(prev);
+    setSelectedDateStr(formatLocalDateToYMD(prev));
+  };
+
+  const handleNextWeek = () => {
+    const next = new Date(currentDate);
+    next.setDate(next.getDate() + 7);
+    setCurrentDate(next);
+    setSelectedDateStr(formatLocalDateToYMD(next));
+  };
+
+  const handleToday = () => {
+    const today = new Date();
+    setCurrentDate(today);
+    setSelectedDateStr(formatLocalDateToYMD(today));
+  };
+
+  const handleCalendarRefresh = () => {
+    fetchWeekAppointments(false);
+    window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+  };
+
   return (
-    <div className="w-full space-y-8 pb-12">
-      {/* Faixa Sóbria Informativa do Plano Gratuito (Não-Invasiva) */}
-      {isFreePlan && !bannerDismissed && (
-        <div className="px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs flex items-center justify-between gap-3 text-xs text-slate-700">
-          <div className="leading-relaxed">
-            <span>Você está usando o plano <strong>Gratuito</strong> (até 30 agendamentos por mês). Se precisar de agendamentos ilimitados ou lembretes automáticos no WhatsApp, </span>
-            <Link
-              href="/dashboard/planos"
-              className="font-bold text-purple-700 hover:text-purple-800 underline underline-offset-2 transition-colors cursor-pointer"
-            >
-              conheça nossos outros planos
-            </Link>
-            <span>.</span>
+    <div className="w-full space-y-5 animate-in fade-in duration-200 pb-12">
+      {/* 1. COPILOTO IA NO TOPO */}
+      <section>
+        <AiVoiceCommandBar />
+      </section>
+
+      {/* 2. BARRA DE ATALHOS RÁPIDOS */}
+      <div className="flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setIsNewBookingModalOpen(true)}
+          className="px-4 py-2.5 rounded-2xl btn-primary-tenant text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+          style={{ backgroundColor: tenantPrimaryColor, color: getContrastColor(tenantPrimaryColor) }}
+        >
+          <Plus className="w-4 h-4" />
+          Novo Agendamento
+        </button>
+
+        <Link
+          href="/dashboard/agenda"
+          className="px-4 py-2.5 rounded-2xl bg-white border border-slate-200/90 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+        >
+          <Calendar className="w-3.5 h-3.5 text-slate-500" />
+          Grade Completa
+          <ArrowRight className="w-3.5 h-3.5 text-slate-400" />
+        </Link>
+      </div>
+
+      {/* 3. AGENDA COMPACTA DA SEMANA (MOBILE-FIRST) */}
+      <section className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden">
+        {/* Cabeçalho da Semana com Navegação */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">Agenda Resumida</h2>
+            <p className="text-[11px] text-slate-500">
+              Selecione o dia para ver os atendimentos programados
+            </p>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setBannerDismissed(true);
-              localStorage.setItem('marquesuahora_free_banner_dismissed', 'true');
-            }}
-            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors shrink-0 cursor-pointer"
-            title="Fechar aviso"
-            aria-label="Fechar aviso de plano gratuito"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
 
-      {/* ========================================================= */}
-      {/* 1. SEÇÃO PRINCIPAL (HERO): AGENDA INTERATIVA COMPLETA     */}
-      {/* ========================================================= */}
-      <section className="space-y-4">
-        {/* Copiloto IA de Voz e Comandos Rápidos */}
-        <AiVoiceCommandBar
-          onCommandExecuted={() => {
-            handleCalendarRefresh();
-            fetchDashboardSummary();
-          }}
-        />
-
-        {/* Cabeçalho da Agenda */}
-        <AgendaHeader
-          currentDate={currentDate}
-          onDateChange={setCurrentDate}
-          viewMode={viewMode}
-          setViewMode={setViewMode}
-          onNavigatePrev={navigatePrev}
-          onNavigateNext={navigateNext}
-          onNavigateToday={navigateToday}
-          professionals={professionals}
-          selectedProfessionalId={selectedProfessionalId}
-          setSelectedProfessionalId={setSelectedProfessionalId}
-          onNewBookingClick={() => {
-            setActiveSlot(null);
-            setIsNewBookingModalOpen(true);
-          }}
-          onNewBlockClick={() => {
-            setIsBlockModalOpen(true);
-          }}
-          stats={stats}
-        />
-
-        {/* Grade Semanal / Diária */}
-        {loadingAgenda ? (
-          <div className="w-full py-24 bg-white rounded-3xl border border-slate-200/80 flex flex-col items-center justify-center text-slate-500">
-            <Loader2 className="w-8 h-8 animate-spin text-tenant-primary mb-2" />
-            <p className="text-xs font-semibold">Atualizando grade de horários da equipe...</p>
-          </div>
-        ) : errorAgenda ? (
-          <div className="p-6 bg-red-50 border border-red-200 rounded-3xl text-red-800 text-center">
-            <p className="text-xs font-bold">{errorAgenda}</p>
+          <div className="flex items-center gap-1">
             <button
-              onClick={handleCalendarRefresh}
-              className="mt-3 px-3.5 py-1.5 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-700 cursor-pointer"
+              type="button"
+              onClick={handlePrevWeek}
+              className="p-1.5 rounded-xl text-slate-600 hover:bg-slate-200/70 transition-colors cursor-pointer"
+              title="Semana anterior"
             >
-              Recarregar grade
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <button
+              type="button"
+              onClick={handleToday}
+              className="px-2.5 py-1 text-xs font-bold text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+            >
+              Hoje
+            </button>
+
+            <button
+              type="button"
+              onClick={handleNextWeek}
+              className="p-1.5 rounded-xl text-slate-600 hover:bg-slate-200/70 transition-colors cursor-pointer"
+              title="Próxima semana"
+            >
+              <ChevronRight className="w-4 h-4" />
             </button>
           </div>
-        ) : (
-          <AgendaWeeklyGrid
-            dates={visibleDates}
-            viewMode={viewMode}
-            professionals={professionals}
-            selectedProfessionalId={selectedProfessionalId}
-            appointments={appointments}
-            blocks={blocks}
-            onSlotClick={handleSlotClick}
-            onAppointmentClick={handleAppointmentClick}
-            onBlockClick={(block) => setSelectedBlockForUnblock(block)}
-            onDayClick={(clickedDate) => {
-              setCurrentDate(clickedDate);
-              setViewMode('day');
-            }}
-            onReschedule={handleReschedule}
-          />
-        )}
-      </section>
-
-      {/* ========================================================= */}
-      {/* 2. SEÇÃO INFERIOR: RESUMO OPERACIONAL & INDICADORES       */}
-      {/* ========================================================= */}
-      <section className="space-y-5 pt-4 border-t border-slate-200/80">
-        {/* Barra de Título do Resumo */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-tenant-light text-tenant-primary flex items-center justify-center font-bold">
-              <BarChart2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 tracking-tight">
-                Resumo Operacional & Desempenho
-              </h2>
-              <p className="text-xs text-slate-500">
-                Faturamento acumulado, taxa de no-show e próximos atendimentos do espaço
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="px-3.5 py-1.5 bg-slate-50 border border-slate-200/70 rounded-xl text-xs font-semibold text-slate-700 flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-tenant-primary" />
-              <span>
-                {new Date().toLocaleDateString('pt-BR', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric'
-                })}
-              </span>
-            </div>
-            <Link
-              href="/dashboard/agendamentos"
-              className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-            >
-              <span>Ver todos</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
         </div>
 
-        {/* 4 Cards de Métricas Principais */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI 1: Agendamentos Hoje */}
-          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Agendamentos Hoje
-              </span>
-              <div className="w-8 h-8 rounded-xl bg-tenant-light text-tenant-primary flex items-center justify-center font-bold">
-                <CalendarCheck className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-slate-900">
-                {summaryData ? summaryData.todayBookings : 0}
-              </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                atendimentos marcados para hoje
-              </p>
-            </div>
-          </div>
+        {/* Seletor Compacto dos 7 Dias da Semana */}
+        <div className="grid grid-cols-7 gap-1 p-2 sm:p-3 bg-slate-50/30 border-b border-slate-100">
+          {weekDays.map((d) => {
+            const dateStr = formatLocalDateToYMD(d);
+            const isSelected = dateStr === selectedDateStr;
+            const isToday = isSameDay(d, new Date());
+            const count = countByDate[dateStr] || 0;
+            const weekday = WEEKDAY_NAMES[d.getDay()];
+            const dayNum = d.getDate();
 
-          {/* KPI 2: Faturamento do Mês */}
-          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Receita do Mês
-              </span>
-              <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-                <DollarSign className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-slate-900">
-                R${' '}
-                {summaryData
-                  ? summaryData.monthRevenue.toFixed(2).replace('.', ',')
-                  : '0,00'}
-              </h3>
-              <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">
-                acumulado no mês corrente
-              </p>
-            </div>
-          </div>
-
-          {/* KPI 3: Taxa de No-Show */}
-          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Taxa de No-Show
-              </span>
-              <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
-                <AlertTriangle className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-slate-900">
-                {summaryData ? summaryData.noShowRatePercent : 0}%
-              </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                índice de não comparecimento
-              </p>
-            </div>
-          </div>
-
-          {/* KPI 4: Base de Clientes */}
-          <div className="p-5 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex flex-col justify-between">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Base de Clientes
-              </span>
-              <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
-                <Users className="w-4 h-4" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <h3 className="text-2xl font-black text-slate-900">
-                {summaryData ? summaryData.activeClientsCount : 0}
-              </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                clientes cadastrados no sistema
-              </p>
-            </div>
-          </div>
+            return (
+              <button
+                key={dateStr}
+                type="button"
+                onClick={() => setSelectedDateStr(dateStr)}
+                className={`py-2 px-1 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                  isSelected
+                    ? 'text-white shadow-xs font-bold scale-[1.02]'
+                    : isToday
+                    ? 'border font-semibold'
+                    : 'hover:bg-slate-100 text-slate-600'
+                }`}
+                style={
+                  isSelected
+                    ? { backgroundColor: tenantPrimaryColor, color: getContrastColor(tenantPrimaryColor) }
+                    : isToday
+                    ? { backgroundColor: `${tenantPrimaryColor}14`, color: tenantPrimaryColor, borderColor: `${tenantPrimaryColor}40` }
+                    : undefined
+                }
+              >
+                <span className="text-[10px] uppercase tracking-wider font-semibold opacity-80">
+                  {weekday}
+                </span>
+                <span className="text-sm font-extrabold my-0.5">{dayNum}</span>
+                {count > 0 ? (
+                  <span
+                    className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                      isSelected
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                ) : (
+                  <span className="text-[9px] opacity-40">-</span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Fila de Próximos Atendimentos */}
-        <div className="p-6 rounded-3xl bg-white border border-slate-200/80 shadow-xs">
-          <div className="flex items-center justify-between mb-5">
-            <div>
-              <h3 className="text-base font-bold text-slate-900">
-                Próximos Atendimentos
-              </h3>
-              <p className="text-xs text-slate-500">
-                Fila cronológica de atendimentos a partir de hoje
-              </p>
+        {/* Lista Compacta de Atendimentos do Dia Selecionado */}
+        <div className="p-4 sm:p-5">
+          {loading ? (
+            <div className="py-12 flex items-center justify-center text-slate-400 gap-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span className="text-xs font-medium">Carregando atendimentos...</span>
             </div>
-            <Link
-              href="/dashboard/agendamentos"
-              className="text-xs font-bold text-tenant-primary hover:opacity-80 flex items-center gap-1 transition-opacity"
-            >
-              <span>Ver lista completa</span>
-              <ChevronRight className="w-4 h-4" />
-            </Link>
-          </div>
-
-          {!summaryData || summaryData.nextAppointments.length === 0 ? (
-            <div className="py-10 text-center text-slate-400">
-              <Calendar className="w-8 h-8 mx-auto text-slate-300 mb-2" />
-              <p className="text-sm font-semibold text-slate-600">
-                Nenhum agendamento futuro na fila
-              </p>
-              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-                Novos agendamentos marcados na grade acima ou através do seu link público aparecerão aqui automaticamente.
-              </p>
+          ) : dayAppointments.length === 0 ? (
+            <div className="py-12 text-center space-y-3">
+              <div className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-800">
+                  Nenhum atendimento agendado para este dia
+                </p>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Clique abaixo para criar um novo agendamento rápido
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNewBookingModalOpen(true)}
+                className="px-3.5 py-1.5 text-xs font-bold rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" style={{ color: tenantPrimaryColor }} />
+                Agendar Horário
+              </button>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
-              {summaryData.nextAppointments.map((appt) => (
-                <div
-                  key={appt.id}
-                  className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/60 px-3 rounded-2xl transition-colors"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="text-center sm:text-left w-14 flex-shrink-0">
-                      <span className="text-xs font-bold text-slate-900 block">
-                        {appt.time}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block font-mono">
-                        {appt.date.split('-').reverse().slice(0, 2).join('/')}
-                      </span>
-                    </div>
+            <div className="space-y-2.5">
+              {dayAppointments.map((appt) => {
+                const badge =
+                  STATUS_BADGES[appt.status] || STATUS_BADGES.CONFIRMED;
+                const svcColor = appt.service?.color?.trim();
+                const hasCustomSvcColor = svcColor && svcColor.toUpperCase() !== '#3B82F6';
+                const profColor = appt.professional?.color?.trim();
+                const hasCustomProfColor = profColor && profColor.toUpperCase() !== '#7C3AED' && profColor.toUpperCase() !== '#3B82F6';
 
-                    <div
-                      className="w-9 h-9 rounded-full text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-xs"
-                      style={{
-                        backgroundColor: appt.professionalColor || '#7C3AED'
-                      }}
-                    >
-                      {appt.client.charAt(0).toUpperCase()}
-                    </div>
+                const procColor = hasCustomSvcColor
+                  ? svcColor
+                  : hasCustomProfColor
+                  ? profColor
+                  : tenantPrimaryColor;
+                const clientFirstName = getFirstName(appt.client?.name);
 
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <strong className="text-xs font-bold text-slate-900">
-                          {appt.client}
-                        </strong>
-                        {appt.clientPhone && (
-                          <a
-                            href={`https://wa.me/55${appt.clientPhone.replace(/\D/g, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-slate-400 hover:text-emerald-600 transition-colors"
-                            title="Falar no WhatsApp"
-                          >
-                            <Phone className="w-3 h-3" />
-                          </a>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-slate-500 block">
-                        {appt.service} · {appt.totalDurationMinutes} min ·{' '}
-                        <span className="font-semibold text-slate-700">
-                          R$ {Number(appt.totalPrice || 0).toFixed(2).replace('.', ',')}
+                return (
+                  <div
+                    key={appt.id}
+                    onClick={() => setSelectedAppointmentForDetails(appt)}
+                    className="p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 hover:border-slate-300 bg-white hover:bg-slate-50/70 transition-all flex items-center justify-between cursor-pointer shadow-2xs gap-3"
+                    style={{ borderLeftWidth: '5px', borderLeftColor: procColor }}
+                  >
+                    {/* Horário & Primeiro Nome da Cliente */}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="text-left shrink-0">
+                        <span className="text-sm font-extrabold text-slate-900 block font-mono">
+                          {appt.startTime}
                         </span>
-                      </span>
+                        <span className="text-[10px] text-slate-400 block font-mono">
+                          até {appt.endTime}
+                        </span>
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-sm font-bold text-slate-900 truncate">
+                            {clientFirstName}
+                          </p>
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: procColor }}
+                            title={`Procedimento: ${appt.service?.name}`}
+                          />
+                        </div>
+                        <p className="text-[11px] text-slate-500 truncate flex items-center gap-1 mt-0.5">
+                          <span className="font-medium text-slate-600 truncate">{appt.service?.name}</span>
+                          <span className="text-slate-300">•</span>
+                          <span className="text-slate-400 truncate">{appt.professional?.name}</span>
+                        </p>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                    <span
-                      className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${
-                        appt.status === 'CONFIRMED'
-                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          : appt.status === 'IN_SERVICE'
-                          ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                          : appt.status === 'COMPLETED'
-                          ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                          : 'bg-amber-50 text-amber-700 border border-amber-200'
-                      }`}
-                    >
-                      {appt.status === 'CONFIRMED'
-                        ? 'Confirmado'
-                        : appt.status === 'IN_SERVICE'
-                        ? 'Em Atendimento'
-                        : appt.status === 'COMPLETED'
-                        ? 'Concluído'
-                        : 'Pendente'}
-                    </span>
+                    {/* Status e Ação */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${badge.bg} ${badge.text} ${badge.border}`}
+                      >
+                        {badge.label}
+                      </span>
 
-                    <div className="flex items-center gap-1.5">
-                      {appt.status !== 'COMPLETED' && (
-                        <button
-                          onClick={() => handleUpdateStatus(appt.id, 'COMPLETED')}
-                          className="p-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
-                          title="Marcar como Concluído"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                        </button>
-                      )}
                       {appt.status !== 'CANCELLED' && (
                         <button
-                          onClick={() => {
-                            if (confirm('Deseja realmente cancelar este agendamento?')) {
-                              handleUpdateStatus(appt.id, 'CANCELLED');
-                            }
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCheckoutAppointment(appt);
                           }}
-                          className="p-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
-                          title="Cancelar Agendamento"
+                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer border hover:opacity-85"
+                          style={{
+                            backgroundColor: `${tenantPrimaryColor}14`,
+                            color: tenantPrimaryColor,
+                            borderColor: `${tenantPrimaryColor}35`
+                          }}
                         >
-                          <AlertCircle className="w-4 h-4" />
+                          Cobrar
                         </button>
                       )}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
+
+          {/* Rodapé com link para Agenda Completa */}
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+            <span className="text-slate-500">
+              Total do dia: <strong>{dayAppointments.length} atendimentos</strong>
+            </span>
+            <Link
+              href="/dashboard/agenda"
+              className="font-bold inline-flex items-center gap-1 transition-colors hover:opacity-80"
+              style={{ color: tenantPrimaryColor }}
+            >
+              Abrir Grade Completa da Agenda
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* ========================================================= */}
-      {/* 3. MODAIS DA AGENDA (CRIAÇÃO, DETALHES, BLOQUEIOS)        */}
-      {/* ========================================================= */}
+      {/* 4. MODAIS DO DASHBOARD */}
       {isNewBookingModalOpen && (
         <AgendaAppointmentModal
-          initialDate={activeSlot?.date}
-          initialTime={activeSlot?.time}
-          initialProfessionalId={activeSlot?.professionalId}
+          initialDate={selectedDateStr}
           professionals={professionals}
           services={services}
           onClose={() => setIsNewBookingModalOpen(false)}
@@ -705,27 +520,35 @@ export default function DashboardPage() {
           professionals={professionals}
           onClose={() => setSelectedAppointmentForDetails(null)}
           onSuccess={handleCalendarRefresh}
+          onOpenCheckout={(appt) => setCheckoutAppointment(appt)}
         />
       )}
 
-      {isBlockModalOpen && (
-        <AgendaBlockModal
-          initialDate={activeSlot?.date}
-          initialTime={activeSlot?.time}
-          professionals={professionals}
-          onClose={() => setIsBlockModalOpen(false)}
-          onSuccess={handleCalendarRefresh}
+      {checkoutAppointment && (
+        <AppointmentCheckoutModal
+          appointment={checkoutAppointment}
+          onClose={() => setCheckoutAppointment(null)}
+          onSuccess={() => {
+            setCheckoutAppointment(null);
+            handleCalendarRefresh();
+            showToast('Comanda finalizada com sucesso!');
+          }}
         />
       )}
 
-      {selectedBlockForUnblock && (
-        <AgendaUnblockModal
-          block={selectedBlockForUnblock}
-          professionals={professionals}
-          onClose={() => setSelectedBlockForUnblock(null)}
-          onSuccess={handleCalendarRefresh}
-        />
-      )}
+      {/* Notificador Toast Flutuante */}
+      <AnimatePresence>
+        {toastMsg && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-6 right-6 z-60 bg-slate-900 text-white text-xs font-semibold px-4 py-3 rounded-2xl shadow-xl border border-slate-700"
+          >
+            {toastMsg}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

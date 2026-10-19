@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertCircle, Send } from 'lucide-react';
+import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { api } from '@/lib/api';
+import { resolveImageUrl } from '@/lib/imageUrl';
 import { ScheduleAppointment, ProfessionalItem } from './types';
 
 interface AgendaAppointmentDetailsModalProps {
@@ -10,13 +12,15 @@ interface AgendaAppointmentDetailsModalProps {
   professionals: ProfessionalItem[];
   onClose: () => void;
   onSuccess: () => void;
+  onOpenCheckout?: (appointment: ScheduleAppointment) => void;
 }
 
 export function AgendaAppointmentDetailsModal({
   appointment,
   professionals,
   onClose,
-  onSuccess
+  onSuccess,
+  onOpenCheckout
 }: AgendaAppointmentDetailsModalProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -49,6 +53,8 @@ export function AgendaAppointmentDetailsModal({
   const [uploadingArrival, setUploadingArrival] = useState(false);
   const [uploadingResult, setUploadingResult] = useState(false);
   const [photoPreviewModal, setPhotoPreviewModal] = useState<{ url: string; title: string } | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [photoToRemove, setPhotoToRemove] = useState<'arrival' | 'result' | null>(null);
 
   // Upload direto de foto com suporte à câmera mobile
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'arrival' | 'result') => {
@@ -90,8 +96,13 @@ export function AgendaAppointmentDetailsModal({
     }
   };
 
-  const handleRemovePhoto = async (type: 'arrival' | 'result') => {
-    if (!confirm('Deseja remover esta foto do agendamento?')) return;
+  const handleRemovePhoto = (type: 'arrival' | 'result') => {
+    setPhotoToRemove(type);
+  };
+
+  const executeRemovePhoto = async () => {
+    if (!photoToRemove) return;
+    const type = photoToRemove;
     setLoading(true);
     setError(null);
     try {
@@ -105,6 +116,7 @@ export function AgendaAppointmentDetailsModal({
       setError(err?.response?.data?.message || 'Falha ao remover foto.');
     } finally {
       setLoading(false);
+      setPhotoToRemove(null);
     }
   };
 
@@ -236,15 +248,16 @@ export function AgendaAppointmentDetailsModal({
   };
 
   // Excluir agendamento
-  const handleDelete = async () => {
-    if (!confirm('Deseja realmente excluir este agendamento? O horário será liberado na agenda.')) {
-      return;
-    }
+  const handleDelete = () => {
+    setIsDeleteConfirmOpen(true);
+  };
 
+  const executeDelete = async () => {
     setLoading(true);
     setError(null);
     try {
       await api.delete(`/schedules/${appointment.id}`);
+      setIsDeleteConfirmOpen(false);
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -262,7 +275,7 @@ export function AgendaAppointmentDetailsModal({
     CANCELLED: { label: 'Cancelado', bg: 'bg-red-50 text-red-700 border-red-200' },
     PENDING: {
       label: depositAmountNum > 0 && !depositPaid ? 'Aguardando Sinal' : 'Pendente',
-      bg: depositAmountNum > 0 && !depositPaid ? 'bg-amber-50 text-amber-800 border-amber-300 font-bold' : 'bg-blue-50 text-blue-700 border-blue-200'
+      bg: depositAmountNum > 0 && !depositPaid ? 'bg-amber-50 text-amber-800 border-amber-300 font-bold' : 'bg-slate-100 text-slate-700 border-slate-200'
     }
   }[selectedStatus] || { label: selectedStatus, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
 
@@ -334,8 +347,8 @@ export function AgendaAppointmentDetailsModal({
             </div>
           </div>
 
-          {/* Alerta de Anamnese Técnica da Cliente (se preenchida) */}
-          {Boolean((appointment.client as any)?.anamnesis) && (
+          {/* Alerta de Anamnese Técnica da Cliente */}
+          {Boolean((appointment.client as any)?.anamnesis) ? (
             <div className="p-3.5 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 space-y-1">
               <div className="flex items-center justify-between">
                 <span className="font-bold uppercase tracking-wider text-[10px] text-amber-900">
@@ -368,6 +381,30 @@ export function AgendaAppointmentDetailsModal({
                 )}
               </div>
             </div>
+          ) : (
+            (appointment.client as any)?.anamnesisToken && (
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div>
+                  <span className="font-bold text-slate-800 text-xs block">
+                    Ficha de Anamnese Pendente
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    A cliente ainda não preencheu suas preferências e dados de saúde.
+                  </span>
+                </div>
+                <a
+                  href={`https://wa.me/55${(appointment.client?.phone || '').replace(/\D/g, '')}?text=${encodeURIComponent(
+                    `Olá, ${(appointment.client?.name || '').split(' ')[0]}! Por gentileza, preencha sua ficha rápida de atendimento antes do seu horário no salão: ${typeof window !== 'undefined' ? window.location.origin : ''}/anamnese/${(appointment.client as any).anamnesisToken}`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold shrink-0 transition-colors inline-flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  Enviar no WhatsApp
+                </a>
+              </div>
+            )
           )}
 
           {/* Card de Gestão de Sinal de Reserva (Quando o serviço ou regra exige sinal) */}
@@ -696,11 +733,11 @@ export function AgendaAppointmentDetailsModal({
 
                 {arrivalPhotoUrl ? (
                   <div
-                    onClick={() => setPhotoPreviewModal({ url: arrivalPhotoUrl, title: 'Foto de Entrada — Como a cliente chegou' })}
+                    onClick={() => setPhotoPreviewModal({ url: resolveImageUrl(arrivalPhotoUrl), title: 'Foto de Entrada — Como a cliente chegou' })}
                     className="relative aspect-video rounded-lg overflow-hidden bg-slate-100 border border-slate-200 group cursor-pointer"
                   >
                     <img
-                      src={arrivalPhotoUrl}
+                      src={resolveImageUrl(arrivalPhotoUrl)}
                       alt="Como chegou"
                       className="w-full h-full object-cover transition-transform group-hover:scale-105"
                     />
@@ -747,11 +784,11 @@ export function AgendaAppointmentDetailsModal({
 
                 {resultPhotoUrl ? (
                   <div
-                    onClick={() => setPhotoPreviewModal({ url: resultPhotoUrl, title: 'Foto de Saída — Resultado final' })}
+                    onClick={() => setPhotoPreviewModal({ url: resolveImageUrl(resultPhotoUrl), title: 'Foto de Saída — Resultado final' })}
                     className="relative aspect-video rounded-lg overflow-hidden bg-slate-100 border border-slate-200 group cursor-pointer"
                   >
                     <img
-                      src={resultPhotoUrl}
+                      src={resolveImageUrl(resultPhotoUrl)}
                       alt="Como ficou"
                       className="w-full h-full object-cover transition-transform group-hover:scale-105"
                     />
@@ -865,7 +902,7 @@ export function AgendaAppointmentDetailsModal({
               type="button"
               onClick={() => handleUpdateStatus('COMPLETED')}
               disabled={loading}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-colors cursor-pointer"
             >
               Concluir
             </button>
@@ -873,7 +910,9 @@ export function AgendaAppointmentDetailsModal({
             <button
               type="button"
               onClick={() => {
-                alert('Agendamento direcionado para fechamento de comanda no financeiro.');
+                if (onOpenCheckout) {
+                  onOpenCheckout(appointment);
+                }
                 onClose();
               }}
               className="px-4 py-2 rounded-xl btn-primary-tenant text-xs font-bold shadow-xs transition-colors cursor-pointer"
@@ -908,7 +947,7 @@ export function AgendaAppointmentDetailsModal({
             </div>
             <div className="p-2 flex items-center justify-center overflow-auto bg-black/95">
               <img
-                src={photoPreviewModal.url}
+                src={resolveImageUrl(photoPreviewModal.url)}
                 alt={photoPreviewModal.title}
                 className="max-h-[75vh] w-auto object-contain rounded-xl"
               />
@@ -916,6 +955,30 @@ export function AgendaAppointmentDetailsModal({
           </div>
         </div>
       )}
+
+      {/* Confirmação de Exclusão de Agendamento */}
+      <ConfirmModal
+        isOpen={isDeleteConfirmOpen}
+        title="Excluir este Agendamento?"
+        description="Deseja realmente excluir este agendamento? O horário será liberado imediatamente na agenda."
+        confirmLabel="Sim, Excluir"
+        isDestructive={true}
+        isLoading={loading}
+        onConfirm={executeDelete}
+        onClose={() => setIsDeleteConfirmOpen(false)}
+      />
+
+      {/* Confirmação de Remoção de Foto */}
+      <ConfirmModal
+        isOpen={Boolean(photoToRemove)}
+        title="Remover Foto do Agendamento?"
+        description={`Deseja remover a foto de ${photoToRemove === 'arrival' ? 'Entrada (Como Chegou)' : 'Resultado (Como Ficou)'}? Esta ação não pode ser desfeita.`}
+        confirmLabel="Sim, Remover"
+        isDestructive={true}
+        isLoading={loading}
+        onConfirm={executeRemovePhoto}
+        onClose={() => setPhotoToRemove(null)}
+      />
     </div>
   );
 }

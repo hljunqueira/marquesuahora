@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Loader2 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
@@ -23,7 +23,21 @@ interface ServiceItem {
   requiresDeposit: boolean;
   depositType: 'PERCENTAGE' | 'FIXED';
   depositAmount: number;
+  color?: string;
 }
+
+const PROCEDURE_COLORS = [
+  { hex: '#3B82F6', label: 'Azul Clássico' },
+  { hex: '#8B5CF6', label: 'Violeta / Roxo' },
+  { hex: '#EC4899', label: 'Rosa Nobre' },
+  { hex: '#10B981', label: 'Esmeralda' },
+  { hex: '#F59E0B', label: 'Âmbar Dourado' },
+  { hex: '#0EA5E9', label: 'Azul Céu' },
+  { hex: '#14B8A6', label: 'Teal Elegante' },
+  { hex: '#9F1239', label: 'Vinho Bordô' },
+  { hex: '#6366F1', label: 'Índigo' },
+  { hex: '#64748B', label: 'Ardósia / Grafite' }
+];
 
 interface CategoryItem {
   id: string;
@@ -66,16 +80,58 @@ export default function DashboardServicosPage() {
   const [category, setCategory] = useState('');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [description, setDescription] = useState('');
-  const [duration, setDuration] = useState('45');
-  const [price, setPrice] = useState('50.00');
+  const [duration, setDuration] = useState('');
+  const [price, setPrice] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [processingMinutes, setProcessingMinutes] = useState('0');
   const [finishingMinutes, setFinishingMinutes] = useState('0');
   const [allowOnlineBooking, setAllowOnlineBooking] = useState(true);
   const [requiresDeposit, setRequiresDeposit] = useState(false);
   const [depositType, setDepositType] = useState<'PERCENTAGE' | 'FIXED'>('PERCENTAGE');
-  const [depositAmount, setDepositAmount] = useState('50');
+  const [depositAmount, setDepositAmount] = useState('');
+  const [tenantPrimaryColor, setTenantPrimaryColor] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+    }
+    return '#7C3AED';
+  });
+
+  useEffect(() => {
+    const syncColor = () => {
+      const saved = localStorage.getItem('tenant_primary_color');
+      if (saved) setTenantPrimaryColor(saved);
+    };
+    syncColor();
+    const handleTenantSync = (e: any) => {
+      if (e?.detail?.primaryColor) {
+        setTenantPrimaryColor(e.detail.primaryColor);
+      } else {
+        syncColor();
+      }
+    };
+    window.addEventListener('storage', syncColor);
+    window.addEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    return () => {
+      window.removeEventListener('storage', syncColor);
+      window.removeEventListener('marquesuahora_tenant_sync', handleTenantSync);
+    };
+  }, []);
+
+  const [color, setColor] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('tenant_primary_color') || '#7C3AED';
+    }
+    return '#7C3AED';
+  });
   const [uploadingServiceImage, setUploadingServiceImage] = useState(false);
+
+  const availableProcedureColors = useMemo<{ hex: string; label: string }[]>(() => {
+    const list: { hex: string; label: string }[] = [...PROCEDURE_COLORS];
+    if (tenantPrimaryColor && !list.some((c) => c.hex.toLowerCase() === tenantPrimaryColor.toLowerCase())) {
+      list.unshift({ hex: tenantPrimaryColor, label: 'Cor do Estabelecimento' });
+    }
+    return list;
+  }, [tenantPrimaryColor]);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -114,7 +170,8 @@ export default function DashboardServicosPage() {
         isActive: s.allowOnlineBooking ?? true,
         requiresDeposit: Boolean(s.requiresDeposit),
         depositType: s.depositType || 'PERCENTAGE',
-        depositAmount: Number(s.depositAmount || 50)
+        depositAmount: Number(s.depositAmount || 50),
+        color: (s.color && s.color.toUpperCase() !== '#3B82F6') ? s.color : tenantPrimaryColor
       }));
       setServices(items);
     } catch (err) {
@@ -188,15 +245,16 @@ export default function DashboardServicosPage() {
     setCategory(defaultCat);
     setCategoryId(categoriesList[0]?.id || null);
     setDescription('');
-    setDuration('45');
-    setPrice('50.00');
+    setDuration('');
+    setPrice('');
     setImageUrl('');
     setProcessingMinutes('0');
     setFinishingMinutes('0');
     setAllowOnlineBooking(true);
     setRequiresDeposit(false);
     setDepositType('PERCENTAGE');
-    setDepositAmount('50');
+    setDepositAmount('');
+    setColor(tenantPrimaryColor || '#7C3AED');
     setIsModalOpen(true);
   };
 
@@ -206,15 +264,17 @@ export default function DashboardServicosPage() {
     setCategory(svc.category);
     setCategoryId(svc.categoryId || null);
     setDescription(svc.description || '');
-    setDuration(String(svc.durationMinutes));
-    setPrice(String(svc.price));
+    setDuration(String(svc.durationMinutes || ''));
+    setPrice(String(svc.price || ''));
     setImageUrl(svc.imageUrl || '');
     setProcessingMinutes(String(svc.processingMinutes || 0));
     setFinishingMinutes(String(svc.finishingMinutes || 0));
     setAllowOnlineBooking(svc.allowOnlineBooking);
     setRequiresDeposit(svc.requiresDeposit ?? false);
     setDepositType(svc.depositType || 'PERCENTAGE');
-    setDepositAmount(String(svc.depositAmount ?? 50));
+    setDepositAmount(svc.depositAmount ? String(svc.depositAmount) : '');
+    const initialColor = (svc.color && svc.color.toUpperCase() !== '#3B82F6') ? svc.color : (tenantPrimaryColor || '#7C3AED');
+    setColor(initialColor);
     setIsModalOpen(true);
   };
 
@@ -302,6 +362,7 @@ export default function DashboardServicosPage() {
       requiresDeposit,
       depositType,
       depositAmount: Number(depositAmount) || 50,
+      color: color || '#3B82F6',
       serviceType: 'STANDARD'
     };
 
@@ -663,12 +724,23 @@ export default function DashboardServicosPage() {
 
                 {/* Detalhes do Procedimento */}
                 <div className="p-5 space-y-2">
-                  <h3
-                    title={svc.name}
-                    className="text-sm sm:text-base font-bold text-slate-900 leading-snug line-clamp-2 min-h-[2.6rem] transition-colors"
-                  >
-                    {svc.name}
-                  </h3>
+                  <div className="flex items-start gap-2">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 shadow-2xs"
+                      style={{
+                        backgroundColor: (svc.color && svc.color.toUpperCase() !== '#3B82F6')
+                          ? svc.color
+                          : (tenantPrimaryColor || '#7C3AED')
+                      }}
+                      title={`Cor na agenda: ${svc.color || tenantPrimaryColor || '#7C3AED'}`}
+                    />
+                    <h3
+                      title={svc.name}
+                      className="text-sm sm:text-base font-bold text-slate-900 leading-snug line-clamp-2 min-h-[2.6rem] transition-colors"
+                    >
+                      {svc.name}
+                    </h3>
+                  </div>
 
                   {svc.description && (
                     <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
@@ -928,6 +1000,7 @@ export default function DashboardServicosPage() {
                         step={5}
                         value={duration}
                         onChange={(e) => setDuration(e.target.value)}
+                        placeholder="Ex: 45"
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 font-mono transition-all text-slate-800"
                       />
                     </div>
@@ -943,6 +1016,7 @@ export default function DashboardServicosPage() {
                         step="0.01"
                         value={price}
                         onChange={(e) => setPrice(e.target.value)}
+                        placeholder="Ex: 50,00"
                         className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 font-mono transition-all text-slate-800"
                       />
                     </div>
@@ -959,6 +1033,34 @@ export default function DashboardServicosPage() {
                       onChange={(e) => setDescription(e.target.value)}
                       className="w-full px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl outline-none focus:bg-white focus:border-slate-800 transition-all resize-none text-slate-800"
                     />
+                  </div>
+
+                  {/* Seletor Sóbrio de Cores do Procedimento na Agenda */}
+                  <div className="pt-1">
+                    <label className="text-xs font-semibold text-slate-700 block mb-2">
+                      Cor de Identificação na Agenda
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {availableProcedureColors.map((c: { hex: string; label: string }) => {
+                        const isSelected = color === c.hex;
+                        return (
+                          <button
+                            key={c.hex}
+                            type="button"
+                            onClick={() => setColor(c.hex)}
+                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer relative shadow-2xs ${
+                              isSelected ? 'scale-115 ring-2 ring-slate-800 ring-offset-2' : 'hover:scale-105'
+                            }`}
+                            style={{ backgroundColor: c.hex }}
+                            title={c.label}
+                          >
+                            {isSelected && (
+                              <span className="w-2 h-2 rounded-full bg-white shadow-xs" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
@@ -1064,11 +1166,12 @@ export default function DashboardServicosPage() {
                         <div className="relative">
                           <input
                             type="number"
-                            min={1}
+                            min={depositType === 'PERCENTAGE' ? 1 : 0.01}
                             max={depositType === 'PERCENTAGE' ? 100 : 2000}
-                            step={depositType === 'PERCENTAGE' ? 5 : 5}
+                            step="any"
                             value={depositAmount}
                             onChange={(e) => setDepositAmount(e.target.value)}
+                            placeholder={depositType === 'PERCENTAGE' ? 'Ex: 50' : 'Ex: 30,00'}
                             className="w-full px-3 py-2 text-xs bg-white border border-purple-300 rounded-xl outline-none font-mono focus:border-purple-600 text-slate-800 font-bold"
                           />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
