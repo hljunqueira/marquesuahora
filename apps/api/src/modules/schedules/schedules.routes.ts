@@ -35,7 +35,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
 
     const query = querySchema.parse(request.query);
 
-    let tenantId = query.tenantId;
+    let tenantId = query.tenantId || (request.user as any)?.tenantId;
     if (!tenantId && query.slug) {
       const tenant = await prisma.tenant.findUnique({
         where: { slug: query.slug.toLowerCase() },

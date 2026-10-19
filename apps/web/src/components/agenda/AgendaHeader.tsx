@@ -83,10 +83,11 @@ export function AgendaHeader({
   const currentDateValue = formatLocalDateToYMD(currentDate);
 
   return (
-    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-3xl border border-slate-200/80 shadow-xs">
-      {/* Navegador de Datas e Seletor Direto */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl">
+    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+      {/* 1. Lado Esquerdo: Navegação de Datas + Título do Período + Previsão */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        {/* Controles de Navegação Anterior / Hoje / Próximo */}
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl shrink-0 self-start sm:self-auto">
           <button
             onClick={onNavigatePrev}
             className="w-8 h-8 rounded-xl bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-xs transition-colors cursor-pointer"
@@ -109,8 +110,8 @@ export function AgendaHeader({
           </button>
         </div>
 
-        {/* Texto da Data + Seletor Direto + Previsão da Semana Embaixo da Data */}
-        <div className="flex flex-col">
+        {/* Data Formatada + Input Calendário Rápido + Previsão Financeira */}
+        <div className="flex flex-col justify-center">
           <div className="flex items-center gap-2">
             <span className="text-sm sm:text-base font-extrabold text-slate-900 capitalize tracking-tight">
               {formatRangeText()}
@@ -128,14 +129,13 @@ export function AgendaHeader({
             />
           </div>
 
-          {/* Previsão do Período (Mês, Semana ou Dia) Embaixo da Data */}
           {stats && (
-            <div className="flex items-center gap-2 mt-1 text-xs">
-              <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-lg border border-emerald-200/70 shadow-2xs">
+            <div className="flex items-center gap-2 mt-0.5 text-xs">
+              <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.2 rounded-md border border-emerald-200/70 text-[11px] shadow-2xs">
                 {stats.periodLabel || (viewMode === 'day' ? 'Previsão do dia' : viewMode === 'month' ? 'Previsão do mês' : 'Previsão da semana')}: R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-slate-300">•</span>
-              <span className="text-slate-500 font-semibold text-[11.5px]">
+              <span className="text-slate-500 font-semibold text-[11px]">
                 {stats.totalAppointments} {stats.totalAppointments === 1 ? 'atendimento' : 'atendimentos'}
               </span>
             </div>
@@ -143,9 +143,9 @@ export function AgendaHeader({
         </div>
       </div>
 
-      {/* Filtros e Ações (Sem ícones decorativos) */}
-      <div className="flex flex-wrap items-center gap-2.5">
-        {/* Seletor de Cores de Todos os Status (Pendente, Confirmado, Em Atendimento, Concluído, No-Show, Cancelado) */}
+      {/* 2. Lado Direito: Barra Única Alinhada com Todos os Controles */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 pt-2 xl:pt-0 border-t xl:border-t-0 border-slate-100">
+        {/* Seletor de Cores de Status */}
         {statusColors && onUpdateStatusColors && (
           <AgendaStatusColorPicker
             tenantPrimaryColor={tenantPrimaryColor || '#5c0701'}
@@ -154,7 +154,7 @@ export function AgendaHeader({
           />
         )}
 
-        {/* Alternador de Modo (Mês, Semana vs Dia) */}
+        {/* Alternador de Modo (Mês, Semana, Dia) - Perfeitamente alinhado */}
         <div className="flex items-center bg-slate-100 p-1 rounded-2xl text-xs font-bold text-slate-600">
           <button
             onClick={() => setViewMode('month')}
@@ -184,7 +184,7 @@ export function AgendaHeader({
 
         {/* Filtro por Profissional */}
         {professionals.length > 0 && (
-          <div className="flex items-center bg-slate-50 border border-slate-200/80 px-3 py-1.5 rounded-2xl text-xs font-semibold text-slate-700">
+          <div className="flex items-center bg-slate-50 border border-slate-200/80 px-2.5 py-1.5 rounded-2xl text-xs font-semibold text-slate-700">
             <select
               value={selectedProfessionalId}
               onChange={(e) => setSelectedProfessionalId(e.target.value)}
@@ -203,15 +203,15 @@ export function AgendaHeader({
         {/* Botão Novo Bloqueio */}
         <button
           onClick={onNewBlockClick}
-          className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors active:scale-95 cursor-pointer"
+          className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors active:scale-95 cursor-pointer"
         >
           Bloquear Horário
         </button>
 
-        {/* Botão Novo Agendamento */}
+        {/* Botão Novo Agendamento em Destaque */}
         <button
           onClick={onNewBookingClick}
-          className="px-4 py-2 rounded-xl btn-primary-tenant text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-md"
+          className="px-3.5 py-2 rounded-xl btn-primary-tenant text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm shrink-0"
         >
           Novo Agendamento
         </button>

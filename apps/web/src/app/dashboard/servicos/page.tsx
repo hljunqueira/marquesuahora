@@ -465,6 +465,27 @@ export default function DashboardServicosPage() {
     }
   };
 
+  const handleMoveCategory = async (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= categoriesList.length) return;
+    const reordered = [...categoriesList];
+    const [removed] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, removed);
+    setCategoriesList(reordered);
+    try {
+      await api.put('/categories/reorder', {
+        orderedIds: reordered.map((c) => c.id)
+      });
+      showToast('Ordem das categorias atualizada!');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+      }
+    } catch {
+      showToast('Erro ao atualizar ordem das categorias.');
+      fetchCategories();
+    }
+  };
+
   // Lista de Categorias Únicas para os Filtros
   const uniqueCategoryNames = Array.from(
     new Set([
@@ -696,52 +717,36 @@ export default function DashboardServicosPage() {
                 !svc.isActive ? 'opacity-70 border-slate-200 bg-slate-50/50' : 'border-slate-200/80'
               }`}
             >
-              <div>
-                {/* Imagem do Serviço */}
-                <div className="relative w-full h-44 bg-slate-100 overflow-hidden">
-                  {svc.imageUrl ? (
-                    <img
-                      src={resolveImageUrl(svc.imageUrl)}
-                      alt={svc.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-slate-400">
-                      <span className="text-xs font-medium text-slate-500">Sem foto definida</span>
-                    </div>
-                  )}
-
-                  {/* Top Badges */}
-                  <div className="absolute top-3 left-3 right-3 flex items-center justify-between gap-1.5 pointer-events-none z-10">
+              <div className="p-5 pb-4 space-y-3">
+                {/* Topo: Status + Categoria + Preço em Destaque */}
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap min-w-0">
                     <span
-                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide backdrop-blur-md shadow-xs shrink-0 flex items-center gap-1.5 ${
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wide shadow-2xs shrink-0 flex items-center gap-1.5 ${
                         svc.isActive
-                          ? 'bg-emerald-600/90 text-white border border-emerald-400/30'
-                          : 'bg-slate-800/80 text-white border border-slate-600'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          : 'bg-slate-100 text-slate-600 border border-slate-200'
                       }`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${svc.isActive ? 'bg-emerald-300 animate-pulse' : 'bg-slate-400'}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${svc.isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
                       <span>{svc.isActive ? 'Ativo' : 'Pausado'}</span>
                     </span>
 
                     <span
                       title={svc.category}
-                      className="px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-white/95 text-slate-700 shadow-xs backdrop-blur-xs border border-slate-200/80 truncate max-w-[58%]"
+                      className="px-2.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200/80 truncate max-w-[130px]"
                     >
                       {svc.category}
                     </span>
                   </div>
 
-                  {/* Preço sobreposto no rodapé da imagem */}
-                  <div className="absolute bottom-2.5 right-2.5">
-                    <span className="px-3 py-1 rounded-xl text-sm font-bold font-display shadow-md backdrop-blur-md bg-slate-900/90 text-white">
-                      R$ {svc.price.toFixed(2).replace('.', ',')}
-                    </span>
-                  </div>
+                  <span className="px-2.5 py-1 rounded-xl text-sm font-bold font-display bg-slate-900 text-white shrink-0 shadow-2xs">
+                    R$ {svc.price.toFixed(2).replace('.', ',')}
+                  </span>
                 </div>
 
-                {/* Detalhes do Procedimento */}
-                <div className="p-5 space-y-2">
+                {/* Nome do Procedimento com Ponto de Cor da Agenda */}
+                <div>
                   <div className="flex items-start gap-2">
                     <span
                       className="w-2.5 h-2.5 rounded-full shrink-0 mt-1.5 shadow-2xs"
@@ -761,32 +766,33 @@ export default function DashboardServicosPage() {
                   </div>
 
                   {svc.description && (
-                    <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mt-1">
                       {svc.description}
                     </p>
                   )}
+                </div>
 
-                  <div className="flex items-center gap-2 pt-1 flex-wrap">
-                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-medium">
-                      {svc.durationMinutes} min
+                {/* Badges de Duração e Sinal Anti-Falta */}
+                <div className="flex items-center gap-2 pt-1 flex-wrap">
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-semibold">
+                    {svc.durationMinutes} min
+                  </span>
+
+                  {Boolean(svc.processingMinutes && svc.processingMinutes > 0) && (
+                    <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-200/60">
+                      Pausa: {svc.processingMinutes} min
                     </span>
+                  )}
 
-                    {Boolean(svc.processingMinutes && svc.processingMinutes > 0) && (
-                      <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-200/60">
-                        Pausa: {svc.processingMinutes} min
-                      </span>
-                    )}
-
-                    {svc.requiresDeposit ? (
-                      <span className="px-2.5 py-1 rounded-lg bg-purple-100 text-purple-900 text-xs font-bold border border-purple-200">
-                        Sinal: {svc.depositType === 'PERCENTAGE' ? `${svc.depositAmount}%` : `R$ ${svc.depositAmount.toFixed(0)}`}
-                      </span>
-                    ) : (
-                      <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-medium">
-                        Sem sinal
-                      </span>
-                    )}
-                  </div>
+                  {svc.requiresDeposit ? (
+                    <span className="px-2.5 py-1 rounded-lg bg-purple-50 text-purple-800 text-xs font-bold border border-purple-200">
+                      Sinal: {svc.depositType === 'PERCENTAGE' ? `${svc.depositAmount}%` : `R$ ${svc.depositAmount.toFixed(0)}`}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-xs font-medium">
+                      Sem sinal
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1330,7 +1336,7 @@ export default function DashboardServicosPage() {
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {categoriesList.map((cat) => {
+                    {categoriesList.map((cat, index) => {
                       const isEditing = editingCatId === cat.id;
 
                       if (isEditing) {
@@ -1396,6 +1402,24 @@ export default function DashboardServicosPage() {
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0 ml-3">
+                            <button
+                              type="button"
+                              disabled={index === 0}
+                              onClick={() => handleMoveCategory(index, 'up')}
+                              className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Mover para cima"
+                            >
+                              ▲
+                            </button>
+                            <button
+                              type="button"
+                              disabled={index === categoriesList.length - 1}
+                              onClick={() => handleMoveCategory(index, 'down')}
+                              className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              title="Mover para baixo"
+                            >
+                              ▼
+                            </button>
                             <button
                               type="button"
                               onClick={() => {

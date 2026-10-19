@@ -148,16 +148,21 @@ export default function AgendaCompletaPage() {
     return getWeekDays(currentDate);
   }, [currentDate, viewMode]);
 
-  // Carrega opções de profissionais e serviços
+  const [availabilityRules, setAvailabilityRules] = useState<any[]>([]);
+
+  // Carrega opções de profissionais, serviços e regras semanais da agenda
   useEffect(() => {
     Promise.all([
       api.get('/professionals').catch(() => ({ data: [] })),
-      api.get('/services').catch(() => ({ data: [] }))
-    ]).then(([profRes, servRes]) => {
+      api.get('/services').catch(() => ({ data: [] })),
+      api.get('/availability-rules').catch(() => ({ data: [] }))
+    ]).then(([profRes, servRes, rulesRes]) => {
       const pList = Array.isArray(profRes.data) ? profRes.data : (profRes.data?.data || []);
       const sList = Array.isArray(servRes.data) ? servRes.data : (servRes.data?.data || []);
+      const rList = Array.isArray(rulesRes.data) ? rulesRes.data : (rulesRes.data?.data || rulesRes.data?.rules || []);
       setProfessionals(Array.isArray(pList) ? pList : []);
       setServices(Array.isArray(sList) ? sList : []);
+      setAvailabilityRules(Array.isArray(rList) ? rList : []);
     });
   }, []);
 
@@ -373,6 +378,7 @@ export default function AgendaCompletaPage() {
             appointments={appointments}
             blocks={blocks}
             statusColors={statusColors}
+            availabilityRules={availabilityRules}
             professionals={professionals}
             selectedProfessionalId={selectedProfessionalId}
             onDayClick={(day) => {

@@ -78,6 +78,52 @@ export function AgendaAppointmentModal({
   const [error, setError] = useState<string | null>(null);
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
 
+  // Horários disponíveis para a data e profissional selecionados
+  const [availableSlots, setAvailableSlots] = useState<{ morning: any[]; afternoon: any[]; night: any[] }>({
+    morning: [],
+    afternoon: [],
+    night: []
+  });
+  const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dateStr) return;
+
+    let isMounted = true;
+    setLoadingSlots(true);
+    setSlotsError(null);
+
+    const sIds = [selectedServiceId, ...extraServiceIds].filter(Boolean);
+
+    api.get('/schedules/availability', {
+      params: {
+        date: dateStr,
+        serviceIds: sIds.length > 0 ? sIds.join(',') : undefined,
+        professionalId: selectedProfessionalId || undefined
+      }
+    })
+      .then((res) => {
+        if (!isMounted) return;
+        const slots = res.data?.slots || { morning: [], afternoon: [], night: [] };
+        setAvailableSlots(slots);
+        if (!res.data?.isOpen) {
+          setSlotsError(res.data?.reason || 'Estabelecimento ou profissional fechado nesta data.');
+        }
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSlotsError('Não foi possível carregar os horários livres.');
+      })
+      .finally(() => {
+        if (isMounted) setLoadingSlots(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [dateStr, selectedProfessionalId, selectedServiceId, extraServiceIds]);
+
   // Garante seleção padrão quando a lista carregar
   useEffect(() => {
     if (!selectedServiceId && services.length > 0) {
@@ -672,6 +718,76 @@ export function AgendaAppointmentModal({
                 className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-hidden focus:border-purple-600 cursor-pointer"
               />
             </div>
+          </div>
+
+          {/* Chips de Horários Disponíveis no Dia Selecionado */}
+          <div className="pt-2 pb-1 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                <span>Horários Livres no Dia:</span>
+                {loadingSlots && (
+                  <span className="text-[10px] text-slate-400 font-normal italic">
+                    Buscando disponibilidade...
+                  </span>
+                )}
+              </span>
+              {startTime && (
+                <span className="text-[11px] font-mono font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-md">
+                  Selecionado: {startTime}
+                </span>
+              )}
+            </div>
+
+            {slotsError ? (
+              <div className="p-2 rounded-xl bg-amber-50 border border-amber-200/80 text-[11px] font-medium text-amber-800">
+                {slotsError}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {['morning', 'afternoon', 'night'].map((period) => {
+                  const periodSlots = availableSlots[period as keyof typeof availableSlots] || [];
+                  if (periodSlots.length === 0) return null;
+                  const periodTitle = period === 'morning' ? 'Manhã' : period === 'afternoon' ? 'Tarde' : 'Noite';
+
+                  return (
+                    <div key={period} className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase w-12 shrink-0">
+                        {periodTitle}:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {periodSlots.map((slot: any) => {
+                          const isSelected = startTime === slot.time;
+                          return (
+                            <button
+                              key={slot.time}
+                              type="button"
+                              onClick={() => setStartTime(slot.time)}
+                              className={`px-2 py-1 rounded-lg text-[11px] font-mono font-bold transition-all cursor-pointer ${
+                                isSelected
+                                  ? 'bg-purple-600 text-white shadow-xs'
+                                  : 'bg-white border border-slate-200 text-slate-700 hover:border-purple-400 hover:bg-purple-50'
+                              }`}
+                            >
+                              {slot.time}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!loadingSlots &&
+                  availableSlots.morning.length === 0 &&
+                  availableSlots.afternoon.length === 0 &&
+                  availableSlots.night.length === 0 &&
+                  !slotsError && (
+                    <p className="text-[11px] text-slate-500 italic">
+                      Nenhum horário livre encontrado para esta data ou profissional.
+                    </p>
+                  )}
+              </div>
+            )}
           </div>
 
           {/* Alerta Educativo de Conflito de Horário */}

@@ -562,7 +562,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
 
         {/* View renderizada dentro do container com espaçamento aprimorado e expansivo */}
-        <div className="p-4 sm:p-6 lg:p-8 flex-1 w-full max-w-[1920px] mx-auto pb-24 md:pb-8">{children}</div>
+        <div className={`${pathname?.startsWith('/dashboard/agenda') ? 'p-2 sm:p-4' : 'p-4 sm:p-6 lg:p-8'} flex-1 w-full max-w-[1920px] mx-auto pb-24 md:pb-8`}>{children}</div>
 
         {/* BARRA DE NAVEGAÇÃO INFERIOR MOBILE FIXA (Padrão GuruAgenda / App Nativo) */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 h-16 flex items-center justify-around px-2 shadow-lg select-none pb-safe">

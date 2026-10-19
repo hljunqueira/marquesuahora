@@ -89,6 +89,17 @@ const KEY_TO_DAY_MAP: Record<string, string> = {
   sun: 'Dom'
 };
 
+const WEEK_DAYS_ORDER = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+
+function sortWeekDays(days: string[]): string[] {
+  if (!Array.isArray(days)) return [];
+  return [...days].sort((a, b) => {
+    const idxA = WEEK_DAYS_ORDER.indexOf(a);
+    const idxB = WEEK_DAYS_ORDER.indexOf(b);
+    return (idxA === -1 ? 99 : idxA) - (idxB === -1 ? 99 : idxB);
+  });
+}
+
 function buildScheduleConfig(days: string[], start: string, end: string) {
   const cfg: Record<string, any> = {};
   ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].forEach((k) => {
@@ -107,7 +118,9 @@ function parseScheduleConfig(cfg: any) {
   let start = '09:00';
   let end = '19:00';
   if (cfg && typeof cfg === 'object') {
-    Object.entries(cfg).forEach(([k, v]: [string, any]) => {
+    // Itera pela ordem cronológica oficial da semana
+    ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].forEach((k) => {
+      const v = cfg[k];
       if (v && !v.isOff && KEY_TO_DAY_MAP[k]) {
         days.push(KEY_TO_DAY_MAP[k]);
         if (v.start) start = v.start;
@@ -116,7 +129,7 @@ function parseScheduleConfig(cfg: any) {
     });
   }
   return {
-    days: days.length > 0 ? days : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
+    days: days.length > 0 ? sortWeekDays(days) : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'],
     start,
     end
   };
@@ -406,7 +419,7 @@ export default function DashboardEquipePage() {
         color,
         commissionRate: parsedCommission,
         isActive: isActiveForm,
-        scheduleConfig: buildScheduleConfig(selectedWorkDays, workHoursStart, workHoursEnd)
+        scheduleConfig: buildScheduleConfig(sortWeekDays(selectedWorkDays), workHoursStart, workHoursEnd)
       };
 
       if (editingMember) {
@@ -815,7 +828,7 @@ export default function DashboardEquipePage() {
                         </span>
                       </span>
                       <div className="flex items-center gap-0.5">
-                        {(member.workDays || ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']).map(
+                        {sortWeekDays(member.workDays || ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']).map(
                           (d) => (
                             <span
                               key={d}

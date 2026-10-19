@@ -101,35 +101,51 @@ export function BookingWizard({ tenant, brandColor = '#5c0701' }: BookingWizardP
   // Passo 4: Dados do Agendamento Criado
   const [createdBooking, setCreatedBooking] = useState<any>(null);
 
-  // Agrupa serviços por Categoria/Especialidade
+  // Agrupa serviços por Categoria/Especialidade respeitando rigorosamente a ordem definida pelo tenant
   const categorizedServices = useMemo(() => {
-    const map: Record<string, { categoryName: string; description?: string | null; services: ServiceItem[] }> = {};
+    const map: Record<string, { categoryName: string; description?: string | null; sortOrder: number; services: ServiceItem[] }> = {};
 
-    // Inicializa com as categorias do tenant
+    // 1. Inicializa com as categorias do tenant na ordem correta
     if (tenant.categories && tenant.categories.length > 0) {
-      tenant.categories.forEach((cat) => {
+      tenant.categories.forEach((cat, idx) => {
         map[cat.id] = {
           categoryName: cat.name,
           description: cat.description,
+          sortOrder: (cat as any).sortOrder !== undefined ? (cat as any).sortOrder : idx,
           services: []
         };
       });
     }
 
-    // Distribui os serviços nas categorias
+    // 2. Distribui os serviços nas categorias
     tenant.services.forEach((s) => {
-      const key = s.categoryId || s.category || 'Geral';
-      if (!map[key]) {
-        map[key] = {
-          categoryName: s.category || 'Outros Serviços',
-          description: null,
-          services: []
-        };
+      let targetKey = s.categoryId && map[s.categoryId] ? s.categoryId : null;
+
+      if (!targetKey && s.category) {
+        const found = Object.entries(map).find(
+          ([_, val]) => val.categoryName.trim().toLowerCase() === s.category.trim().toLowerCase()
+        );
+        if (found) targetKey = found[0];
       }
-      map[key].services.push(s);
+
+      if (!targetKey) {
+        targetKey = s.category || 'Geral';
+        if (!map[targetKey]) {
+          map[targetKey] = {
+            categoryName: s.category || 'Outros Serviços',
+            description: null,
+            sortOrder: 9999,
+            services: []
+          };
+        }
+      }
+
+      map[targetKey].services.push(s);
     });
 
-    return Object.entries(map).filter(([_, data]) => data.services.length > 0);
+    const entries = Object.entries(map).filter(([_, data]) => data.services.length > 0);
+    entries.sort((a, b) => a[1].sortOrder - b[1].sortOrder);
+    return entries;
   }, [tenant.categories, tenant.services]);
 
   // Abre a primeira categoria por padrão

@@ -54,6 +54,31 @@ export const categoriesRoutes: FastifyPluginAsync = async (app) => {
     return reply.status(201).send(category);
   });
 
+  // PUT /categories/reorder - Atualizar ordenação das categorias do tenant
+  app.put('/reorder', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const bodySchema = z.object({
+      orderedIds: z.array(z.string().uuid())
+    });
+
+    const { orderedIds } = bodySchema.parse(request.body);
+
+    await prisma.$transaction(
+      orderedIds.map((id, index) =>
+        prisma.category.updateMany({
+          where: { id, tenantId },
+          data: { sortOrder: index }
+        })
+      )
+    );
+
+    return reply.send({ success: true, message: 'Ordem das categorias atualizada com sucesso.' });
+  });
+
   // PUT /categories/:id - Atualizar categoria existente
   app.put('/:id', async (request, reply) => {
     const tenantId = request.user.tenantId;

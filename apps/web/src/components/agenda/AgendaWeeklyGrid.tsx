@@ -13,6 +13,7 @@ interface AgendaWeeklyGridProps {
   appointments: ScheduleAppointment[];
   blocks?: BlockItem[];
   statusColors?: StatusColors;
+  availabilityRules?: any[];
   onSlotClick: (dateStr: string, timeStr: string, professionalId?: string) => void;
   onAppointmentClick: (appt: ScheduleAppointment) => void;
   onBlockClick?: (block: BlockItem) => void;
@@ -239,6 +240,7 @@ export function AgendaWeeklyGrid({
   appointments,
   blocks = [],
   statusColors: statusColorsProp,
+  availabilityRules = [],
   onSlotClick,
   onAppointmentClick,
   onBlockClick,
@@ -300,8 +302,8 @@ export function AgendaWeeklyGrid({
     };
   }, []);
 
-  // Altura de 1 hora em pixels
-  const [hourHeight, setHourHeight] = useState(56);
+  // Altura de 1 hora em pixels (52px desktop / 46px mobile para eliminar vazios)
+  const [hourHeight, setHourHeight] = useState(52);
   const [now, setNow] = useState<Date>(new Date());
   const [draggedApptId, setDraggedApptId] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -310,9 +312,9 @@ export function AgendaWeeklyGrid({
   useEffect(() => {
     const updateSize = () => {
       if (window.innerWidth < 640) {
-        setHourHeight(52); // Mobile compacto
+        setHourHeight(46); // Mobile compacto
       } else {
-        setHourHeight(62); // Desktop espaçoso
+        setHourHeight(52); // Desktop otimizado
       }
     };
     updateSize();
@@ -387,6 +389,32 @@ export function AgendaWeeklyGrid({
     });
   };
 
+  // Verifica se o dia está configurado como fechado nas regras semanais do salão
+  const isDayClosedByAvailabilityRule = (colDate: Date, profId?: string) => {
+    if (!availabilityRules || availabilityRules.length === 0) return false;
+    const dayOfWeek = colDate.getDay(); // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+
+    // Se houver regras vinculadas ao profissional
+    if (profId) {
+      const profRules = availabilityRules.filter(
+        (r: any) => r.professionalId === profId && r.dayOfWeek === dayOfWeek
+      );
+      if (profRules.length > 0) {
+        return profRules.every((r: any) => r.isActive === false || r.isOpen === false);
+      }
+    }
+
+    // Regra geral do estabelecimento (sem profissional vinculado)
+    const generalRules = availabilityRules.filter(
+      (r: any) => !r.professionalId && r.dayOfWeek === dayOfWeek
+    );
+    if (generalRules.length > 0) {
+      return generalRules.every((r: any) => r.isActive === false || r.isOpen === false);
+    }
+
+    return false;
+  };
+
   const allDayBlocks = useMemo(() => {
     return blocks.filter((b) => !b.startTime || b.startTime === '00:00');
   }, [blocks]);
@@ -432,7 +460,6 @@ export function AgendaWeeklyGrid({
             const dateStr = formatLocalDateToYMD(col.date);
             const isCurrentDay = isToday(col.date);
             const isClickable = Boolean(onDayClick);
-            const isBlocked = isColumnDayBlocked(col.date, col.professionalId);
 
             // Contagem de agendamentos válidos deste dia
             const colApptsCount = appointments.filter((a) => {
@@ -441,6 +468,11 @@ export function AgendaWeeklyGrid({
               const matchesProf = col.professionalId ? a.professionalId === col.professionalId : true;
               return matchesDate && matchesProf && a.status !== 'CANCELLED';
             }).length;
+
+            const isBlockedByBlock = isColumnDayBlocked(col.date, col.professionalId);
+            const isRuleClosed = isDayClosedByAvailabilityRule(col.date, col.professionalId);
+            // Regra de exceção: Se houver agendamentos, o dia NUNCA é bloqueado visualmente
+            const isEffectivelyClosed = (isRuleClosed && colApptsCount === 0) || isBlockedByBlock;
 
             return (
               <button
@@ -452,25 +484,33 @@ export function AgendaWeeklyGrid({
                   }
                 }}
                 className={`flex-1 min-w-0 py-2 sm:py-2.5 px-1 flex flex-col items-center justify-center border-r last:border-r-0 border-slate-200 transition-colors cursor-pointer ${
-                  isBlocked
+                  isEffectivelyClosed
                     ? 'bg-slate-100/90 hover:bg-slate-200/80'
                     : isCurrentDay
                       ? 'bg-tenant-light'
                       : 'hover:bg-slate-50'
                 }`}
-                style={isCurrentDay && !isBlocked ? { backgroundColor: `${tenantPrimaryColor}14` } : undefined}
-                title={isBlocked ? 'Dia bloqueado para agendamentos' : isWeekMode ? 'Toque para abrir a visão deste dia' : undefined}
+                style={isCurrentDay && !isEffectivelyClosed ? { backgroundColor: `${tenantPrimaryColor}14` } : undefined}
+                title={
+                  isBlockedByBlock
+                    ? 'Dia bloqueado para agendamentos'
+                    : isRuleClosed && colApptsCount === 0
+                      ? 'Fechado nas regras de funcionamento'
+                      : isWeekMode
+                        ? 'Toque para abrir a visão deste dia'
+                        : undefined
+                }
               >
                 {/* Sigla do Dia da Semana (SEG, TER, QUA...) */}
                 <span
                   className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider block ${
-                    isBlocked
+                    isEffectivelyClosed
                       ? 'text-slate-400'
                       : isCurrentDay
                         ? 'text-tenant-primary font-extrabold'
                         : 'text-slate-500'
                   }`}
-                  style={isCurrentDay && !isBlocked ? { color: tenantPrimaryColor } : undefined}
+                  style={isCurrentDay && !isEffectivelyClosed ? { color: tenantPrimaryColor } : undefined}
                 >
                   {col.weekdayShort}
                 </span>
@@ -478,14 +518,14 @@ export function AgendaWeeklyGrid({
                 {/* Número do Dia com Círculo Sólido Dinâmico se Hoje/Ativo */}
                 <div
                   className={`mt-0.5 sm:mt-1 flex items-center justify-center font-extrabold text-xs sm:text-sm ${
-                    isBlocked
+                    isEffectivelyClosed
                       ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-200 text-slate-500 font-bold'
                       : isCurrentDay
                         ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-xs'
                         : 'text-slate-800'
                   }`}
                   style={
-                    isCurrentDay && !isBlocked
+                    isCurrentDay && !isEffectivelyClosed
                       ? {
                           backgroundColor: tenantPrimaryColor,
                           color: getContrastColor(tenantPrimaryColor)
@@ -496,11 +536,15 @@ export function AgendaWeeklyGrid({
                   {col.dayNumber}
                 </div>
 
-                {/* Quantidade de Agendamentos Embaixo do Dia (ou badge Bloqueado) */}
+                {/* Quantidade de Agendamentos Embaixo do Dia (ou badge Bloqueado/Fechado) */}
                 <div className="mt-1 flex items-center justify-center">
-                  {isBlocked ? (
+                  {isBlockedByBlock ? (
                     <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-600 uppercase tracking-tight">
                       Bloqueado
+                    </span>
+                  ) : isRuleClosed && colApptsCount === 0 ? (
+                    <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-500 uppercase tracking-tight">
+                      Fechado
                     </span>
                   ) : colApptsCount > 0 ? (
                     <span className="text-[9px] sm:text-[9.5px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap">
@@ -614,8 +658,6 @@ export function AgendaWeeklyGrid({
             const dayOfWeek = col.date.getDay();
             const isCurrentDay = isToday(col.date);
 
-            const isDayBlocked = isColumnDayBlocked(col.date, col.professionalId);
-
             // Filtra agendamentos deste dia
             const dayAppts = appointments.filter((a) => {
               const aDateStr = formatLocalDateToYMD(a.date);
@@ -633,14 +675,34 @@ export function AgendaWeeklyGrid({
               return matchesDate && matchesProf;
             });
 
+            const isBlockedByBlock = isColumnDayBlocked(col.date, col.professionalId);
+            const isRuleClosed = isDayClosedByAvailabilityRule(col.date, col.professionalId);
+            // Regra de exceção: Se houver agendamentos, a coluna NÃO fica fechada
+            const isEffectivelyClosed = (isRuleClosed && dayAppts.length === 0) || isBlockedByBlock;
+
             // Calcula o layout com detecção de concorrência e sobreposição
             const layoutItems = computeEventsLayout(dayAppts, dayTimedBlocks);
+
+            // Calcula slots de 30 minutos livres entre atendimentos
+            const freeSlots: { startMinutes: number; timeStr: string }[] = [];
+            if (!isEffectivelyClosed) {
+              for (let m = DAY_START_MINUTES; m < DAY_END_MINUTES; m += 30) {
+                const slotStart = m;
+                const slotEnd = m + 30;
+                const hasCollision = layoutItems.some(
+                  (item) => slotStart < item.endMinutes && slotEnd > item.startMinutes
+                );
+                if (!hasCollision) {
+                  freeSlots.push({ startMinutes: m, timeStr: formatMinutesToTime(m) });
+                }
+              }
+            }
 
             return (
               <div
                 key={col.id || cIdx}
                 onClick={(e) => {
-                  if (isDayBlocked) {
+                  if (isEffectivelyClosed) {
                     e.stopPropagation();
                     return;
                   }
@@ -656,14 +718,14 @@ export function AgendaWeeklyGrid({
                   onSlotClick(dateStr, timeStr, col.professionalId);
                 }}
                 className={`flex-1 min-w-0 border-r last:border-r-0 border-slate-200 relative transition-colors ${
-                  isDayBlocked
+                  isEffectivelyClosed
                     ? 'cursor-not-allowed'
                     : isCurrentDay
                       ? 'cursor-pointer hover:bg-slate-50/50'
                       : 'cursor-pointer hover:bg-slate-50/40'
                 }`}
                 style={
-                  isDayBlocked
+                  isEffectivelyClosed
                     ? {
                         background:
                           'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 12px, #f1f5f9 12px, #f1f5f9 24px)'
@@ -674,7 +736,7 @@ export function AgendaWeeklyGrid({
                 }
               >
                 {/* Linha "Agora" em Tempo Real (se for o dia de hoje) */}
-                {isCurrentDay && showNowLine && !isDayBlocked && (
+                {isCurrentDay && showNowLine && !isEffectivelyClosed && (
                   <div
                     style={{ top: `${nowTopPosition}px` }}
                     className="absolute left-0 right-0 z-20 border-t-2 border-red-500 pointer-events-none flex items-center"
@@ -683,14 +745,45 @@ export function AgendaWeeklyGrid({
                   </div>
                 )}
 
-                {/* Badge de Dia Inteiro Bloqueado */}
-                {isDayBlocked && (
+                {/* Badge de Dia Fechado ou Bloqueado */}
+                {isEffectivelyClosed && (
                   <div className="absolute inset-x-1 top-2 z-10 flex justify-center pointer-events-none">
                     <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-200/90 text-slate-500 border border-slate-300/70 shadow-2xs">
-                      Dia Bloqueado
+                      {isBlockedByBlock ? 'Dia Bloqueado' : 'Fechado'}
                     </span>
                   </div>
                 )}
+
+                {/* Horários Livres Clicáveis entre Atendimentos */}
+                {!isEffectivelyClosed &&
+                  freeSlots.map((slot) => {
+                    const slotTop = ((slot.startMinutes - DAY_START_MINUTES) / 60) * hourHeight;
+                    const slotHeight = Math.max(18, (30 / 60) * hourHeight - 2);
+
+                    return (
+                      <div
+                        key={`free-${slot.timeStr}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSlotClick(dateStr, slot.timeStr, col.professionalId);
+                        }}
+                        style={{
+                          top: `${slotTop + 1}px`,
+                          height: `${slotHeight}px`,
+                          left: '2px',
+                          right: '2px'
+                        }}
+                        className="absolute z-5 rounded border border-dashed border-slate-200/80 hover:border-emerald-500/70 bg-slate-50/20 hover:bg-emerald-50/50 transition-all flex items-center justify-center cursor-pointer group/slot"
+                        title={`Horário Livre: ${slot.timeStr} (Clique para agendar)`}
+                      >
+                        <span className="text-[8.5px] sm:text-[9px] font-mono font-medium text-slate-400 group-hover/slot:text-emerald-700 transition-colors flex items-center gap-1 select-none">
+                          <span className="text-[10px] font-bold text-slate-300 group-hover/slot:text-emerald-600">+</span>
+                          <span>{slot.timeStr}</span>
+                          <span className="hidden sm:inline text-[7.5px] uppercase font-bold text-slate-300 group-hover/slot:text-emerald-600">Livre</span>
+                        </span>
+                      </div>
+                    );
+                  })}
 
                 {/* Eventos Posicionados de Forma Absoluta */}
                 {layoutItems.map((evt) => {
@@ -740,7 +833,7 @@ export function AgendaWeeklyGrid({
                   }
 
                   // ==========================================
-                  // 2. AGENDAMENTO NORMAL
+                  // 2. AGENDAMENTO NORMAL (Formato Horário | Nome do Cliente e dados ricos)
                   // ==========================================
                   if (evt.type === 'appointment' && evt.rawAppointment) {
                     const appt = evt.rawAppointment;
@@ -783,23 +876,37 @@ export function AgendaWeeklyGrid({
                         }`}
                         title={`${appt.startTime} - ${appt.client?.name || 'Cliente'} (${serviceName})`}
                       >
-                        {/* Linha 1: Horário e Nome da Cliente na Mesma Linha */}
-                        <div className="flex items-baseline gap-1.5 min-w-0 leading-tight">
-                          <span className="text-[9px] sm:text-[9.5px] font-mono font-bold shrink-0 opacity-95">
+                        {/* Linha 1: Horário | Nome da Cliente (Exato padrão solicitado) */}
+                        <div className="flex items-baseline gap-1 min-w-0 leading-tight">
+                          <span className="text-[9px] sm:text-[9.5px] font-mono font-extrabold shrink-0">
                             {appt.startTime}
                           </span>
-                          <span className="text-[8px] opacity-40 shrink-0">•</span>
+                          <span className="text-[8.5px] sm:text-[9px] font-bold opacity-60 shrink-0">|</span>
                           <span className="text-[9.5px] sm:text-[10.5px] font-extrabold truncate">
                             {appt.client?.name || 'Cliente'}
                           </span>
                         </div>
 
-                        {/* Linha 2: Procedimento / Serviço Mais Embaixo com Espaço (Respiro) */}
+                        {/* Linha 2: Procedimento / Serviço */}
                         {!isUltraCompact && (
-                          <div className="mt-1 sm:mt-1.5 pt-0.5 border-t border-current/10 min-w-0">
-                            <span className="text-[8px] sm:text-[9px] uppercase font-bold tracking-tight block truncate opacity-90">
+                          <div className="mt-0.5 min-w-0">
+                            <span className="text-[8px] sm:text-[8.5px] uppercase font-bold tracking-tight block truncate opacity-90">
                               {serviceName}
                             </span>
+                          </div>
+                        )}
+
+                        {/* Linha 3: Profissional e Preço (para preencher espaço em cards maiores) */}
+                        {height >= 48 && (
+                          <div className="mt-auto pt-1 flex items-center justify-between text-[8px] sm:text-[8.5px] opacity-90 border-t border-current/15 leading-none">
+                            <span className="font-semibold truncate">
+                              {appt.professional?.name ? appt.professional.name.split(' ')[0] : ''}
+                            </span>
+                            {appt.totalPrice ? (
+                              <span className="font-bold shrink-0">
+                                R$ {Number(appt.totalPrice).toFixed(0)}
+                              </span>
+                            ) : null}
                           </div>
                         )}
                       </div>

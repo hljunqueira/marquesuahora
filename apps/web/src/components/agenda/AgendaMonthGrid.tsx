@@ -218,29 +218,25 @@ export function AgendaMonthGrid({
                       className="p-1 sm:p-1.5 rounded-lg bg-white hover:bg-slate-50/90 text-left border border-slate-200/80 shadow-2xs transition-all hover:scale-[1.01] hover:shadow-xs cursor-pointer group/item relative overflow-hidden"
                       title={`${appt.startTime} - ${clientFullName} | ${serviceName}${profName ? ` (${profName})` : ''}`}
                     >
-                      {/* Topo: Horário bem menor + Profissional que atende (ex: Laura / Ana) */}
-                      <div className="flex items-center justify-between gap-1 text-[8.5px] leading-tight text-slate-500 font-mono">
-                        <span className="font-bold shrink-0 text-slate-600">
+                      {/* Topo: Horário | Nome do Cliente */}
+                      <div className="flex items-baseline gap-1 text-[9.5px] leading-tight min-w-0">
+                        <span className="font-mono font-extrabold shrink-0 text-slate-800 text-[9px]">
                           {appt.startTime}
                         </span>
+                        <span className="font-bold opacity-40 shrink-0 text-[8.5px]">|</span>
+                        <span className="font-extrabold truncate text-slate-900 text-[10px] sm:text-[10.5px]">
+                          {clientFullName}
+                        </span>
+                      </div>
+
+                      {/* Base: Procedimento / Serviço e Profissional */}
+                      <div className="flex items-center justify-between gap-1 text-[8.5px] text-slate-600 truncate leading-tight mt-0.5">
+                        <span className="truncate font-semibold">{serviceName}</span>
                         {profName && (
-                          <span
-                            className="truncate text-slate-400 font-sans font-medium text-[8px] max-w-[65px]"
-                            title={`Profissional: ${profName}`}
-                          >
+                          <span className="truncate text-slate-400 font-medium text-[8px] shrink-0">
                             {profName}
                           </span>
                         )}
-                      </div>
-
-                      {/* Meio: Nome da cliente em negrito embaixo do horário */}
-                      <div className="mt-0.5 truncate font-extrabold text-[10px] sm:text-[11px] text-slate-900 leading-snug">
-                        {clientFullName}
-                      </div>
-
-                      {/* Base: Procedimento / Serviço (ex: 'Pé', 'Mão', 'Alongamento') */}
-                      <div className="text-[9px] font-semibold text-slate-600 truncate leading-tight mt-0.5">
-                        {serviceName}
                       </div>
                     </div>
                   );
