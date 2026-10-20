@@ -122,4 +122,27 @@ describe('Motor Puro de Cálculo de Horários (calculateAvailableSlots)', () => 
     expect(times).toContain('14:00');
     expect(times).toContain('14:30');
   });
+
+  it('deve disponibilizar horário imediatamente após agendamento que terminou em horário quebrado (ex: 14:45)', () => {
+    const slots = calculateAvailableSlots({
+      dateStr: '2026-10-20',
+      totalDurationMinutes: 60,
+      slotIntervalMinutes: 30,
+      windows: defaultWindows,
+      bookings: [
+        {
+          startTime: '13:30',
+          endTime: '14:45',
+          professionalId: 'prof-1'
+        }
+      ]
+    });
+
+    const times = slots.map((s) => s.time);
+    // 14:45 deve estar disponível para agendar exatamente na sequência da cliente anterior!
+    expect(times).toContain('14:45');
+    expect(times).not.toContain('14:00');
+    expect(times).not.toContain('14:30');
+    expect(times).toContain('15:00');
+  });
 });

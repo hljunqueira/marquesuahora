@@ -92,7 +92,24 @@ export function calculateAvailableSlots(options: SlotCalculationOptions): Calcul
 
     const step = roundSlotStarts ? 60 : slotIntervalMinutes;
 
+    // Coleciona pontos de partida:
+    // 1. Grade regular (ex: de 30 em 30 min)
+    // 2. Términos de agendamentos existentes (para permitir agendar imediatamente na sequência!)
+    const candidateStarts = new Set<number>();
     for (let slotMins = startSlot; slotMins + totalDurationMinutes <= winEndMins; slotMins += step) {
+      candidateStarts.add(slotMins);
+    }
+    for (const bk of bookings) {
+      if (!win.professionalId || bk.professionalId === win.professionalId) {
+        const bkEnd = parseTimeToMinutes(bk.endTime);
+        if (bkEnd >= winStartMins && bkEnd + totalDurationMinutes <= winEndMins) {
+          candidateStarts.add(bkEnd);
+        }
+      }
+    }
+    const sortedStarts = Array.from(candidateStarts).sort((a, b) => a - b);
+
+    for (const slotMins of sortedStarts) {
       // Bloqueia horários no passado se for hoje
       if (nowMinutesToday !== null && slotMins < nowMinutesToday) {
         continue;

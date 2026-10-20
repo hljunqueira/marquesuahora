@@ -502,16 +502,33 @@ export default function AgendamentosPage() {
 
                         {/* Data & Horário */}
                         <td className="py-2 px-3 whitespace-nowrap">
-                          <div className="flex items-center gap-1 font-bold text-slate-900 text-xs">
-                            <Calendar className="w-3 h-3 text-purple-600 shrink-0" />
-                            <span>{dateDisplay}</span>
-                          </div>
-                          <div className="flex items-center gap-1 text-[10.5px] text-slate-500 font-mono mt-0.5">
-                            <Clock className="w-2.5 h-2.5 text-slate-400 shrink-0" />
-                            <span>
-                              {item.startTime} - {item.endTime} ({item.totalDurationMinutes}m)
-                            </span>
-                          </div>
+                          {(() => {
+                            const servicesSum = item.items && item.items.length > 0
+                              ? item.items.reduce((acc: number, it: any) => acc + (it.service?.durationMinutes || 0), 0)
+                              : 0;
+                            const dur = servicesSum > 0 ? servicesSum : (item.service?.durationMinutes || item.totalDurationMinutes || 30);
+                            const endT = (() => {
+                              if (!item.startTime) return item.endTime || '';
+                              const [h, m] = item.startTime.split(':').map(Number);
+                              if (isNaN(h)) return item.endTime || '';
+                              const endMin = h * 60 + (m || 0) + dur;
+                              return `${String(Math.floor(endMin / 60) % 24).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+                            })();
+                            return (
+                              <>
+                                <div className="flex items-center gap-1 font-bold text-slate-900 text-xs">
+                                  <Calendar className="w-3 h-3 text-purple-600 shrink-0" />
+                                  <span>{dateDisplay}</span>
+                                </div>
+                                <div className="flex items-center gap-1 text-[10.5px] text-slate-500 font-mono mt-0.5">
+                                  <Clock className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                                  <span>
+                                    {item.startTime} - {endT} ({dur}m)
+                                  </span>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </td>
 
                         {/* Serviço */}

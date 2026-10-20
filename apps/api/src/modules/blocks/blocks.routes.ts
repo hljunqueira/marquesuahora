@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
+import { parseYMDToSafeUtcDate } from '../../utils/date-utils';
 
 const blockInputSchema = z.object({
   professionalId: z.string().uuid().optional().nullable(),
@@ -67,7 +68,7 @@ export const blocksRoutes: FastifyPluginAsync = async (app) => {
       data: {
         tenantId,
         professionalId: data.professionalId || null,
-        date: data.date ? new Date(`${data.date}T00:00:00`) : null,
+        date: data.date ? parseYMDToSafeUtcDate(data.date).targetDate : null,
         dayOfWeek: data.dayOfWeek !== undefined ? data.dayOfWeek : null,
         startTime: data.startTime,
         endTime: data.endTime,

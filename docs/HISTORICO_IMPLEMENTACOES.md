@@ -27,6 +27,36 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
 
 ## 2. Detalhamento Técnico das Implementações
 
+### A.0. Relatório Integrado 360° com BI, Exportação Exclusiva em PDF e Sidebar Reorganizado
+- **Arquivos Backend**:
+  - `apps/api/src/modules/reports/reports.routes.ts`
+  - `apps/api/src/app.ts` (registro da rota `/reports`)
+- **Arquivos Frontend**:
+  - `apps/web/src/app/dashboard/relatorios/page.tsx` (Hub principal de relatórios & BI)
+  - `apps/web/src/components/reports/ReportPeriodSelector.tsx` (Filtro por períodos e datas customizadas)
+  - `apps/web/src/components/reports/ReportPdfExportButton.tsx` (Acionador de exportação PDF via `@media print`)
+  - `apps/web/src/components/reports/ReportPaywallUpgrade.tsx` (Tela de upgrade para planos Solo/Free)
+  - `apps/web/src/components/reports/ReportPrintView.tsx` (Layout vetorial A4 executivo para impressão direta)
+  - `apps/web/src/components/reports/charts/ReportBarChart.tsx` (Gráficos verticais e horizontais em SVG com animação)
+  - `apps/web/src/components/reports/charts/ReportDonutChart.tsx` (Gráfico de rosca com trigometria SVG)
+  - `apps/web/src/components/reports/charts/ReportTrendChart.tsx` (Gráfico de área e tendência temporal)
+  - `apps/web/src/components/reports/tabs/ReportClientsTab.tsx` (Ranking por agendamentos e LTV, badges de fidelidade e WhatsApp)
+  - `apps/web/src/components/reports/tabs/ReportSchedulesTab.tsx` (Dias de pico, horários e canais de origem)
+  - `apps/web/src/components/reports/tabs/ReportServicesTab.tsx` (Volume, faturamento e horas por procedimento)
+  - `apps/web/src/components/reports/tabs/ReportFinancialTab.tsx` (Faturamento bruto, meios de pagamento e sinal PIX)
+  - `apps/web/src/components/reports/tabs/ReportTeamTab.tsx` (Produção, comissões a pagar e retenção do espaço)
+  - `apps/web/src/components/reports/tabs/ReportProductsTab.tsx` (Revenda, avaliação de estoque e alertas de reposição)
+  - `apps/web/src/components/reports/tabs/ReportCoursesTab.tsx` (Matrículas, conclusões e engajamento)
+  - `apps/web/src/components/reports/tabs/ReportReputationTab.tsx` (NPS com faixas de satisfação e comentários)
+  - `apps/web/src/app/dashboard/layout.tsx` (Reorganização em 4 grupos, botão sutil de recolher e correção de destaque duplo)
+- **Regras de Negócio e Destaques**:
+  - **Exclusividade Equipe Pro**: Acesso restrito a assinantes do plano `EQUIPE_PRO` ou cortesia VIP, com paywall executivo de conversão para os demais planos.
+  - **Exportação Exclusiva em PDF**: Vetorial, sem distorção e sem dependências pesadas de terceiros (usando `@media print` A4 nativo).
+  - **Reorganização do Sidebar**: 4 categorias semânticas (ATENDIMENTO, GESTÃO & CLIENTES, NEGÓCIO & EQUIPE, SISTEMA).
+  - **Eliminação do Bug de Destaque Duplo**: `pathname === '/dashboard'` corrigido para correspondência exata, separando de `/dashboard/agenda`.
+  - **Sidebar Recolhível**: Botão discreto `PanelLeftClose`/`PanelLeftOpen` com persistência em `localStorage` e transição fluida.
+  - **Diretriz de Design**: Zero ícones decorativos e sem emojis ornamentais, com tipografia sóbria e ícones 100% funcionais.
+
 ### A. Agenda Semanal Compacta & Horários Livres
 - **Arquivos**:
   - `apps/web/src/components/agenda/AgendaWeeklyGrid.tsx`
@@ -198,6 +228,46 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
     - `booking.service.ts` & `schedules.routes.ts`: `targetDate`, filtros de `startDate`/`endDate` e cálculo de `dashboard-summary` blindados contra saltos de fuso na VPS.
     - Painel Administrativo (`agendamentos/page.tsx`, `dashboard/page.tsx`, `AgendaAppointmentModal.tsx`, `AgendaAppointmentDetailsModal.tsx`, `AgendaBlockModal.tsx`): Todos os pontos com `toISOString()` convertidos para `formatLocalDateToYMD` e `getWeekDays`.
 
+- **Fase 12: Alinhamento da Agenda (Mês, Semana e Dia), Smart Free Time Gaps, Captura 404 de Lead e SVG Oficial do WhatsApp**:
+  - **Alinhamento do Header da Agenda (`AgendaHeader.tsx`)**: Reestruturado em duas faixas horizontais simétricas e niveladas (Tier 1: Navegação, Datas, [Mês | Semana | Dia], Seletor de Equipe; Tier 2: Previsão Financeira, Total de Atendimentos, Legenda de Cores de Status, Botão Bloquear Horário e Botão Novo Agendamento).
+  - **Consistência de Dias Fechados no Mês, Semana e Dia**: Dias fechados por regras de disponibilidade do estabelecimento (`availabilityRules`) agora recebem o mesmo tratamento no Mês e no Dia que já tinham na Semana (fundo cinza hachurado `repeating-linear-gradient`, badge "Fechado" e remoção de slots fictícios de agendamento).
+  - **Correção do Corte do Rótulo 07:00**: O primeiro marcador de hora da régua vertical agora utiliza `translate-y-0` e alinhamento compensado, eliminando o corte pelo `overflow-y-auto` e a sobreposição com a linha de "dia todo".
+  - **Motor de Janelas Livres Inteligentes ("Smart Free Time Gaps")**: Substituídos os dezenas de botões repetitivos de `+ XX:XX LIVRE` a cada 30min por cards consolidados calculados dinamicamente (`computeDayFreeGaps`), exibindo o tempo contínuo real disponível (ex: "2 horas livres até o próximo atendimento" ou "6h30 livres até o 1º atendimento") com clique inteligente em qualquer posição.
+  - **Endpoint de Validação de Links no Backend (`GET /check-slug/:slug`)**: Verificação em tempo real de slugs disponíveis, reservados e ocupados por estabelecimentos cadastrados.
+  - **Página de Captura 404 de Lead Catcher (`SlugClaim404Page.tsx`)**: Quando um link de vitrine (`/[slug]`) não existe no banco, exibe página de alta conversão no Design System oficial com os pilares anti-falta da plataforma e CTA para reivindicar o link exclusivo em `/cadastro?slug={slug}`.
+  - **Pré-preenchimento Inteligente no Cadastro (`/cadastro?slug=...`)**: O formulário de onboarding captura o parâmetro da URL, reserva o slug e exibe confirmação visual de "Link reservado para o seu cadastro!".
+  - **SVG Oficial do WhatsApp com Proporções Meta (`WhatsAppIcon.tsx`)**: Variante oficial (`variant="official"`) com círculo verde `#25D366` e telefone branco, integrada no botão flutuante da vitrine pública (`[slug]/page.tsx`), no cabeçalho panorâmico (`ShowcaseHeader.tsx`), nos cards de produtos (`ShowcaseProducts.tsx`) e nos cursos (`ShowcaseCourses.tsx`).
+
+- **Fase 13: Brandkit Oficial, Logo Oficial Sem Fundo, Tabela de Planos & UX Mobile Nativa**:
+  - **Logo Oficial & Identidade Visual (`SlugClaim404Page.tsx`)**: Substituído o ícone M improvisado pela imagem oficial da marca `/brand/logooficial-semfundo.png` com proporções responsivas, contraste sóbrio e paleta bordô `#5c0701` / `#480501` do brandkit.
+  - **Apresentação dos Planos & Opção Gratuita**:
+    - Removidas mensagens de trial temporário ("15 dias grátis") e adicionada comunicação transparente da precificação da plataforma.
+    - Destaque claro de que profissionais com poucos clientes ou que desejam testar o sistema podem se cadastrar gratuitamente no **Plano Gratuito** (até 30 agendamentos por mês sem custo).
+    - Apresentação completa e comparativa dos planos **Plano Gratuito (R$ 0,00/mês)**, **Profissional Solo (R$ 49,99/mês)** e **Equipe Pro (R$ 99,99/mês)**, com CTAs parametrizados para `/cadastro?slug={slug}&plan={plan}` e ênfase no repasse de 100% do sinal PIX direto para a conta do assinante.
+  - **Menu Mobile Exclusivo na Base (`apps/web/src/app/dashboard/layout.tsx`)**:
+    - Removido o menu hambúrguer duplicado do topo no mobile, unificando o cabeçalho em Logo Oficial + Nome do Estabelecimento + Central de Notificações.
+    - Transformado o menu mobile em um **Bottom Sheet** nativo com animação fluida da base da tela, backdrop escuro com blur e safe area padding para iPhone 17 (`safe-area-inset-bottom`), eliminando qualquer sobreposição invasiva.
+  - **Blindagem da Agenda no Mobile (`AgendaWeeklyGrid.tsx`)**:
+    - Ajustado o container de rolagem vertical para `max-h-[calc(100dvh-230px)]` com suporte a `touch-pan-y` e folga de rodapé `pb-32`, impedindo que os últimos horários do dia (20:00, 21:00) fiquem ocultos atrás da barra inferior.
+    - Nos modais de agendamento (`AgendaAppointmentModal.tsx` e `AgendaAppointmentDetailsModal.tsx`), quando o dia selecionado for fechado, exibe aviso claro de estabelecimento fechado com compensação de safe area no rodapé.
+
+
+- **Fase 14: Correções e Refinamentos da Agenda, Fuso de Bloqueios, Cores de Procedimentos e Suporte Cross-Origin a Fotos**:
+  - **Correção do Fuso de Bloqueios/Folgas (Dia 21 -> Dia 20)**: Normalizado o armazenamento com `parseYMDToSafeUtcDate(data.date).targetDate` em `apps/api/src/modules/blocks/blocks.routes.ts` e leitura no frontend sem conversão indevida para `Date` local UTC em `AgendaWeeklyGrid.tsx` e `AgendaMonthGrid.tsx`, eliminando o desvio de fuso (UTC-3).
+  - **Eliminação da Mensagem "Informe o slug ou tenantId." no Modal de Detalhes**:
+    - No frontend (`AgendaAppointmentDetailsModal.tsx`), adicionada resolução completa do `tenantId` com múltiplos fallbacks (`appointment.tenantId`, `service.tenantId`, `tenant_data`, `@marcatuahora:tenant`, `tenant_id`, `user_data`), além de filtro no `catch` para nunca vazar mensagens internas de validação para a UI.
+    - No backend (`apps/api/src/modules/schedules/schedules.routes.ts` e `availability.service.ts`), a rota `/schedules/availability` extrai o `tenantId` do token JWT do usuário autenticado e possui fallback para tenant único, garantindo que horários livres sempre apareçam na remarcação do dashboard.
+    - Adicionado suporte a `excludeScheduleId` para não conflitar com o próprio atendimento ao reagendar.
+    - O botão `[ Aplicar ]` de status foi reativado com feedback inline amigável e persistência em tempo real.
+  - **Remoção de Foto do Procedimento**: Removida a seção de upload de fotos de serviços em `apps/web/src/app/dashboard/servicos/page.tsx`, mantendo a configuração de procedimentos focada em categoria, preço, duração e cor.
+  - **Correção de Fotos da Galeria no Mobile (Safari iOS / CORP)**: Configurado Helmet com `crossOriginResourcePolicy: { policy: 'cross-origin' }` em `apps/api/src/plugins/security.ts`, cabeçalhos explícitos `Access-Control-Allow-Origin: *` em `apps/api/src/modules/upload/upload.routes.ts`, e sanitização de URLs em `apps/web/src/lib/imageUrl.ts` para promover URLs para HTTPS em produção.
+  - **Identificação Visual por Cores de Procedimento e Bolinha de Status**:
+    - No `AgendaMonthGrid.tsx` e `AgendaWeeklyGrid.tsx`, os cards de agendamento passaram a adotar a cor do procedimento (`service.color`) como cor de identificação primária.
+    - O status do atendimento passou a ser exibido através de uma bolinha indicadora circular (`w-2 h-2 rounded-full`) ao lado do horário de início.
+  - **Horários de Expediente e Agendamento em Dias Fechados**:
+    - As janelas livres do `AgendaWeeklyGrid.tsx` agora respeitam o horário configurado nas regras de funcionamento (`getDayWorkingHours`), em vez de iniciar compulsoriamente às 07:00.
+    - Profissionais podem clicar em colunas de dias fechados para realizar encaixes manuais sem impedimento da interface.
+
 ---
 
 ## 3. Estado Atual do Repositório Git
@@ -207,4 +277,5 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
   - `apps/api`: **0 erros**.
   - `apps/web`: **0 erros**.
 - **Testes Unitários da API (`vitest run`)**: Todos os **94 testes unitários** aprovados com 100% de sucesso.
-- **Ambiente de Produção**: Totalmente atualizado na VPS `23.80.89.116` com Caddy HTTPS e Docker Compose.
+- **Ambiente de Produção**: Pronto para deploy na VPS `23.80.89.116`.
+

@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react';
 import Image from 'next/image';
-import { ShoppingBag, Package, MessageCircle, Check } from 'lucide-react';
+import { ShoppingBag, Package, Check } from 'lucide-react';
 import { resolveImageUrl } from '@/lib/imageUrl';
+import { WhatsAppIcon } from '../icons/WhatsAppIcon';
 import { ProductItem, TenantShowcase } from './types';
 
 interface ShowcaseProductsProps {
@@ -142,10 +143,10 @@ export function ShowcaseProducts({ tenant }: ShowcaseProductsProps) {
                   href={buyUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/70 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-800 bg-white hover:bg-emerald-50 border border-emerald-200 transition-colors shadow-2xs"
                   title="Reservar este produto pelo WhatsApp"
                 >
-                  <MessageCircle className="w-3.5 h-3.5" />
+                  <WhatsAppIcon variant="official" size={14} />
                   <span>Reservar</span>
                 </a>
               </div>

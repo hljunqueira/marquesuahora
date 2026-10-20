@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import {
   Loader2,
@@ -13,6 +13,7 @@ import {
   Camera
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useQueryInvalidation } from '@/lib/queryEvents';
 import { TenantShowcase } from '@/components/showcase/types';
 import { ShowcaseHeader } from '@/components/showcase/ShowcaseHeader';
 import { ShowcaseGallery } from '@/components/showcase/ShowcaseGallery';
@@ -21,6 +22,8 @@ import { ShowcaseCourses } from '@/components/showcase/ShowcaseCourses';
 import { ShowcaseProducts } from '@/components/showcase/ShowcaseProducts';
 import { BookingWizard } from '@/components/showcase/BookingWizard';
 import { ClientPortalModal } from '@/components/showcase/ClientPortalModal';
+import { SlugClaim404Page } from '@/components/showcase/SlugClaim404Page';
+import { WhatsAppIcon } from '@/components/icons/WhatsAppIcon';
 
 type ShowcaseTab = 'BOOKING' | 'GALLERY' | 'PRODUCTS' | 'COURSES' | 'ABOUT';
 
@@ -34,35 +37,39 @@ export default function PublicShowcasePage() {
   const [isPortalOpen, setIsPortalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ShowcaseTab>('BOOKING');
 
-  useEffect(() => {
-    if (!slug) return;
+  const fetchShowcaseData = useCallback(
+    async (silent = false) => {
+      if (!slug) return;
+      if (!silent) {
+        setLoading(true);
+        setError(null);
+      }
 
-    let isMounted = true;
-    setLoading(true);
-    setError(null);
-
-    // Busca dados reais diretamente da API do estabelecimento (sem dados fictícios/hardcoded)
-    api
-      .get(`/public/showcase/${slug}`)
-      .then((res) => {
-        if (!isMounted) return;
+      try {
+        const res = await api.get(`/public/showcase/${slug}`);
         setTenant(res.data);
-      })
-      .catch((err) => {
-        if (!isMounted) return;
-        setError(
-          err?.response?.data?.message ||
-            'Estabelecimento não localizado. Verifique o link digitado.'
-        );
-      })
-      .finally(() => {
-        if (isMounted) setLoading(false);
-      });
+      } catch (err: any) {
+        if (!silent) {
+          setError(
+            err?.response?.data?.message ||
+              'Estabelecimento não localizado. Verifique o link digitado.'
+          );
+        }
+      } finally {
+        if (!silent) setLoading(false);
+      }
+    },
+    [slug]
+  );
 
-    return () => {
-      isMounted = false;
-    };
-  }, [slug]);
+  useEffect(() => {
+    fetchShowcaseData(false);
+  }, [fetchShowcaseData]);
+
+  // Sincronização em tempo real quando houver alterações de categorias/serviços/configurações
+  useQueryInvalidation(['showcase', 'categories', 'services', 'tenant'], () => {
+    fetchShowcaseData(true);
+  });
 
   const scrollToBooking = () => {
     setActiveTab('BOOKING');
@@ -84,19 +91,7 @@ export default function PublicShowcasePage() {
   }
 
   if (error || !tenant) {
-    return (
-      <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center p-4 text-center">
-        <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-3">
-          <AlertCircle className="w-7 h-7" />
-        </div>
-        <h1 className="text-xl font-bold text-slate-900 mb-1">
-          Estabelecimento não encontrado
-        </h1>
-        <p className="text-xs text-slate-500 max-w-sm mb-6">
-          {error || 'Verifique o link digitado ou entre em contato com o profissional responsável.'}
-        </p>
-      </div>
-    );
+    return <SlugClaim404Page slug={slug} />;
   }
 
   const brandColor = tenant.primaryColor || '#5c0701';
@@ -282,7 +277,7 @@ export default function PublicShowcasePage() {
         )}
       </main>
 
-      {/* Botão Flutuante de WhatsApp para Dúvidas */}
+      {/* Botão Flutuante Oficial de WhatsApp para Dúvidas Rápidas */}
       {tenant.phone && (
         <a
           href={`https://wa.me/55${tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(
@@ -290,10 +285,11 @@ export default function PublicShowcasePage() {
           )}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="fixed bottom-5 right-5 z-40 w-12 h-12 rounded-full bg-emerald-500 text-white shadow-floating flex items-center justify-center hover:bg-emerald-600 hover:scale-105 active:scale-95 transition-all"
+          className="fixed bottom-5 right-5 z-40 drop-shadow-xl hover:scale-108 active:scale-95 transition-all duration-200"
           title="Falar no WhatsApp"
+          aria-label="Falar no WhatsApp"
         >
-          <MessageCircle className="w-6 h-6" />
+          <WhatsAppIcon variant="official" size={52} className="block filter drop-shadow-md" />
         </a>
       )}
 

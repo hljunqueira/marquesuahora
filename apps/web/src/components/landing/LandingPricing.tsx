@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Check, ArrowRight } from 'lucide-react';
+import { Check, CheckCircle2, ArrowRight } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export const LandingPricing: React.FC = () => {
@@ -10,11 +10,11 @@ export const LandingPricing: React.FC = () => {
 
   const plans = [
     {
-      name: 'Gratuito',
+      name: 'Plano Gratuito',
       description: 'Ideal para testar e para quem está começando o próprio negócio.',
-      priceMonthly: 'R$ 0',
-      priceAnnual: 'R$ 0',
-      period: 'para sempre',
+      priceMonthly: 'R$ 0,00',
+      priceAnnual: 'R$ 0,00',
+      period: '/mês',
       ctaText: 'Começar grátis',
       ctaHref: '/cadastro?plan=free',
       highlighted: false,
@@ -22,44 +22,48 @@ export const LandingPricing: React.FC = () => {
         'Até 30 agendamentos por mês',
         '1 profissional cadastrado',
         'Link na bio personalizável',
-        'Catálogo de serviços e preços'
+        'Catálogo de serviços e preços',
+        'Central de Suporte Oficial com IA'
       ]
     },
     {
       name: 'Profissional Solo',
-      badge: 'Mais Escolhido',
+      badge: 'MAIS POPULAR',
       description: 'Para profissionais autônomas que vivem de hora marcada e não podem perder tempo.',
-      priceMonthly: 'R$ 39',
-      priceAnnual: 'R$ 31',
+      priceMonthly: 'R$ 49,99',
+      priceAnnual: 'R$ 39,99',
       period: '/mês',
-      ctaText: 'Começar teste gratuito',
+      ctaText: 'Começar agora',
       ctaHref: '/cadastro?plan=solo',
       highlighted: true,
       features: [
         'Agendamentos ilimitados',
         '1 profissional cadastrado',
-        'Lembretes automáticos no WhatsApp',
-        'Módulo de Cursos Online para alunas',
-        'Proteção No-Show (anti-faltas)',
-        'Galeria de fotos de trabalhos'
+        'Automações de WhatsApp (Lembretes & Confirmações)',
+        'Proteção Anti-Falta (Sinal PIX Direto)',
+        'Central de Suporte Oficial com IA',
+        'Galeria de fotos de procedimentos',
+        'Sem fidelidade (cancele quando quiser)'
       ]
     },
     {
       name: 'Equipe Pro',
+      badge: 'PARA SALÕES & EQUIPES',
       description: 'Para salões, barbearias e estúdios com múltiplos atendentes e cadeiras.',
-      priceMonthly: 'R$ 79',
-      priceAnnual: 'R$ 63',
+      priceMonthly: 'R$ 99,99',
+      priceAnnual: 'R$ 79,99',
       period: '/mês',
-      ctaText: 'Começar teste gratuito',
+      ctaText: 'Começar agora',
       ctaHref: '/cadastro?plan=equipe',
       highlighted: false,
       features: [
         'Agendamentos ilimitados',
         'Até 5 profissionais na equipe',
-        'Grades individuais de horários',
-        'Lembretes no WhatsApp para todos',
-        'Cursos e vídeos para alunas',
-        'Relatórios de atendimentos por profissional'
+        'Copiloto IA (Comandos de Voz & Texto)',
+        'Lembretes automáticos no WhatsApp',
+        'Módulo de Cursos Online para alunas',
+        'Central de Suporte Oficial com IA',
+        'Cálculo de Comissões e Relatórios'
       ]
     }
   ];
@@ -132,7 +136,13 @@ export const LandingPricing: React.FC = () => {
               }`}
             >
               {p.badge && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full bg-purple-600 text-white text-xs font-bold shadow-sm">
+                <div
+                  className={`absolute -top-4 left-1/2 -translate-x-1/2 px-4 py-1.5 rounded-full text-xs font-black tracking-wider uppercase shadow-2xs border ${
+                    p.name === 'Equipe Pro'
+                      ? 'bg-purple-100 text-purple-700 border-purple-200'
+                      : 'bg-slate-100 text-slate-700 border-slate-200'
+                  }`}
+                >
                   {p.badge}
                 </div>
               )}
@@ -155,12 +165,27 @@ export const LandingPricing: React.FC = () => {
                     O que está incluso:
                   </div>
                   <ul className="space-y-3">
-                    {p.features.map((f) => (
-                      <li key={f} className="flex items-start gap-3 text-sm sm:text-base text-zinc-700 font-medium">
-                        <Check className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                        <span>{f}</span>
-                      </li>
-                    ))}
+                    {p.features.map((f) => {
+                      const isHighlighted =
+                        f.includes('Central de Suporte') ||
+                        f.includes('Copiloto IA') ||
+                        (p.name === 'Equipe Pro' && f.includes('Lembretes'));
+                      return (
+                        <li
+                          key={f}
+                          className={`flex items-start gap-3 text-sm sm:text-base ${
+                            isHighlighted ? 'text-purple-950 font-bold' : 'text-zinc-700 font-medium'
+                          }`}
+                        >
+                          <CheckCircle2
+                            className={`w-5 h-5 shrink-0 mt-0.5 ${
+                              isHighlighted ? 'text-purple-600' : 'text-emerald-600'
+                            }`}
+                          />
+                          <span>{f}</span>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               </div>

@@ -18,6 +18,43 @@ import { NotificationDispatcherService } from '../notifications/dispatcher.servi
 import { parseTimeToMinutes, formatMinutesToTime } from '@marquesuahora/shared';
 import { getBrazilTodayYMD, parseYMDToSafeUtcDate } from '../../utils/date-utils';
 
+function normalizeScheduleTimes<T extends {
+  startTime?: string | null;
+  endTime?: string | null;
+  totalDurationMinutes?: number | null;
+  service?: { durationMinutes?: number | null } | null;
+  items?: Array<{ service?: { durationMinutes?: number | null } | null }> | null;
+}>(schedule: T): T {
+  if (!schedule) return schedule;
+
+  const startMin = schedule.startTime ? parseTimeToMinutes(schedule.startTime) : NaN;
+  const parsedEnd = schedule.endTime ? parseTimeToMinutes(schedule.endTime) : NaN;
+  const diffFromEnd = (!isNaN(startMin) && !isNaN(parsedEnd) && parsedEnd > startMin)
+    ? parsedEnd - startMin
+    : 0;
+
+  const servicesSumDuration = schedule.items && schedule.items.length > 0
+    ? schedule.items.reduce((sum: number, it: any) => sum + (it.service?.durationMinutes || (it as any).durationMinutes || 0), 0)
+    : 0;
+
+  const effectiveDuration = diffFromEnd > 0
+    ? diffFromEnd
+    : (servicesSumDuration > 0
+        ? servicesSumDuration
+        : (schedule.totalDurationMinutes || schedule.service?.durationMinutes || 30));
+
+  let effectiveEndTime = schedule.endTime;
+  if (!isNaN(startMin)) {
+    effectiveEndTime = formatMinutesToTime(startMin + effectiveDuration);
+  }
+
+  return {
+    ...schedule,
+    totalDurationMinutes: effectiveDuration,
+    endTime: effectiveEndTime || schedule.endTime
+  };
+}
+
 export const schedulesRoutes: FastifyPluginAsync = async (app) => {
   // =========================================================================
   // ROTAS PÚBLICAS (Cálculo de slots para a Vitrine)
@@ -28,14 +65,23 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
     const querySchema = z.object({
       tenantId: z.string().uuid().optional(),
       slug: z.string().optional(),
-      serviceIds: z.string().transform((v) => v.split(',').filter(Boolean)),
+      serviceIds: z.string().optional().transform((v) => (v ? v.split(',').filter(Boolean) : [])),
       date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data deve estar no formato AAAA-MM-DD.'),
-      professionalId: z.string().uuid().optional()
+      professionalId: z.string().uuid().optional(),
+      excludeScheduleId: z.string().uuid().optional()
     });
 
     const query = querySchema.parse(request.query);
 
     let tenantId = query.tenantId || (request.user as any)?.tenantId;
+    if (!tenantId) {
+      try {
+        const decoded: any = await request.jwtVerify();
+        if (decoded?.tenantId) {
+          tenantId = decoded.tenantId;
+        }
+      } catch {}
+    }
     if (!tenantId && query.slug) {
       const tenant = await prisma.tenant.findUnique({
         where: { slug: query.slug.toLowerCase() },
@@ -48,14 +94,21 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     if (!tenantId) {
-      return reply.status(400).send({ error: 'Inválido', message: 'Informe o slug ou tenantId.' });
+      // Fallback de segurança para requisições internas de tenant único
+      const firstTenant = await prisma.tenant.findFirst({ select: { id: true } });
+      if (firstTenant) {
+        tenantId = firstTenant.id;
+      } else {
+        return reply.status(400).send({ error: 'Inválido', message: 'Informe o slug ou tenantId.' });
+      }
     }
 
     const availability = await AvailabilityService.getAvailableSlots({
       tenantId,
       serviceIds: query.serviceIds,
       dateStr: query.date,
-      professionalId: query.professionalId
+      professionalId: query.professionalId,
+      excludeScheduleId: query.excludeScheduleId
     });
 
     return reply.send(availability);
@@ -205,7 +258,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         monthRevenue,
         noShowRatePercent,
         activeClientsCount,
-        nextAppointments: nextAppointments.map((a) => ({
+        nextAppointments: nextAppointments.map(normalizeScheduleTimes).map((a) => ({
           id: a.id,
           date: a.date.toISOString().slice(0, 10),
           time: a.startTime,
@@ -296,7 +349,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         page: query.page,
         limit: query.limit,
         totalPages: Math.ceil(total / query.limit),
-        data
+        data: data.map(normalizeScheduleTimes)
       });
     });
 
@@ -359,7 +412,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         orderBy: [{ date: 'asc' }, { startTime: 'asc' }]
       });
 
-      return reply.send(schedules);
+      return reply.send(schedules.map(normalizeScheduleTimes));
     });
 
     // POST /schedules - Criar agendamento manual (Recepção / Balcão)
@@ -431,15 +484,6 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
 
       if (!existing) {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
-      }
-
-      // Validação das transições: Status realmente finais não voltam
-      const finalStatuses: ScheduleStatus[] = [ScheduleStatus.COMPLETED, ScheduleStatus.CANCELLED];
-      if (finalStatuses.includes(existing.status) && existing.status !== newStatus) {
-        return reply.status(400).send({
-          error: 'Transição Inválida',
-          message: `Agendamentos no status "${existing.status}" não podem ser alterados.`
-        });
       }
 
       // Se estava como NO_SHOW e foi retificado para outro status (ex: cliente chegou atrasado ou engano)
@@ -871,18 +915,23 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
       const body = editSchema.parse(request.body);
 
       const existing = await prisma.schedule.findFirst({
-        where: { id, tenantId }
+        where: { id, tenantId },
+        include: { service: true, items: { include: { service: true } } }
       });
 
       if (!existing) {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
       }
 
-      // Calcula novo horário e término com base na duração total
-      const targetDate = body.dateStr ? new Date(`${body.dateStr}T00:00:00`) : existing.date;
+      // Calcula novo horário e término com base na duração real dos serviços
+      const targetDate = body.dateStr ? parseYMDToSafeUtcDate(body.dateStr).targetDate : existing.date;
+      const targetDayOfWeek = parseYMDToSafeUtcDate(body.dateStr || existing.date.toISOString().slice(0, 10)).dayOfWeek;
       const targetStartTime = body.startTime || existing.startTime;
       const targetProfessionalId = body.professionalId || existing.professionalId;
-      const duration = existing.totalDurationMinutes || 30;
+      const servicesDuration = existing.items && existing.items.length > 0
+        ? existing.items.reduce((acc, item) => acc + (item.service?.durationMinutes || 0), 0)
+        : (existing.service?.durationMinutes || existing.totalDurationMinutes || 30);
+      const duration = servicesDuration > 0 ? servicesDuration : (existing.totalDurationMinutes || 30);
       const startMinutes = parseTimeToMinutes(targetStartTime);
       const endMinutes = startMinutes + duration;
       const targetEndTime = formatMinutesToTime(endMinutes);
@@ -912,7 +961,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
           where: {
             tenantId,
             isPaused: false,
-            OR: [{ date: targetDate }, { dayOfWeek: targetDate.getDay() }],
+            OR: [{ date: targetDate }, { dayOfWeek: targetDayOfWeek }],
             AND: [
               { OR: [{ professionalId: null }, { professionalId: targetProfessionalId }] },
               { startTime: { lt: targetEndTime }, endTime: { gt: targetStartTime } }

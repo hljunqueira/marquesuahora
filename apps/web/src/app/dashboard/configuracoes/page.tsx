@@ -17,6 +17,7 @@ import {
   FileText
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { invalidateQueries } from '@/lib/queryEvents';
 import { TenantSettings, SettingsTab } from '@/components/settings/types';
 import { SettingsDataTab } from '@/components/settings/SettingsDataTab';
 import { SettingsVisualTab } from '@/components/settings/SettingsVisualTab';
@@ -149,6 +150,7 @@ export default function DashboardConfiguracoesPage() {
 
         window.dispatchEvent(new Event('storage'));
         window.dispatchEvent(new CustomEvent('marquesuahora_tenant_sync', { detail: updated }));
+        invalidateQueries(['tenant', 'showcase'], updated);
       }
       setHasChanges(false);
       showToast('Configurações salvas com sucesso!');

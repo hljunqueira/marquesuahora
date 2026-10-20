@@ -30,7 +30,8 @@ declare module 'fastify' {
 
 const securityPlugin: FastifyPluginAsync = async (app: FastifyInstance) => {
   await app.register(helmet, {
-    contentSecurityPolicy: env.NODE_ENV === 'production'
+    contentSecurityPolicy: env.NODE_ENV === 'production',
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
   });
 
   const allowedOrigins = env.CORS_ORIGINS.split(',').map((o) => o.trim());

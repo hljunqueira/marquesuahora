@@ -28,52 +28,21 @@ import { AiVoiceCommandBar } from '@/components/dashboard/AiVoiceCommandBar';
 import { AgendaAppointmentModal } from '@/components/agenda/AgendaAppointmentModal';
 import { AgendaAppointmentDetailsModal } from '@/components/agenda/AgendaAppointmentDetailsModal';
 import { AppointmentCheckoutModal } from '@/components/agenda/AppointmentCheckoutModal';
+import { WhatsAppIcon } from '@/components/icons/WhatsAppIcon';
+import { StatusColors, getDefaultStatusColors } from '@/components/agenda/AgendaStatusColorPicker';
 import {
   ScheduleAppointment,
   ProfessionalItem,
   ServiceOption
 } from '@/components/agenda/types';
 
-const STATUS_BADGES: Record<
-  string,
-  { label: string; bg: string; text: string; border: string }
-> = {
-  PENDING: {
-    label: 'Pendente',
-    bg: 'bg-amber-50',
-    text: 'text-amber-700',
-    border: 'border-amber-200'
-  },
-  CONFIRMED: {
-    label: 'Confirmado',
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-700',
-    border: 'border-emerald-200'
-  },
-  IN_SERVICE: {
-    label: 'Em Atendimento',
-    bg: 'bg-purple-50',
-    text: 'text-purple-700',
-    border: 'border-purple-200'
-  },
-  COMPLETED: {
-    label: 'Concluído',
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-700',
-    border: 'border-emerald-200'
-  },
-  NO_SHOW: {
-    label: 'Não Compareceu',
-    bg: 'bg-rose-50',
-    text: 'text-rose-700',
-    border: 'border-rose-200'
-  },
-  CANCELLED: {
-    label: 'Cancelado',
-    bg: 'bg-slate-100',
-    text: 'text-slate-600',
-    border: 'border-slate-200'
-  }
+const STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Pendente',
+  CONFIRMED: 'Confirmado',
+  IN_SERVICE: 'Em Atendimento',
+  COMPLETED: 'Concluído',
+  NO_SHOW: 'Não Compareceu',
+  CANCELLED: 'Cancelado'
 };
 
 const WEEKDAY_NAMES = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
@@ -137,7 +106,28 @@ export default function DashboardPage() {
   const [appointments, setAppointments] = useState<ScheduleAppointment[]>([]);
   const [professionals, setProfessionals] = useState<ProfessionalItem[]>([]);
   const [services, setServices] = useState<ServiceOption[]>([]);
+  const [availabilityRules, setAvailabilityRules] = useState<any[]>([]);
+  const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>('');
   const [loading, setLoading] = useState(true);
+
+  // Cores dinâmicas de status da agenda (sincronizadas com o padrão da Agenda)
+  const [statusColors, setStatusColors] = useState<StatusColors>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('marquesuahora_agenda_status_colors');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return getDefaultStatusColors(tenantPrimaryColor);
+  });
+
+  useEffect(() => {
+    const handleStatusSync = (e: any) => {
+      if (e?.detail) setStatusColors(e.detail);
+    };
+    window.addEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+    return () => window.removeEventListener('marquesuahora_status_colors_sync', handleStatusSync);
+  }, []);
 
   // Modais
   const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false);
@@ -191,18 +181,45 @@ export default function DashboardPage() {
     return getWeekDays(currentDate);
   }, [currentDate]);
 
-  // Carrega opções
+  // Carrega opções de profissionais, serviços e regras semanais
   useEffect(() => {
     Promise.all([
       api.get('/professionals').catch(() => ({ data: [] })),
-      api.get('/services').catch(() => ({ data: [] }))
-    ]).then(([profRes, servRes]) => {
+      api.get('/services').catch(() => ({ data: [] })),
+      api.get('/availability-rules').catch(() => ({ data: [] }))
+    ]).then(([profRes, servRes, rulesRes]) => {
       const pList = Array.isArray(profRes.data) ? profRes.data : (profRes.data?.data || []);
       const sList = Array.isArray(servRes.data) ? servRes.data : (servRes.data?.data || []);
+      const rList = Array.isArray(rulesRes.data) ? rulesRes.data : (rulesRes.data?.data || rulesRes.data?.rules || []);
       setProfessionals(Array.isArray(pList) ? pList : []);
       setServices(Array.isArray(sList) ? sList : []);
+      setAvailabilityRules(Array.isArray(rList) ? rList : []);
     });
   }, []);
+
+  // Verifica se o dia está configurado como fechado nas regras de funcionamento
+  const isDayClosedByAvailabilityRule = (d: Date, profId?: string) => {
+    if (!availabilityRules || availabilityRules.length === 0) return false;
+    const dayOfWeek = d.getDay();
+
+    if (profId) {
+      const profRules = availabilityRules.filter(
+        (r: any) => r.professionalId === profId && r.dayOfWeek === dayOfWeek
+      );
+      if (profRules.length > 0) {
+        return profRules.every((r: any) => r.isActive === false || r.isOpen === false);
+      }
+    }
+
+    const generalRules = availabilityRules.filter(
+      (r: any) => !r.professionalId && r.dayOfWeek === dayOfWeek
+    );
+    if (generalRules.length > 0) {
+      return generalRules.every((r: any) => r.isActive === false || r.isOpen === false);
+    }
+
+    return false;
+  };
 
   // Busca agendamentos da semana usando o endpoint otimizado /schedules/calendar
   const fetchWeekAppointments = useCallback(async (silent = false) => {
@@ -214,7 +231,11 @@ export default function DashboardPage() {
 
     try {
       const res = await api.get('/schedules/calendar', {
-        params: { startDate, endDate }
+        params: {
+          startDate,
+          endDate,
+          professionalId: selectedProfessionalId || undefined
+        }
       });
       const list = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.schedules || []);
       setAppointments(Array.isArray(list) ? list : []);
@@ -223,7 +244,7 @@ export default function DashboardPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [weekDays]);
+  }, [weekDays, selectedProfessionalId]);
 
   // Busca indicadores consolidados do mês (Entradas, Saídas, No-Show e Cancelamento)
   const fetchMonthSummary = useCallback(async () => {
@@ -519,66 +540,161 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-2.5">
               {dayAppointments.map((appt) => {
-                const badge =
-                  STATUS_BADGES[appt.status] || STATUS_BADGES.CONFIRMED;
-                const SYSTEM_DEFAULTS = ['#3B82F6', '#7C3AED', '#8B5CF6', '#6D28D9', '#9333EA', '#A855F7', '#C084FC'];
-                const svcColor = appt.service?.color?.trim();
-                const hasCustomSvcColor = svcColor && !SYSTEM_DEFAULTS.includes(svcColor.toUpperCase());
-                const profColor = appt.professional?.color?.trim();
-                const hasCustomProfColor = profColor && !SYSTEM_DEFAULTS.includes(profColor.toUpperCase());
+                // 1. Identificação Visual Autêntica do Procedimento (Cor da borda e badge)
+                const serviceColor =
+                  appt.service?.color?.trim() ||
+                  appt.items?.[0]?.service?.color?.trim() ||
+                  tenantPrimaryColor;
 
-                const procColor = hasCustomSvcColor
-                  ? svcColor
-                  : hasCustomProfColor
-                  ? profColor
-                  : tenantPrimaryColor;
-                const clientFirstName = getFirstName(appt.client?.name);
+                // 2. Cor Dinâmica do Status (Sincronizada com o configurador de cores da agenda)
+                const statusColor =
+                  (statusColors && (statusColors as any)[appt.status]) ||
+                  (getDefaultStatusColors(tenantPrimaryColor) as any)[appt.status] ||
+                  '#64748b';
+                const statusLabel = STATUS_LABELS[appt.status] || appt.status;
+
+                // 3. Telefone e nome da cliente
+                const clientName = appt.client?.name || 'Cliente';
+                const clientPhone = appt.client?.phone?.trim();
+                const serviceName = appt.service?.name || appt.items?.[0]?.service?.name || 'Procedimento';
+                
+                // Duração dinâmica baseada no cadastro atualizado do serviço (ou itens)
+                const servicesSumDuration =
+                  appt.items && appt.items.length > 0
+                    ? appt.items.reduce((acc: number, it: any) => acc + (it.service?.durationMinutes || 0), 0)
+                    : 0;
+                const effectiveDuration =
+                  servicesSumDuration > 0
+                    ? servicesSumDuration
+                    : (appt.service?.durationMinutes || appt.totalDurationMinutes || 30);
+
+                // Calcula horário final consistente com o início e a duração
+                const effectiveEndTime = (() => {
+                  if (!appt.startTime) return appt.endTime || '';
+                  const [hStr, mStr] = appt.startTime.split(':');
+                  const startMin = parseInt(hStr, 10) * 60 + parseInt(mStr || '0', 10);
+                  if (isNaN(startMin)) return appt.endTime || '';
+                  const endMin = startMin + effectiveDuration;
+                  const endH = Math.floor(endMin / 60) % 24;
+                  const endM = endMin % 60;
+                  return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+                })();
+
+                const price = appt.totalPrice ? Number(appt.totalPrice) : null;
 
                 return (
                   <div
                     key={appt.id}
                     onClick={() => setSelectedAppointmentForDetails(appt)}
-                    className="p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 hover:border-slate-300 bg-white hover:bg-slate-50/70 transition-all flex items-center justify-between cursor-pointer shadow-2xs gap-3"
-                    style={{ borderLeftWidth: '5px', borderLeftColor: procColor }}
+                    className="p-3 sm:p-3.5 rounded-2xl border border-slate-200/90 hover:border-slate-300 bg-white hover:bg-slate-50/70 transition-all flex flex-col sm:flex-row sm:items-center justify-between cursor-pointer shadow-2xs gap-2.5 sm:gap-3 group"
+                    style={{ borderLeftWidth: '5px', borderLeftColor: serviceColor }}
                   >
-                    {/* Horário & Primeiro Nome da Cliente */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="text-left shrink-0">
+                    {/* Horário & Nome da Cliente com Indicador de Status */}
+                    <div className="flex items-start sm:items-center gap-3 min-w-0 w-full sm:w-auto">
+                      <div className="text-left shrink-0 pt-0.5 sm:pt-0">
                         <span className="text-sm font-extrabold text-slate-900 block font-mono">
                           {appt.startTime}
                         </span>
                         <span className="text-[10px] text-slate-400 block font-mono">
-                          até {appt.endTime}
+                          até {effectiveEndTime}
                         </span>
                       </div>
 
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="text-sm font-bold text-slate-900 truncate">
-                            {clientFirstName}
+                      <div className="min-w-0 flex-1">
+                        {/* Linha 1: Nome da Cliente e Bolinha de Status com anel branco */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="text-sm font-bold text-slate-900 break-words leading-tight">
+                            {clientName}
                           </p>
                           <span
-                            className="w-2 h-2 rounded-full shrink-0"
-                            style={{ backgroundColor: procColor }}
-                            title={`Procedimento: ${appt.service?.name}`}
+                            className="w-2.5 h-2.5 rounded-full shrink-0 ring-2 ring-white shadow-2xs"
+                            style={{ backgroundColor: statusColor }}
+                            title={`Status: ${statusLabel}`}
                           />
                         </div>
-                        <p className="text-[11px] text-slate-500 truncate flex items-center gap-1 mt-0.5">
-                          <span className="font-medium text-slate-600 truncate">{appt.service?.name}</span>
-                          <span className="text-slate-300">•</span>
-                          <span className="text-slate-400 truncate">{appt.professional?.name}</span>
-                        </p>
+
+                        {/* Linha 2: Pill do Procedimento na cor do serviço + Duração + Preço + Profissional */}
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1 min-w-0">
+                          <span
+                            className="text-[10.5px] font-bold px-2 py-0.5 rounded-md inline-block break-words whitespace-normal text-left leading-snug"
+                            style={{
+                              backgroundColor: `${serviceColor}18`,
+                              color: serviceColor,
+                              border: `1px solid ${serviceColor}30`
+                            }}
+                            title={`Procedimento: ${serviceName}`}
+                          >
+                            {serviceName}
+                          </span>
+
+                          {effectiveDuration ? (
+                            <span className="text-[10.5px] font-medium text-slate-400 font-mono">
+                              {effectiveDuration}m
+                            </span>
+                          ) : null}
+
+                          {price && price > 0 ? (
+                            <>
+                              <span className="text-slate-300 text-[10px]">•</span>
+                              <span className="text-[10.5px] font-bold text-slate-700 font-mono">
+                                R$ {price.toFixed(2).replace('.', ',')}
+                              </span>
+                            </>
+                          ) : null}
+
+                          {appt.professional?.name ? (
+                            <>
+                              <span className="text-slate-300 text-[10px]">•</span>
+                              <span className="text-[11px] text-slate-600 font-medium break-words">
+                                {appt.professional?.name}
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Status e Ação */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded-lg border ${badge.bg} ${badge.text} ${badge.border}`}
-                      >
-                        {badge.label}
-                      </span>
+                    {/* Status e Ações Rápidas (WhatsApp + Cobrar) */}
+                    <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                      <div className="flex items-center gap-1.5">
+                        {/* WhatsApp Rápido (1 clique para confirmar) */}
+                        {clientPhone && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const phoneDigits = clientPhone.replace(/\D/g, '');
+                              const phoneWithDdd =
+                                phoneDigits.length === 10 || phoneDigits.length === 11
+                                  ? `55${phoneDigits}`
+                                  : phoneDigits;
+                              const msg = encodeURIComponent(
+                                `Olá, ${clientName}! Confirmando seu horário de ${serviceName} hoje às ${appt.startTime}.`
+                              );
+                              window.open(`https://wa.me/${phoneWithDdd}?text=${msg}`, '_blank');
+                            }}
+                            className="p-1.5 px-2.5 sm:p-1.5 rounded-xl border border-emerald-200/90 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 flex items-center gap-1 text-[11px] font-semibold"
+                            title={`Conversar com ${clientName} no WhatsApp`}
+                          >
+                            <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-600" />
+                            <span className="sm:hidden text-emerald-700">WhatsApp</span>
+                          </button>
+                        )}
 
+                        {/* Badge do Status com Cor Dinâmica do Configurador */}
+                        <span
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-lg border shadow-2xs whitespace-nowrap"
+                          style={{
+                            backgroundColor: `${statusColor}18`,
+                            color: statusColor,
+                            borderColor: `${statusColor}40`
+                          }}
+                        >
+                          {statusLabel}
+                        </span>
+                      </div>
+
+                      {/* Botão Cobrar */}
                       {appt.status !== 'CANCELLED' && (
                         <button
                           type="button"
@@ -586,7 +702,7 @@ export default function DashboardPage() {
                             e.stopPropagation();
                             setCheckoutAppointment(appt);
                           }}
-                          className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors cursor-pointer border hover:opacity-85"
+                          className="px-3 py-1.5 sm:px-2.5 sm:py-1 rounded-lg text-xs sm:text-[11px] font-bold transition-all cursor-pointer border hover:opacity-85 shadow-2xs whitespace-nowrap hover:scale-105 active:scale-95"
                           style={{
                             backgroundColor: `${tenantPrimaryColor}14`,
                             color: tenantPrimaryColor,

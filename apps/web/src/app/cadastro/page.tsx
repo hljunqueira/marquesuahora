@@ -57,6 +57,7 @@ function CadastroForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const planParam = searchParams.get('plan') || 'FREE';
+  const slugParam = (searchParams.get('slug') || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
 
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -67,7 +68,7 @@ function CadastroForm() {
 
   // Etapa 2: Estabelecimento & Endereço
   const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
+  const [slug, setSlug] = useState(slugParam);
   const [niche, setNiche] = useState<BusinessNiche | null>(null);
 
   // Endereço via CEP
@@ -145,18 +146,20 @@ function CadastroForm() {
     }
   };
 
-  // Auto-geração do slug limpo a partir do nome do estabelecimento
+  // Auto-geração do slug limpo a partir do nome do estabelecimento (se não houver slugParam pré-reservado)
   const handleNameChange = (val: string) => {
     setName(val);
-    const generatedSlug = val
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '');
-    setSlug(generatedSlug);
-    if (slugError) setSlugError(null);
+    if (!slugParam) {
+      const generatedSlug = val
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+      setSlug(generatedSlug);
+      if (slugError) setSlugError(null);
+    }
   };
 
   const handleSelectTheme = (t: (typeof THEMES)[0]) => {
@@ -739,10 +742,19 @@ function CadastroForm() {
                         className="w-full py-2 pr-3 bg-transparent text-xs text-slate-900 outline-none font-mono font-bold"
                       />
                     </div>
-                    {slugError && (
+                    {slugError ? (
                       <span className="text-[11px] font-semibold text-rose-600 mt-1 flex items-center gap-1">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                         {slugError}
+                      </span>
+                    ) : slugParam && slug === slugParam ? (
+                      <span className="text-[11px] font-medium text-emerald-700 mt-1 flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        Link reservado para o seu cadastro!
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">
+                        Seus clientes acessarão este link para agendamentos online.
                       </span>
                     )}
                   </div>

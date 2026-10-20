@@ -83,37 +83,36 @@ export function AgendaHeader({
   const currentDateValue = formatLocalDateToYMD(currentDate);
 
   return (
-    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs">
-      {/* 1. Lado Esquerdo: Navegação de Datas + Título do Período + Previsão */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        {/* Controles de Navegação Anterior / Hoje / Próximo */}
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl shrink-0 self-start sm:self-auto">
-          <button
-            onClick={onNavigatePrev}
-            className="w-8 h-8 rounded-xl bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-xs transition-colors cursor-pointer"
-            title="Anterior"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={onNavigateToday}
-            className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold shadow-xs transition-colors cursor-pointer"
-          >
-            Hoje
-          </button>
-          <button
-            onClick={onNavigateNext}
-            className="w-8 h-8 rounded-xl bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-xs transition-colors cursor-pointer"
-            title="Próximo"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
+    <div className="flex flex-col gap-3 bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/80 shadow-xs">
+      {/* TIER 1: Navegação Temporal & Modos de Visualização */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        {/* Esquerda: Controles de Navegação Anterior / Hoje / Próximo + Título da Data + Date Picker */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl shrink-0">
+            <button
+              onClick={onNavigatePrev}
+              className="w-8 h-8 rounded-xl bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-xs transition-colors cursor-pointer"
+              title="Anterior"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              onClick={onNavigateToday}
+              className="px-3 py-1.5 rounded-xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold shadow-xs transition-colors cursor-pointer"
+            >
+              Hoje
+            </button>
+            <button
+              onClick={onNavigateNext}
+              className="w-8 h-8 rounded-xl bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center shadow-xs transition-colors cursor-pointer"
+              title="Próximo"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
 
-        {/* Data Formatada + Input Calendário Rápido + Previsão Financeira */}
-        <div className="flex flex-col justify-center">
           <div className="flex items-center gap-2">
-            <span className="text-sm sm:text-base font-extrabold text-slate-900 capitalize tracking-tight">
+            <span className="text-sm sm:text-base font-extrabold text-slate-900 capitalize tracking-tight whitespace-nowrap">
               {formatRangeText()}
             </span>
             <input
@@ -128,93 +127,97 @@ export function AgendaHeader({
               className="text-xs text-slate-500 border border-slate-200 rounded-lg px-2 py-0.5 bg-slate-50 cursor-pointer outline-hidden hover:border-slate-300 transition-colors"
             />
           </div>
+        </div>
 
+        {/* Direita: Modos (Mês, Semana, Dia) + Seletor de Equipe */}
+        <div className="flex items-center gap-2 self-start md:self-auto flex-wrap sm:flex-nowrap">
+          <div className="flex items-center bg-slate-100 p-1 rounded-2xl text-xs font-bold text-slate-600">
+            <button
+              onClick={() => setViewMode('month')}
+              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                viewMode === 'month' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
+              }`}
+            >
+              Mês
+            </button>
+            <button
+              onClick={() => setViewMode('week')}
+              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                viewMode === 'week' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
+              }`}
+            >
+              Semana
+            </button>
+            <button
+              onClick={() => setViewMode('day')}
+              className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
+                viewMode === 'day' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
+              }`}
+            >
+              Dia
+            </button>
+          </div>
+
+          {professionals.length > 0 && (
+            <div className="flex items-center bg-slate-50 border border-slate-200/80 px-2.5 py-1.5 rounded-2xl text-xs font-semibold text-slate-700">
+              <select
+                value={selectedProfessionalId}
+                onChange={(e) => setSelectedProfessionalId(e.target.value)}
+                className="bg-transparent border-0 outline-hidden font-bold text-slate-800 cursor-pointer"
+              >
+                <option value="">Toda a Equipe</option>
+                {professionals.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* TIER 2: Métricas Financeiras & Ações de Operação */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
+        {/* Esquerda: Previsão Financeira e Total de Atendimentos */}
+        <div className="flex items-center gap-2 text-xs">
           {stats && (
-            <div className="flex items-center gap-2 mt-0.5 text-xs">
-              <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.2 rounded-md border border-emerald-200/70 text-[11px] shadow-2xs">
+            <>
+              <span className="font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200/70 text-[11px] shadow-2xs">
                 {stats.periodLabel || (viewMode === 'day' ? 'Previsão do dia' : viewMode === 'month' ? 'Previsão do mês' : 'Previsão da semana')}: R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
               <span className="text-slate-300">•</span>
               <span className="text-slate-500 font-semibold text-[11px]">
                 {stats.totalAppointments} {stats.totalAppointments === 1 ? 'atendimento' : 'atendimentos'}
               </span>
-            </div>
+            </>
           )}
         </div>
-      </div>
 
-      {/* 2. Lado Direito: Barra Única Alinhada com Todos os Controles */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 pt-2 xl:pt-0 border-t xl:border-t-0 border-slate-100">
-        {/* Seletor de Cores de Status */}
-        {statusColors && onUpdateStatusColors && (
-          <AgendaStatusColorPicker
-            tenantPrimaryColor={tenantPrimaryColor || '#5c0701'}
-            statusColors={statusColors}
-            onUpdateColors={onUpdateStatusColors}
-          />
-        )}
+        {/* Direita: Cores dos Status + Bloquear Horário + Novo Agendamento */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+          {statusColors && onUpdateStatusColors && (
+            <AgendaStatusColorPicker
+              tenantPrimaryColor={tenantPrimaryColor || '#5c0701'}
+              statusColors={statusColors}
+              onUpdateColors={onUpdateStatusColors}
+            />
+          )}
 
-        {/* Alternador de Modo (Mês, Semana, Dia) - Perfeitamente alinhado */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-2xl text-xs font-bold text-slate-600">
           <button
-            onClick={() => setViewMode('month')}
-            className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
-              viewMode === 'month' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
-            }`}
+            onClick={onNewBlockClick}
+            className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors active:scale-95 cursor-pointer whitespace-nowrap"
           >
-            Mês
+            Bloquear Horário
           </button>
+
           <button
-            onClick={() => setViewMode('week')}
-            className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
-              viewMode === 'week' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
-            }`}
+            onClick={onNewBookingClick}
+            className="px-4 py-2 rounded-xl btn-primary-tenant text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm shrink-0 whitespace-nowrap"
           >
-            Semana
-          </button>
-          <button
-            onClick={() => setViewMode('day')}
-            className={`px-3 py-1.5 rounded-xl transition-all cursor-pointer ${
-              viewMode === 'day' ? 'bg-white text-slate-900 shadow-xs' : 'hover:text-slate-900'
-            }`}
-          >
-            Dia
+            Novo Agendamento
           </button>
         </div>
-
-        {/* Filtro por Profissional */}
-        {professionals.length > 0 && (
-          <div className="flex items-center bg-slate-50 border border-slate-200/80 px-2.5 py-1.5 rounded-2xl text-xs font-semibold text-slate-700">
-            <select
-              value={selectedProfessionalId}
-              onChange={(e) => setSelectedProfessionalId(e.target.value)}
-              className="bg-transparent border-0 outline-hidden font-bold text-slate-800 cursor-pointer"
-            >
-              <option value="">Toda a Equipe</option>
-              {professionals.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Botão Novo Bloqueio */}
-        <button
-          onClick={onNewBlockClick}
-          className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors active:scale-95 cursor-pointer"
-        >
-          Bloquear Horário
-        </button>
-
-        {/* Botão Novo Agendamento em Destaque */}
-        <button
-          onClick={onNewBookingClick}
-          className="px-3.5 py-2 rounded-xl btn-primary-tenant text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm shrink-0"
-        >
-          Novo Agendamento
-        </button>
       </div>
     </div>
   );

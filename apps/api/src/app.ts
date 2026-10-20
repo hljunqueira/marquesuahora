@@ -25,6 +25,7 @@ import { notificationsRoutes } from './modules/notifications/notifications.route
 import { couponsRoutes } from './modules/coupons/coupons.routes';
 import { uploadRoutes } from './modules/upload/upload.routes';
 import { quickCommandRoutes } from './modules/ai/quick-command.routes';
+import { reportsRoutes } from './modules/reports/reports.routes';
 import { env } from './config/env';
 
 export function buildApp(): FastifyInstance {
@@ -81,6 +82,7 @@ export function buildApp(): FastifyInstance {
     instance.register(couponsRoutes, { prefix: '/coupons' });
     instance.register(uploadRoutes, { prefix: '/uploads' });
     instance.register(quickCommandRoutes, { prefix: '/ai' });
+    instance.register(reportsRoutes, { prefix: '/reports' });
   };
 
   // Suporte a chamadas diretas na raiz (ex: /admin/overview, /plans/admin)

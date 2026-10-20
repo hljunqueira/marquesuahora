@@ -1443,21 +1443,6 @@ export default function DashboardFinanceiroPage() {
               </div>
             </div>
 
-            {/* Banner Explicativo de Regra de Negócio: Dona do Negócio */}
-            <div className="p-4 rounded-2xl bg-purple-50/60 border border-purple-200/70 flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-purple-100 text-purple-700 shrink-0">
-                <Percent className="w-4 h-4" />
-              </div>
-              <div className="text-xs text-slate-700 space-y-1">
-                <p className="font-bold text-slate-900">
-                  Regra de Repasse: Apenas para Colaboradores e Profissionais Parceiros
-                </p>
-                <p className="leading-relaxed">
-                  Como <strong>{storeName}</strong> é operado pela dona do negócio, 100% do faturamento dos seus atendimentos é receita direta e caixa livre da empresa, sem repasse de comissões. Ao cadastrar outro profissional na aba <strong>Equipe</strong>, o sistema calculará automaticamente o repasse com base na porcentagem de comissão cadastrada.
-                </p>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
               {commissions.map((comm) => {
                 const isOwner = Boolean(comm.isOwner);

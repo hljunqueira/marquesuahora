@@ -12,6 +12,7 @@ interface AgendaMonthGridProps {
   appointments: ScheduleAppointment[];
   blocks?: BlockItem[];
   statusColors?: StatusColors;
+  availabilityRules?: any[];
   onDayClick: (date: Date) => void;
   onSlotClick: (dateStr: string, timeStr: string, professionalId?: string) => void;
   onAppointmentClick: (appt: ScheduleAppointment) => void;
@@ -25,6 +26,7 @@ export function AgendaMonthGrid({
   appointments,
   blocks = [],
   statusColors: statusColorsProp,
+  availabilityRules = [],
   onDayClick,
   onSlotClick,
   onAppointmentClick
@@ -133,6 +135,43 @@ export function AgendaMonthGrid({
     return map;
   }, [blocks, selectedProfessionalId]);
 
+  // Verifica se o dia está configurado como fechado nas regras semanais do salão
+  const isDayClosedByAvailabilityRule = (cellDate: Date, profId?: string) => {
+    if (!availabilityRules || availabilityRules.length === 0) return false;
+    const dayOfWeek = cellDate.getDay(); // 0 = Domingo, 1 = Segunda, ..., 6 = Sábado
+
+    if (profId) {
+      const profRules = availabilityRules.filter(
+        (r: any) => r.professionalId === profId && r.dayOfWeek === dayOfWeek
+      );
+      if (profRules.length > 0) {
+        return profRules.every((r: any) => r.isActive === false || r.isOpen === false);
+      }
+    }
+
+    const generalRules = availabilityRules.filter(
+      (r: any) => !r.professionalId && r.dayOfWeek === dayOfWeek
+    );
+    if (generalRules.length > 0) {
+      return generalRules.every((r: any) => r.isActive === false || r.isOpen === false);
+    }
+
+    return false;
+  };
+
+  const getDayOpeningTime = (cellDate: Date) => {
+    const dayOfWeek = cellDate.getDay();
+    const rule = (availabilityRules || []).find((r: any) => {
+      if (selectedProfessionalId && r.professionalId === selectedProfessionalId && r.dayOfWeek === dayOfWeek) return true;
+      if (!r.professionalId && r.dayOfWeek === dayOfWeek) return true;
+      return false;
+    });
+    if (rule && rule.isActive !== false && rule.isOpen !== false && rule.startTime) {
+      return rule.startTime;
+    }
+    return '09:00';
+  };
+
   return (
     <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
       {/* Cabeçalho dos Dias da Semana */}
@@ -159,15 +198,31 @@ export function AgendaMonthGrid({
           const visibleChips = dayAppts.length <= 4 ? dayAppts : dayAppts.slice(0, 3);
           const hiddenCount = dayAppts.length - visibleChips.length;
 
+          const isRuleClosed = isDayClosedByAvailabilityRule(cell.date, selectedProfessionalId);
+
           return (
             <div
               key={cell.dateStr}
               onClick={() => onDayClick(cell.date)}
+              style={
+                isRuleClosed
+                  ? {
+                      background:
+                        'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 10px, #f1f5f9 10px, #f1f5f9 20px)'
+                    }
+                  : undefined
+              }
               className={`min-h-[135px] sm:min-h-[155px] lg:min-h-[170px] p-2 flex flex-col justify-between transition-colors cursor-pointer group relative ${
-                cell.isCurrentMonth ? 'bg-white' : 'bg-slate-50/70 opacity-60'
-              } ${isToday ? 'bg-purple-50/20' : ''} hover:bg-slate-50/90`}
+                isRuleClosed && !hasAppointments
+                  ? 'hover:bg-slate-100/90'
+                  : isRuleClosed && hasAppointments
+                  ? 'hover:bg-amber-50/50'
+                  : cell.isCurrentMonth
+                  ? 'bg-white hover:bg-slate-50/90'
+                  : 'bg-slate-50/70 opacity-60 hover:bg-slate-50/90'
+              } ${isToday && !isRuleClosed ? 'bg-purple-50/20' : ''}`}
             >
-              {/* Linha Superior da Célula: Número do Dia + Indicador */}
+              {/* Linha Superior da Célula: Número do Dia + Indicador / Badge Fechado */}
               <div className="flex items-center justify-between">
                 <span
                   className={`text-xs font-bold ${
@@ -182,16 +237,30 @@ export function AgendaMonthGrid({
                 </span>
 
                 <div className="flex items-center gap-1">
-                  {hasAppointments && (
-                    <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
-                      {dayAppts.length}
-                    </span>
-                  )}
-                  {dayBlocks.length > 0 && (
-                    <span
-                      className="w-2 h-2 rounded-full bg-amber-400 shrink-0"
-                      title="Possui bloqueios de horário neste dia"
-                    />
+                  {isRuleClosed ? (
+                    hasAppointments ? (
+                      <span className="text-[8.5px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300/80 px-1.5 py-0.5 rounded shadow-2xs">
+                        Fechado ({dayAppts.length})
+                      </span>
+                    ) : (
+                      <span className="text-[8.5px] font-bold text-slate-500 uppercase tracking-tight bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
+                        Fechado
+                      </span>
+                    )
+                  ) : (
+                    <>
+                      {hasAppointments && (
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                          {dayAppts.length}
+                        </span>
+                      )}
+                      {dayBlocks.length > 0 && (
+                        <span
+                          className="w-2 h-2 rounded-full bg-amber-400 shrink-0"
+                          title="Possui bloqueios de horário neste dia"
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -203,9 +272,13 @@ export function AgendaMonthGrid({
                   const profName = appt.professional?.name ? appt.professional.name.split(' ')[0] : '';
                   const serviceName = appt.service?.name || (appt.items?.[0]?.service?.name) || 'Atendimento';
 
-                  const procColor = (activeStatusColors && activeStatusColors[appt.status as keyof StatusColors])
-                    || (getDefaultStatusColors(tenantPrimaryColor)[appt.status as keyof StatusColors])
+                  const serviceColor = appt.service?.color
+                    || (appt.items?.[0]?.service?.color)
                     || tenantPrimaryColor;
+
+                  const statusColor = (activeStatusColors && activeStatusColors[appt.status as keyof StatusColors])
+                    || (getDefaultStatusColors(tenantPrimaryColor)[appt.status as keyof StatusColors])
+                    || '#64748b';
 
                   return (
                     <div
@@ -214,12 +287,17 @@ export function AgendaMonthGrid({
                         e.stopPropagation();
                         onAppointmentClick(appt);
                       }}
-                      style={{ borderLeftWidth: '3.5px', borderLeftColor: procColor }}
+                      style={{ borderLeftWidth: '3.5px', borderLeftColor: serviceColor }}
                       className="p-1 sm:p-1.5 rounded-lg bg-white hover:bg-slate-50/90 text-left border border-slate-200/80 shadow-2xs transition-all hover:scale-[1.01] hover:shadow-xs cursor-pointer group/item relative overflow-hidden"
-                      title={`${appt.startTime} - ${clientFullName} | ${serviceName}${profName ? ` (${profName})` : ''}`}
+                      title={`${appt.startTime} - ${clientFullName} | ${serviceName}${profName ? ` (${profName})` : ''} [${appt.status}]`}
                     >
-                      {/* Topo: Horário | Nome do Cliente */}
-                      <div className="flex items-baseline gap-1 text-[9.5px] leading-tight min-w-0">
+                      {/* Topo: Bolinha de Status | Horário | Nome do Cliente */}
+                      <div className="flex items-center gap-1 text-[9.5px] leading-tight min-w-0">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0 ring-1 ring-white/90 shadow-2xs"
+                          style={{ backgroundColor: statusColor }}
+                          title={`Status: ${appt.status}`}
+                        />
                         <span className="font-mono font-extrabold shrink-0 text-slate-800 text-[9px]">
                           {appt.startTime}
                         </span>
@@ -231,7 +309,9 @@ export function AgendaMonthGrid({
 
                       {/* Base: Procedimento / Serviço e Profissional */}
                       <div className="flex items-center justify-between gap-1 text-[8.5px] text-slate-600 truncate leading-tight mt-0.5">
-                        <span className="truncate font-semibold">{serviceName}</span>
+                        <span className="truncate font-semibold" style={{ color: serviceColor }}>
+                          {serviceName}
+                        </span>
                         {profName && (
                           <span className="truncate text-slate-400 font-medium text-[8px] shrink-0">
                             {profName}
@@ -252,18 +332,18 @@ export function AgendaMonthGrid({
               {/* Ação Rápida de Agendamento no Rodapé da Célula */}
               <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                 <span className="text-[9px] text-slate-400 group-hover:text-slate-600 transition-colors">
-                  {dayAppts.length === 0 ? 'Livre' : 'Ver dia'}
+                  {isRuleClosed ? 'Fechado' : dayAppts.length === 0 ? 'Livre' : 'Ver dia'}
                 </span>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    onSlotClick(cell.dateStr, '09:00', selectedProfessionalId || undefined);
+                    onSlotClick(cell.dateStr, getDayOpeningTime(cell.date), selectedProfessionalId || undefined);
                   }}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md"
-                  title="Novo agendamento neste dia"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-bold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-1.5 py-0.5 rounded-md cursor-pointer"
+                  title={isRuleClosed ? 'Agendar encaixe manual neste dia' : 'Novo agendamento neste dia'}
                 >
-                  + Agendar
+                  {isRuleClosed ? '+ Encaixe' : '+ Agendar'}
                 </button>
               </div>
             </div>

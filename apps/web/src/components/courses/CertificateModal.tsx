@@ -39,7 +39,9 @@ export function CertificateModal({ isOpen, onClose, data }: CertificateModalProp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 bg-black/70 backdrop-blur-sm overflow-y-auto">
       {/* Estilos dedicados para impressão limpa em A4 Paisagem */}
-      <style jsx global>{`
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
         @media print {
           body * {
             visibility: hidden;
@@ -67,7 +69,9 @@ export function CertificateModal({ isOpen, onClose, data }: CertificateModalProp
             margin: 0;
           }
         }
-      `}</style>
+      `,
+        }}
+      />
 
       <div className="relative w-full max-w-5xl bg-zinc-900 border border-zinc-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col my-auto">
         {/* Cabeçalho de Ações (Oculto na impressão) */}
@@ -92,7 +96,7 @@ export function CertificateModal({ isOpen, onClose, data }: CertificateModalProp
             <button
               onClick={handlePrint}
               type="button"
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-zinc-100 text-zinc-950 hover:bg-white rounded-lg transition-colors shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold bg-zinc-100 text-zinc-950 hover:bg-white rounded-lg transition-colors shadow-sm"
             >
               <Printer className="w-3.5 h-3.5" />
               Imprimir / PDF

@@ -112,7 +112,7 @@ MAPEAMENTO DAS FUNCIONALIDADES DO MARQUESUAHORA:
 
 11. PLANOS E ASSINATURA MARQUESUAHORA:
     - Menu "Planos" no Dashboard.
-    - Planos disponíveis: Solo (R$ 39/mês), Equipe Pro (R$ 79/mês), etc.
+    - Planos disponíveis: Gratuito (R$ 0,00/mês - até 30 agendamentos), Profissional Solo (R$ 49,99/mês), Equipe Pro (R$ 99,99/mês).
     - O checkout de planos da plataforma é 100% white-label e seguro, aceita Cartão de Crédito e PIX.
     - Sem fidelidade ou multas de cancelamento.
 

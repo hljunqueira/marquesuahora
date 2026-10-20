@@ -72,11 +72,11 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
         </div>
       </div>
 
-      {/* Conteúdo Principal com Avatar Sobreposto */}
-      <div className="max-w-5xl mx-auto px-4 sm:px-6 pb-6">
-        <div className="relative flex flex-col items-center sm:items-start text-center sm:text-left -mt-16 sm:-mt-20 z-10">
-          {/* Avatar Sobreposto Circular com Anel Branco */}
-          <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-white ring-4 ring-white shadow-xl flex-shrink-0">
+      {/* Conteúdo Principal com Logo Centralizada (Padrão UX Pro Max) */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-6 sm:pb-8">
+        <div className="relative flex flex-col items-center text-center -mt-16 sm:-mt-20 z-10">
+          {/* Avatar Sobreposto Circular Centralizado com Anel Nobre */}
+          <div className="relative w-28 h-28 sm:w-36 sm:h-36 rounded-full overflow-hidden bg-white ring-4 ring-white shadow-2xl flex-shrink-0 transition-transform duration-300 hover:scale-[1.02]">
             {tenant.logoUrl ? (
               <Image
                 src={resolveImageUrl(tenant.logoUrl)}
@@ -87,7 +87,7 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
               />
             ) : (
               <div
-                className="w-full h-full flex items-center justify-center font-bold text-3xl text-white select-none"
+                className="w-full h-full flex items-center justify-center font-bold text-3xl sm:text-4xl text-white select-none"
                 style={{ backgroundColor: brandColor }}
               >
                 {tenant.name.substring(0, 2).toUpperCase()}
@@ -95,57 +95,45 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
             )}
           </div>
 
-          {/* Nome e Descrição com Tipografia Limpa */}
-          <div className="mt-3.5 w-full">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                  {tenant.name}
-                </h1>
-                {bio && (
-                  <p className="mt-1.5 text-xs sm:text-sm text-slate-600 leading-relaxed max-w-2xl">
-                    {bioExpanded || !isBioLong ? bio : `${bio.substring(0, 140)}...`}
-                    {isBioLong && (
-                      <button
-                        onClick={() => setBioExpanded(!bioExpanded)}
-                        className="ml-2 font-medium underline inline-flex items-center gap-0.5 cursor-pointer"
-                        style={{ color: brandColor }}
-                      >
-                        {bioExpanded ? (
-                          <>
-                            ver menos <ChevronUp className="w-3.5 h-3.5" />
-                          </>
-                        ) : (
-                          <>
-                            ver mais <ChevronDown className="w-3.5 h-3.5" />
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </p>
-                )}
-              </div>
+          {/* Nome e Descrição com Tipografia Nobre Centralizada */}
+          <div className="mt-3.5 w-full flex flex-col items-center text-center">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
+              {tenant.name}
+            </h1>
 
-              {/* Botão de Agendamento Online no Topo (Desktop / Mobile CTA) */}
-              <div className="flex items-center justify-center sm:justify-end gap-2.5 flex-shrink-0">
-                <button
-                  onClick={onBookClick}
-                  className="px-5 py-2.5 rounded-xl font-bold text-sm text-white shadow-md hover:shadow-lg transition-all duration-200 active:scale-95 cursor-pointer"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  Agendamento Online
-                </button>
+            {bio && (
+              <div className="mt-2 text-xs sm:text-sm text-slate-600 leading-relaxed max-w-xl mx-auto">
+                <p>
+                  {bioExpanded || !isBioLong ? bio : `${bio.substring(0, 140)}...`}
+                  {isBioLong && (
+                    <button
+                      onClick={() => setBioExpanded(!bioExpanded)}
+                      className="ml-2 font-semibold underline inline-flex items-center gap-0.5 cursor-pointer transition-opacity hover:opacity-80"
+                      style={{ color: brandColor }}
+                    >
+                      {bioExpanded ? (
+                        <>
+                          ver menos <ChevronUp className="w-3.5 h-3.5" />
+                        </>
+                      ) : (
+                        <>
+                          ver mais <ChevronDown className="w-3.5 h-3.5" />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </p>
               </div>
-            </div>
+            )}
 
-            {/* Redes Sociais e Ações Rápidas */}
-            <div className="mt-4 flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-2 border-t border-slate-100">
+            {/* Redes Sociais, WhatsApp e Portal Centralizados */}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
               {tenant.instagramUrl && (
                 <a
                   href={tenant.instagramUrl.startsWith('http') ? tenant.instagramUrl : `https://instagram.com/${tenant.instagramUrl.replace('@', '')}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/70 transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 transition-all shadow-2xs hover:shadow-xs active:scale-97"
                 >
                   <Instagram className="w-3.5 h-3.5 text-pink-600" />
                   <span>Instagram</span>
@@ -157,9 +145,9 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
                   href={`https://wa.me/55${tenant.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá! Gostaria de tirar uma dúvida sobre os serviços do ${tenant.name}.`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 transition-all shadow-2xs hover:shadow-xs active:scale-97"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-emerald-900 bg-white hover:bg-emerald-50 border border-emerald-200/90 transition-all shadow-2xs hover:shadow-xs active:scale-97"
                 >
-                  <WhatsAppIcon size={14} color="#059669" />
+                  <WhatsAppIcon variant="official" size={15} />
                   <span>WhatsApp</span>
                 </a>
               )}
@@ -168,7 +156,7 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
                 <button
                   type="button"
                   onClick={onPortalClick}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 transition-all cursor-pointer shadow-2xs active:scale-97"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200/80 border border-slate-200/80 transition-all cursor-pointer shadow-2xs active:scale-97"
                 >
                   <span>Portal da Cliente</span>
                 </button>
@@ -179,7 +167,7 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
                   href={tenant.googleReviewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 transition-all shadow-2xs hover:shadow-xs active:scale-97"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-800 bg-slate-50 hover:bg-slate-100 border border-slate-200/80 transition-all shadow-2xs hover:shadow-xs active:scale-97"
                 >
                   <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
                   <span>Avaliar no Google</span>
@@ -194,6 +182,21 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
                 </span>
               </div>
             </div>
+
+            {/* Botão de Agendamento Online Centralizado em Destaque */}
+            {onBookClick && (
+              <div className="mt-5">
+                <button
+                  type="button"
+                  onClick={onBookClick}
+                  className="px-7 py-3 rounded-2xl font-extrabold text-xs sm:text-sm text-white shadow-md hover:shadow-xl transition-all duration-200 active:scale-97 cursor-pointer inline-flex items-center gap-2"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  <CalendarCheck2 className="w-4 h-4" />
+                  <span>Agendamento Online</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -96,11 +96,17 @@ export function AgendaAppointmentModal({
 
     const sIds = [selectedServiceId, ...extraServiceIds].filter(Boolean);
 
+    const storedTenant = typeof window !== 'undefined'
+      ? (JSON.parse(localStorage.getItem('tenant_data') || '{}')?.id || JSON.parse(localStorage.getItem('user_data') || '{}')?.tenantId)
+      : undefined;
+
     api.get('/schedules/availability', {
       params: {
         date: dateStr,
         serviceIds: sIds.length > 0 ? sIds.join(',') : undefined,
-        professionalId: selectedProfessionalId || undefined
+        professionalId: selectedProfessionalId || undefined,
+        tenantId: storedTenant || undefined,
+        excludeScheduleId: existingAppointment?.id || undefined
       }
     })
       .then((res) => {
@@ -108,12 +114,12 @@ export function AgendaAppointmentModal({
         const slots = res.data?.slots || { morning: [], afternoon: [], night: [] };
         setAvailableSlots(slots);
         if (!res.data?.isOpen) {
-          setSlotsError(res.data?.reason || 'Estabelecimento ou profissional fechado nesta data.');
+          setSlotsError(res.data?.reason || 'Estabelecimento fechado neste dia.');
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!isMounted) return;
-        setSlotsError('Não foi possível carregar os horários livres.');
+        setSlotsError(err?.response?.data?.message || 'Estabelecimento fechado neste dia.');
       })
       .finally(() => {
         if (isMounted) setLoadingSlots(false);
@@ -859,8 +865,8 @@ export function AgendaAppointmentModal({
             </div>
           )}
 
-          {/* Rodapé */}
-          <div className="pt-4 border-t border-slate-100 flex items-center justify-end gap-2.5">
+          {/* Rodapé com Safe Area no mobile */}
+          <div className="pt-4 pb-[max(1rem,env(safe-area-inset-bottom,16px))] border-t border-slate-100 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}

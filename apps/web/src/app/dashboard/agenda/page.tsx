@@ -353,10 +353,12 @@ export default function AgendaCompletaPage() {
         {!loadingAgenda && viewMode === 'month' && (
           <AgendaMonthGrid
             currentDate={currentDate}
+            professionals={professionals}
             selectedProfessionalId={selectedProfessionalId}
             appointments={appointments}
             blocks={blocks}
             statusColors={statusColors}
+            availabilityRules={availabilityRules}
             onDayClick={(day) => {
               setCurrentDate(day);
               setViewMode('day');

@@ -37,6 +37,8 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
     const contentType = mimeMap[ext] || 'application/octet-stream';
     reply.header('Content-Type', contentType);
     reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     const stream = fs.createReadStream(filePath);
     return reply.send(stream);
   });

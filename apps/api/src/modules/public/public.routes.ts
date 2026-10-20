@@ -236,6 +236,60 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     return handleShowcase(slug, reply);
   });
 
+  // GET /check-slug/:slug - Validação de disponibilidade de slug para cadastro imediato (Lead Catcher)
+  const RESERVED_SLUGS = new Set([
+    'admin', 'dashboard', 'login', 'cadastro', 'api', 'app', 'suporte',
+    'planos', 'auth', 'public', 'showcase', 'checkout', 'termos', 'privacidade'
+  ]);
+
+  app.get('/check-slug/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const normalized = (slug || '').trim().toLowerCase();
+
+    if (!normalized || normalized.length < 3) {
+      return reply.code(400).send({
+        slug: normalized,
+        isAvailable: false,
+        message: 'O link deve conter no mínimo 3 caracteres.'
+      });
+    }
+
+    if (!/^[a-z0-9-]+$/.test(normalized)) {
+      return reply.code(400).send({
+        slug: normalized,
+        isAvailable: false,
+        message: 'O link deve conter apenas letras, números e hífens.'
+      });
+    }
+
+    if (RESERVED_SLUGS.has(normalized)) {
+      return reply.send({
+        slug: normalized,
+        isAvailable: false,
+        message: 'Este endereço é reservado pelo sistema.'
+      });
+    }
+
+    const existing = await prisma.tenant.findUnique({
+      where: { slug: normalized },
+      select: { id: true }
+    });
+
+    if (existing) {
+      return reply.send({
+        slug: normalized,
+        isAvailable: false,
+        message: 'Este endereço já foi registrado por outro estabelecimento.'
+      });
+    }
+
+    return reply.send({
+      slug: normalized,
+      isAvailable: true,
+      message: 'Endereço disponível para registro imediato!'
+    });
+  });
+
   app.get('/:slug', async (request, reply) => {
     const { slug } = request.params as { slug: string };
     return handleShowcase(slug, reply);

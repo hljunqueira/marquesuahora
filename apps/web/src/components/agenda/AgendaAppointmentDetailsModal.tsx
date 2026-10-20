@@ -61,6 +61,10 @@ export function AgendaAppointmentDetailsModal({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slotsError, setSlotsError] = useState<string | null>(null);
 
+  // Estados de feedback inline
+  const [statusFeedback, setStatusFeedback] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [editFeedback, setEditFeedback] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
   // Busca horários livres sempre que editDate ou editProfessionalId mudar
   useEffect(() => {
     if (!isEditing || !editDate) return;
@@ -73,11 +77,31 @@ export function AgendaAppointmentDetailsModal({
       appointment.serviceId ||
       appointment.service?.id ||
       appointment.items?.[0]?.service?.id;
+
+    const resolvedTenantId =
+      (appointment as any).tenantId ||
+      (appointment.service as any)?.tenantId ||
+      (() => {
+        try {
+          const td = JSON.parse(localStorage.getItem('tenant_data') || '{}');
+          if (td.id) return td.id;
+          const mt = JSON.parse(localStorage.getItem('@marcatuahora:tenant') || '{}');
+          if (mt.id) return mt.id;
+          const directId = localStorage.getItem('tenant_id');
+          if (directId) return directId;
+          const ud = JSON.parse(localStorage.getItem('user_data') || '{}');
+          if (ud.tenantId) return ud.tenantId;
+        } catch {}
+        return undefined;
+      })();
+
     api.get('/schedules/availability', {
       params: {
+        tenantId: resolvedTenantId,
         date: editDate,
         serviceIds: serviceId || undefined,
-        professionalId: editProfessionalId || undefined
+        professionalId: editProfessionalId || undefined,
+        excludeScheduleId: appointment.id
       }
     })
       .then((res) => {
@@ -85,12 +109,17 @@ export function AgendaAppointmentDetailsModal({
         const slots = res.data?.slots || { morning: [], afternoon: [], night: [] };
         setAvailableSlots(slots);
         if (!res.data?.isOpen) {
-          setSlotsError(res.data?.reason || 'Estabelecimento ou profissional fechado nesta data.');
+          setSlotsError(res.data?.reason || 'Estabelecimento fechado neste dia.');
         }
       })
-      .catch(() => {
+      .catch((err) => {
         if (!isMounted) return;
-        setSlotsError('Não foi possível carregar os horários livres.');
+        const rawMsg = err?.response?.data?.message;
+        if (rawMsg && !rawMsg.toLowerCase().includes('tenant') && !rawMsg.toLowerCase().includes('slug')) {
+          setSlotsError(rawMsg);
+        } else {
+          setSlotsError('Nenhum horário livre encontrado para esta data.');
+        }
       })
       .finally(() => {
         if (isMounted) setLoadingSlots(false);
@@ -99,7 +128,7 @@ export function AgendaAppointmentDetailsModal({
     return () => {
       isMounted = false;
     };
-  }, [isEditing, editDate, editProfessionalId, appointment.serviceId]);
+  }, [isEditing, editDate, editProfessionalId, appointment.id, appointment.serviceId]);
 
   // Estados do Registro Fotográfico (Entrada e Saída)
   const [arrivalPhotoUrl, setArrivalPhotoUrl] = useState<string | null>(appointment.arrivalPhotoUrl || null);
@@ -221,18 +250,46 @@ export function AgendaAppointmentDetailsModal({
     window.open(`https://wa.me/${phoneWithDdd}?text=${msg}`, '_blank');
   };
 
-  // Atualização rápida de status
+  // Atualização rápida de status com feedback inline imediato
   const handleUpdateStatus = async (statusToSet: string) => {
+    setStatusFeedback(null);
+    const statusLabels: Record<string, string> = {
+      CONFIRMED: 'Confirmado',
+      IN_SERVICE: 'Em Atendimento',
+      COMPLETED: 'Concluído',
+      NO_SHOW: 'Não Compareceu',
+      CANCELLED: 'Cancelado',
+      PENDING: 'Pendente'
+    };
+
+    if (statusToSet === appointment.status) {
+      setStatusFeedback({
+        text: `O agendamento já está com o status "${statusLabels[statusToSet] || statusToSet}".`,
+        type: 'info'
+      });
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
       await api.post(`/schedules/${appointment.id}/status`, {
         status: statusToSet
       });
+      (appointment as any).status = statusToSet;
+      setSelectedStatus(statusToSet as any);
+      setStatusFeedback({
+        text: `Status alterado para "${statusLabels[statusToSet] || statusToSet}" com sucesso!`,
+        type: 'success'
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+      }
       onSuccess();
-      onClose();
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Erro ao alterar status.');
+      const errMsg = err?.response?.data?.message || 'Erro ao alterar status.';
+      setStatusFeedback({ text: errMsg, type: 'error' });
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -283,6 +340,7 @@ export function AgendaAppointmentDetailsModal({
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setEditFeedback(null);
     try {
       const parsedPrice = parseFloat(editTotalPrice);
       await api.patch(`/schedules/${appointment.id}`, {
@@ -292,10 +350,29 @@ export function AgendaAppointmentDetailsModal({
         notes: editNotes.trim() || null,
         totalPrice: !isNaN(parsedPrice) ? parsedPrice : undefined
       });
+      (appointment as any).date = editDate;
+      (appointment as any).startTime = editStartTime;
+      (appointment as any).professionalId = editProfessionalId;
+      (appointment as any).notes = editNotes.trim() || null;
+      if (!isNaN(parsedPrice)) {
+        (appointment as any).totalPrice = parsedPrice;
+      }
+      setEditFeedback({
+        text: 'Agendamento atualizado com sucesso!',
+        type: 'success'
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+      }
       onSuccess();
-      setIsEditing(false);
+      setTimeout(() => {
+        setIsEditing(false);
+        setEditFeedback(null);
+      }, 1000);
     } catch (err: any) {
-      setError(err?.response?.data?.message || 'Falha ao salvar alterações.');
+      const errMsg = err?.response?.data?.message || 'Falha ao salvar alterações.';
+      setEditFeedback({ text: errMsg, type: 'error' });
+      setError(errMsg);
     } finally {
       setLoading(false);
     }
@@ -351,6 +428,38 @@ export function AgendaAppointmentDetailsModal({
     }
   }[selectedStatus] || { label: selectedStatus, bg: 'bg-slate-100 text-slate-700 border-slate-200' };
 
+  const startMin = appointment.startTime ? (() => {
+    const [h, m] = appointment.startTime.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  })() : NaN;
+  const parsedEnd = appointment.endTime ? (() => {
+    const [h, m] = appointment.endTime.split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  })() : NaN;
+  const diffFromEnd = (!isNaN(startMin) && !isNaN(parsedEnd) && parsedEnd > startMin)
+    ? parsedEnd - startMin
+    : 0;
+
+  const servicesSumDuration =
+    appointment.items && appointment.items.length > 0
+      ? appointment.items.reduce((acc: number, it: any) => acc + (it.service?.durationMinutes || it.durationMinutes || 0), 0)
+      : 0;
+  const effectiveDuration =
+    diffFromEnd > 0
+      ? diffFromEnd
+      : (servicesSumDuration > 0
+          ? servicesSumDuration
+          : (appointment.totalDurationMinutes || appointment.service?.durationMinutes || 30));
+
+  const effectiveEndTime = (() => {
+    if (!appointment.startTime) return appointment.endTime || '';
+    if (isNaN(startMin)) return appointment.endTime || '';
+    const endMin = startMin + effectiveDuration;
+    const endH = Math.floor(endMin / 60) % 24;
+    const endM = endMin % 60;
+    return `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+  })();
+
   if (!mounted) return null;
 
   return createPortal(
@@ -394,7 +503,7 @@ export function AgendaAppointmentDetailsModal({
                 {getInitials(appointment.client?.name)}
               </div>
               <div>
-                <h4 className="text-base font-bold text-slate-900">
+                <h4 className="text-base font-bold text-slate-900 break-words">
                   {appointment.client?.name}
                 </h4>
                 <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
@@ -581,11 +690,11 @@ export function AgendaAppointmentDetailsModal({
                   Informações do Serviço
                 </span>
                 <div>
-                  <h5 className="text-sm font-bold text-slate-900 truncate">
+                  <h5 className="text-sm font-bold text-slate-900 break-words">
                     {appointment.service?.name}
                   </h5>
                   <p className="text-xs text-slate-500 mt-0.5 font-medium">
-                    Duração: {formatDuration(appointment.totalDurationMinutes || appointment.service?.durationMinutes)}
+                    Duração: {formatDuration(effectiveDuration)}
                   </p>
                 </div>
                 <div className="mt-3 pt-2 border-t border-slate-200/60 space-y-1">
@@ -625,8 +734,8 @@ export function AgendaAppointmentDetailsModal({
                   </h5>
                   <p className="text-xs text-slate-600 mt-0.5 font-mono">
                     Início: <span className="font-bold">{appointment.startTime}</span>
-                    {appointment.endTime && (
-                      <span> • Fim: <span className="font-bold">{appointment.endTime}</span></span>
+                    {effectiveEndTime && (
+                      <span> • Fim: <span className="font-bold">{effectiveEndTime}</span></span>
                     )}
                   </p>
                 </div>
@@ -643,7 +752,7 @@ export function AgendaAppointmentDetailsModal({
                   Profissional
                 </span>
                 <div>
-                  <h5 className="text-sm font-bold text-slate-900 truncate">
+                  <h5 className="text-sm font-bold text-slate-900 break-words">
                     {appointment.professional?.name || 'Profissional da Casa'}
                   </h5>
                   <p className="text-xs text-slate-500 mt-0.5">
@@ -838,10 +947,25 @@ export function AgendaAppointmentDetailsModal({
                 />
               </div>
 
+              {editFeedback && (
+                <div
+                  className={`p-2.5 rounded-xl text-xs font-semibold ${
+                    editFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}
+                >
+                  {editFeedback.text}
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    setIsEditing(false);
+                    setEditFeedback(null);
+                  }}
                   className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
                 >
                   Cancelar Edição
@@ -976,44 +1100,63 @@ export function AgendaAppointmentDetailsModal({
           </div>
 
           {/* Seção Corrigir Status (dropdown + botão aplicar) */}
-          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
-                Corrigir Status
-              </span>
-              <p className="text-[11px] text-slate-400">
-                Altere o status para manter o histórico e o financeiro atualizados.
-              </p>
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 flex flex-col gap-2.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">
+                  Corrigir Status
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Altere o status para manter o histórico e o financeiro atualizados.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedStatus}
+                  onChange={(e) => {
+                    setSelectedStatus(e.target.value as any);
+                    setStatusFeedback(null);
+                  }}
+                  className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white outline-hidden focus:border-tenant-primary cursor-pointer"
+                >
+                  <option value="CONFIRMED">Confirmado</option>
+                  <option value="IN_SERVICE">Em Atendimento</option>
+                  <option value="COMPLETED">Concluído</option>
+                  <option value="NO_SHOW">Não Compareceu</option>
+                  <option value="CANCELLED">Cancelado</option>
+                  <option value="PENDING">Pendente</option>
+                </select>
+
+                <button
+                  type="button"
+                  onClick={() => handleUpdateStatus(selectedStatus)}
+                  disabled={loading}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold disabled:opacity-40 transition-colors cursor-pointer"
+                >
+                  {loading ? 'Aplicando...' : 'Aplicar'}
+                </button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedStatus}
-                onChange={(e) => setSelectedStatus(e.target.value as any)}
-                className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white outline-hidden focus:border-tenant-primary cursor-pointer"
+            {statusFeedback && (
+              <div
+                className={`p-2.5 rounded-xl text-xs font-semibold ${
+                  statusFeedback.type === 'success'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : statusFeedback.type === 'info'
+                    ? 'bg-blue-50 text-blue-800 border border-blue-200'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                }`}
               >
-                <option value="CONFIRMED">Confirmado</option>
-                <option value="IN_SERVICE">Em Atendimento</option>
-                <option value="COMPLETED">Concluído</option>
-                <option value="NO_SHOW">Não Compareceu</option>
-                <option value="CANCELLED">Cancelado</option>
-                <option value="PENDING">Pendente</option>
-              </select>
-
-              <button
-                type="button"
-                onClick={() => handleUpdateStatus(selectedStatus)}
-                disabled={loading || selectedStatus === appointment.status}
-                className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold disabled:opacity-40 transition-colors cursor-pointer"
-              >
-                Aplicar
-              </button>
-            </div>
+                {statusFeedback.text}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Rodapé com Ações Completas */}
-        <div className="px-6 py-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2.5 bg-slate-50/70">
+        {/* Rodapé com Ações Completas e Safe Area Mobile */}
+        <div className="px-4 sm:px-6 pt-3 sm:pt-4 pb-[max(1rem,env(safe-area-inset-bottom,16px))] border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 bg-slate-50/80">
           {/* Lado Esquerdo: Ações Rápidas Secundárias */}
           <div className="flex flex-wrap items-center gap-2">
             <button

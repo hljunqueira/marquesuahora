@@ -77,6 +77,15 @@ try {
       exit 1
     }
     Write-DeploySuccess "TypeScript da API compilado com sucesso."
+
+    Write-DeployInfo "Executando tsc --noEmit no apps/web..."
+    $tscWebResult = cmd.exe /c "npx tsc --project apps/web/tsconfig.json --noEmit 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+      Write-DeployFail "Falha na verificacao de tipos do Web:"
+      Write-Host $tscWebResult -ForegroundColor Red
+      exit 1
+    }
+    Write-DeploySuccess "TypeScript do Web compilado com sucesso."
   }
   else {
     Write-DeployInfo "Verificacao de tipos ignorada (-SkipTypeCheck)."
@@ -125,7 +134,11 @@ try {
   Write-DeployStep "4/5 Enviando pacote para o servidor via SCP..."
   $remoteDest = "${TargetSSH}:${RemoteDir}/$tarFile"
   Write-DeployInfo "Destino: $remoteDest"
-  & scp -o ConnectTimeout=15 $tarFile $remoteDest
+  $scpArgs = @("-o", "ConnectTimeout=20")
+  if (Test-Path $EdKey) {
+    $scpArgs += @("-i", $EdKey)
+  }
+  & scp @scpArgs $tarFile $remoteDest
   if ($LASTEXITCODE -ne 0) {
     Write-DeployFail "Falha no envio via SCP."
     exit 1

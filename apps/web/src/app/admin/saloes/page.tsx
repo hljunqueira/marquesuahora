@@ -578,9 +578,9 @@ export default function AdminSaloesPage() {
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { code: 'FREE', name: 'Gratuito', price: 'R$ 0' },
-                    { code: 'SOLO', name: 'Solo', price: 'R$ 39/mês' },
-                    { code: 'EQUIPE_PRO', name: 'Equipe Pro', price: 'R$ 79/mês' }
+                    { code: 'FREE', name: 'Gratuito', price: 'R$ 0,00' },
+                    { code: 'SOLO', name: 'Solo', price: 'R$ 49,99/mês' },
+                    { code: 'EQUIPE_PRO', name: 'Equipe Pro', price: 'R$ 99,99/mês' }
                   ].map((p) => {
                     const isSelected = selectedPlanCode === p.code;
                     return (

@@ -26,17 +26,9 @@ interface AgendaWeeklyGridProps {
   ) => Promise<void>;
 }
 
-// Configuração da Grade de Horários (Idêntico ao GuruAgenda: 07:00 às 21:00)
-const START_HOUR = 7; // 07:00
-const END_HOUR = 21; // 21:00
-const DAY_START_MINUTES = START_HOUR * 60; // 420
-const DAY_END_MINUTES = END_HOUR * 60; // 1260
-
-const HOURS = [
-  '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
-  '13:00', '14:00', '15:00', '16:00', '17:00', '18:00',
-  '19:00', '20:00', '21:00'
-];
+// Constantes de fallback padrão quando não houver regras salvas
+const DEFAULT_FALLBACK_START_HOUR = 8;
+const DEFAULT_FALLBACK_END_HOUR = 20;
 
 const WEEKDAY_NAMES_SHORT = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'];
 
@@ -68,7 +60,9 @@ interface LayoutItem {
 // Algoritmo de posicionamento de colunas simultâneas (Overlap Layout)
 function computeEventsLayout(
   appts: ScheduleAppointment[],
-  dayBlocks: BlockItem[]
+  dayBlocks: BlockItem[],
+  dayStartMinutes: number,
+  dayEndMinutes: number
 ): LayoutItem[] {
   const items: {
     id: string;
@@ -83,12 +77,27 @@ function computeEventsLayout(
   for (const a of appts) {
     if (a.status === 'CANCELLED') continue;
     let start = parseTimeToMinutes(a.startTime);
-    let end = a.endTime ? parseTimeToMinutes(a.endTime) : start + (a.totalDurationMinutes || 45);
-    if (end <= start) end = start + 45;
+    const parsedEnd = a.endTime ? parseTimeToMinutes(a.endTime) : 0;
+    const diffFromEnd = parsedEnd > start ? parsedEnd - start : 0;
 
-    // Ajusta limites para a janela 07:00 - 21:00
-    start = Math.max(DAY_START_MINUTES, Math.min(start, DAY_END_MINUTES - 15));
-    end = Math.max(start + 15, Math.min(end, DAY_END_MINUTES));
+    const itemsDuration =
+      a.items && a.items.length > 0
+        ? a.items.reduce((acc: number, it: any) => acc + (it.service?.durationMinutes || it.durationMinutes || 0), 0)
+        : 0;
+
+    const effectiveDuration =
+      diffFromEnd > 0
+        ? diffFromEnd
+        : (itemsDuration > 0
+            ? itemsDuration
+            : (a.totalDurationMinutes || a.service?.durationMinutes || 45));
+
+    let end = parsedEnd > start ? parsedEnd : start + effectiveDuration;
+    if (end <= start) end = start + effectiveDuration;
+
+    // Ajusta limites para a escala
+    start = Math.max(dayStartMinutes, Math.min(start, dayEndMinutes - 15));
+    end = Math.max(start + 15, Math.min(end, dayEndMinutes));
 
     items.push({
       id: a.id,
@@ -105,8 +114,8 @@ function computeEventsLayout(
     let end = parseTimeToMinutes(b.endTime);
     if (end <= start) end = start + 60;
 
-    start = Math.max(DAY_START_MINUTES, Math.min(start, DAY_END_MINUTES - 15));
-    end = Math.max(start + 15, Math.min(end, DAY_END_MINUTES));
+    start = Math.max(dayStartMinutes, Math.min(start, dayEndMinutes - 15));
+    end = Math.max(start + 15, Math.min(end, dayEndMinutes));
 
     items.push({
       id: `block-${b.id}`,
@@ -183,6 +192,145 @@ function computeEventsLayout(
   return result;
 }
 
+interface FreeGap {
+  startMinutes: number;
+  endMinutes: number;
+  durationMinutes: number;
+  startTimeStr: string;
+  endTimeStr: string;
+  isFirstGapOfDay: boolean;
+  isLastGapOfDay: boolean;
+  label: string;
+  detailLabel: string;
+}
+
+// Algoritmo de Janelas Livres Inteligentes (Smart Free Time Gaps)
+function computeDayFreeGaps(
+  layoutItems: LayoutItem[],
+  dayStartMinutes: number,
+  dayEndMinutes: number
+): FreeGap[] {
+  if (layoutItems.length === 0) {
+    const duration = dayEndMinutes - dayStartMinutes;
+    const hours = Math.floor(duration / 60);
+    const mins = duration % 60;
+    const durText = mins > 0 ? `${hours}h${mins}` : `${hours} horas`;
+    return [
+      {
+        startMinutes: dayStartMinutes,
+        endMinutes: dayEndMinutes,
+        durationMinutes: duration,
+        startTimeStr: formatMinutesToTime(dayStartMinutes),
+        endTimeStr: formatMinutesToTime(dayEndMinutes),
+        isFirstGapOfDay: true,
+        isLastGapOfDay: true,
+        label: `${durText} livres`,
+        detailLabel: `${formatMinutesToTime(dayStartMinutes)} às ${formatMinutesToTime(dayEndMinutes)} · Dia todo disponível`
+      }
+    ];
+  }
+
+  // 1. Mapeia e mescla todos os intervalos ocupados
+  const busyRanges = layoutItems
+    .map((item) => ({ start: item.startMinutes, end: item.endMinutes }))
+    .sort((a, b) => a.start - b.start);
+
+  const mergedBusy: { start: number; end: number }[] = [];
+  for (const r of busyRanges) {
+    if (mergedBusy.length === 0) {
+      mergedBusy.push({ ...r });
+    } else {
+      const last = mergedBusy[mergedBusy.length - 1];
+      if (r.start <= last.end) {
+        last.end = Math.max(last.end, r.end);
+      } else {
+        mergedBusy.push({ ...r });
+      }
+    }
+  }
+
+  const gaps: FreeGap[] = [];
+  let currentPointer = dayStartMinutes;
+
+  for (let i = 0; i < mergedBusy.length; i++) {
+    const busy = mergedBusy[i];
+    if (busy.start > currentPointer) {
+      const duration = busy.start - currentPointer;
+      if (duration >= 20) {
+        const hours = Math.floor(duration / 60);
+        const mins = duration % 60;
+        let durText = '';
+        if (hours === 0) {
+          durText = `${mins} min`;
+        } else if (hours === 1 && mins === 0) {
+          durText = `1 hora`;
+        } else if (mins === 0) {
+          durText = `${hours} horas`;
+        } else {
+          durText = `${hours}h${mins > 0 ? `${mins}m` : ''}`;
+        }
+
+        const isFirst = i === 0 && currentPointer === dayStartMinutes;
+        const startStr = formatMinutesToTime(currentPointer);
+        const endStr = formatMinutesToTime(busy.start);
+
+        const label = isFirst
+          ? `${durText} livres até o 1º atendimento`
+          : `${durText} livres até próximo atendimento`;
+
+        gaps.push({
+          startMinutes: currentPointer,
+          endMinutes: busy.start,
+          durationMinutes: duration,
+          startTimeStr: startStr,
+          endTimeStr: endStr,
+          isFirstGapOfDay: isFirst,
+          isLastGapOfDay: false,
+          label,
+          detailLabel: `${startStr} às ${endStr}`
+        });
+      }
+    }
+    currentPointer = Math.max(currentPointer, busy.end);
+  }
+
+  // Gap final após o último atendimento
+  if (currentPointer < dayEndMinutes) {
+    const duration = dayEndMinutes - currentPointer;
+    if (duration >= 20) {
+      const hours = Math.floor(duration / 60);
+      const mins = duration % 60;
+      let durText = '';
+      if (hours === 0) {
+        durText = `${mins} min`;
+      } else if (hours === 1 && mins === 0) {
+        durText = `1 hora`;
+      } else if (mins === 0) {
+        durText = `${hours} horas`;
+      } else {
+        durText = `${hours}h${mins > 0 ? `${mins}m` : ''}`;
+      }
+
+      const startStr = formatMinutesToTime(currentPointer);
+      const endStr = formatMinutesToTime(dayEndMinutes);
+
+      gaps.push({
+        startMinutes: currentPointer,
+        endMinutes: dayEndMinutes,
+        durationMinutes: duration,
+        startTimeStr: startStr,
+        endTimeStr: endStr,
+        isFirstGapOfDay: mergedBusy.length === 0,
+        isLastGapOfDay: true,
+        label: `${durText} livres até o fechamento`,
+        detailLabel: `${startStr} às ${endStr}`
+      });
+    }
+  }
+
+  return gaps;
+}
+
 // Contraste acessível dinâmico (calcula se texto deve ser claro ou escuro)
 function getContrastColor(hexColor: string) {
   if (!hexColor || !hexColor.startsWith('#')) return '#FFFFFF';
@@ -195,7 +343,7 @@ function getContrastColor(hexColor: string) {
   return yiq >= 160 ? '#0F172A' : '#FFFFFF';
 }
 
-// Estilo visual dos cards de agendamento (100% dinâmico por status e tema do estabelecimento)
+// Estilo visual dos cards de agendamento (Cor do Procedimento + Bolinha do Status)
 function getAppointmentColor(
   appt: ScheduleAppointment,
   tenantColor?: string,
@@ -203,32 +351,22 @@ function getAppointmentColor(
 ) {
   const primary = tenantColor || (typeof window !== 'undefined' ? localStorage.getItem('tenant_primary_color') : null) || '#5c0701';
 
-  // 1. Prioridade Absoluta: Cores por Status (Pendente, Confirmado, Em Atendimento, Concluído, No-Show, Cancelado)
-  if (statusColors && statusColors[appt.status as keyof StatusColors]) {
-    const sColor = statusColors[appt.status as keyof StatusColors];
-    return {
-      bg: sColor,
-      text: getContrastColor(sColor),
-      border: 'rgba(0,0,0,0.18)'
-    };
-  }
+  // 1. Cor Primária de Identificação do Procedimento
+  const serviceColor = appt.service?.color
+    || (appt.items?.[0]?.service?.color)
+    || primary;
 
-  // 2. Fallbacks estruturados caso statusColors ainda não tenha sido carregado
-  const defaults = getDefaultStatusColors(primary);
-  if (defaults[appt.status as keyof StatusColors]) {
-    const sColor = defaults[appt.status as keyof StatusColors];
-    return {
-      bg: sColor,
-      text: getContrastColor(sColor),
-      border: 'rgba(0,0,0,0.18)'
-    };
-  }
+  // 2. Cor do Status para a bolinha/indicador
+  const statusColor = (statusColors && statusColors[appt.status as keyof StatusColors])
+    || (getDefaultStatusColors(primary)[appt.status as keyof StatusColors])
+    || '#64748b';
 
-  // 3. Cor primária dinâmica do estabelecimento definida pelo usuário (ex: #5c0701)
   return {
-    bg: primary,
-    text: getContrastColor(primary),
-    border: 'rgba(0,0,0,0.2)'
+    bg: serviceColor,
+    text: getContrastColor(serviceColor),
+    border: 'rgba(0,0,0,0.18)',
+    serviceColor,
+    statusColor
   };
 }
 
@@ -368,7 +506,7 @@ export function AgendaWeeklyGrid({
 
     return blocks.some((b) => {
       if (b.isPaused) return false;
-      const bDateStr = b.date ? formatLocalDateToYMD(new Date(b.date)) : null;
+      const bDateStr = b.date ? formatLocalDateToYMD(b.date) : null;
       const matchesDate = bDateStr === dateStr || b.dayOfWeek === dayOfWeek;
       const matchesProf = profId ? !b.professionalId || b.professionalId === profId : true;
       if (!matchesDate || !matchesProf) return false;
@@ -415,26 +553,173 @@ export function AgendaWeeklyGrid({
     return false;
   };
 
+  // ==========================================
+  // CÁLCULO DINÂMICO DA ESCALA DE HORAS DA GRADE
+  // (Alinhado dinamicamente com as regras da agenda e encaixes reais)
+  // ==========================================
+  const { gridStartMinutes, gridEndMinutes, startHour, endHour, gridHours } = useMemo(() => {
+    // 1. Dias da semana visíveis na grade
+    const targetDaysOfWeek = new Set(activeColumns.map((col) => col.date.getDay()));
+
+    // 2. Horários de funcionamento configurados para os dias ativos
+    const openRules = (availabilityRules || []).filter((r: any) => {
+      if (r.isActive === false || r.isOpen === false) return false;
+      if (selectedProfessionalId && r.professionalId && r.professionalId !== selectedProfessionalId) {
+        return false;
+      }
+      return targetDaysOfWeek.has(r.dayOfWeek);
+    });
+
+    const ruleStarts = openRules
+      .map((r: any) => parseTimeToMinutes(r.startTime))
+      .filter((m: number) => m > 0);
+    const ruleEnds = openRules
+      .map((r: any) => parseTimeToMinutes(r.endTime))
+      .filter((m: number) => m > 0);
+
+    // 3. Horários de agendamentos reais e bloqueios com horário definidos
+    // (Garante que encaixes e atendimentos especiais nunca sejam cortados)
+    const activeDateStrings = new Set(activeColumns.map((col) => formatLocalDateToYMD(col.date)));
+
+    const visibleAppts = appointments.filter((a) => {
+      if (a.status === 'CANCELLED') return false;
+      const dStr = formatLocalDateToYMD(a.date);
+      if (!activeDateStrings.has(dStr)) return false;
+      if (selectedProfessionalId && a.professionalId !== selectedProfessionalId) return false;
+      return true;
+    });
+
+    const apptStarts = visibleAppts
+      .map((a) => parseTimeToMinutes(a.startTime))
+      .filter((m) => m > 0);
+    const apptEnds = visibleAppts
+      .map((a) => {
+        const start = parseTimeToMinutes(a.startTime);
+        const parsedEnd = a.endTime ? parseTimeToMinutes(a.endTime) : 0;
+        const diffFromEnd = parsedEnd > start ? parsedEnd - start : 0;
+        const itemsDuration =
+          a.items && a.items.length > 0
+            ? a.items.reduce((acc: number, it: any) => acc + (it.service?.durationMinutes || it.durationMinutes || 0), 0)
+            : 0;
+        const effectiveDuration =
+          diffFromEnd > 0
+            ? diffFromEnd
+            : (itemsDuration > 0
+                ? itemsDuration
+                : (a.totalDurationMinutes || a.service?.durationMinutes || 45));
+        return parsedEnd > start ? parsedEnd : start + effectiveDuration;
+      })
+      .filter((m) => m > 0);
+
+    const visibleBlocks = blocks.filter((b) => {
+      if (b.isPaused) return false;
+      if (!b.startTime || b.startTime === '00:00') return false;
+      const bDateStr = b.date ? formatLocalDateToYMD(b.date) : null;
+      const dayOfWeek = b.date ? new Date(b.date).getDay() : b.dayOfWeek;
+      const matchesDate = bDateStr
+        ? activeDateStrings.has(bDateStr)
+        : (dayOfWeek !== undefined && dayOfWeek !== null && targetDaysOfWeek.has(dayOfWeek));
+      if (!matchesDate) return false;
+      if (selectedProfessionalId && b.professionalId && b.professionalId !== selectedProfessionalId) return false;
+      return true;
+    });
+
+    const blockStarts = visibleBlocks
+      .map((b) => parseTimeToMinutes(b.startTime))
+      .filter((m) => m > 0);
+    const blockEnds = visibleBlocks
+      .map((b) => parseTimeToMinutes(b.endTime))
+      .filter((m) => m > 0);
+
+    // 4. Determina menor início e maior término
+    const allStarts = [...ruleStarts, ...apptStarts, ...blockStarts];
+    const allEnds = [...ruleEnds, ...apptEnds, ...blockEnds];
+
+    let minMinutes = allStarts.length > 0 ? Math.min(...allStarts) : DEFAULT_FALLBACK_START_HOUR * 60;
+    let maxMinutes = allEnds.length > 0 ? Math.max(...allEnds) : DEFAULT_FALLBACK_END_HOUR * 60;
+
+    // Arredonda para horas cheias (floor no início, ceil no fim)
+    let sHour = Math.floor(minMinutes / 60);
+    let eHour = Math.ceil(maxMinutes / 60);
+
+    // Limites de segurança razoáveis: nunca menor que 06:00, nunca maior que 23:00
+    sHour = Math.max(6, Math.min(sHour, 20));
+    eHour = Math.min(23, Math.max(eHour, sHour + 4)); // Mínimo de 4 horas visíveis
+
+    const sMin = sHour * 60;
+    const eMin = eHour * 60;
+
+    // Gera lista de horas para a régua vertical
+    const hoursArr: string[] = [];
+    for (let h = sHour; h <= eHour; h++) {
+      hoursArr.push(`${String(h).padStart(2, '0')}:00`);
+    }
+
+    return {
+      gridStartMinutes: sMin,
+      gridEndMinutes: eMin,
+      startHour: sHour,
+      endHour: eHour,
+      gridHours: hoursArr
+    };
+  }, [activeColumns, availabilityRules, selectedProfessionalId, appointments, blocks]);
+
+  // Retorna o horário real de abertura e fechamento para a coluna respeitando as regras do salão
+  const getDayWorkingHours = (colDate: Date, profId?: string) => {
+    if (!availabilityRules || availabilityRules.length === 0) {
+      return { startMinutes: gridStartMinutes, endMinutes: gridEndMinutes, isOpen: true };
+    }
+    const dayOfWeek = colDate.getDay();
+
+    let matchingRules = profId
+      ? availabilityRules.filter(
+          (r: any) => r.professionalId === profId && r.dayOfWeek === dayOfWeek && r.isActive !== false && r.isOpen !== false
+        )
+      : [];
+
+    if (matchingRules.length === 0) {
+      matchingRules = availabilityRules.filter(
+        (r: any) => !r.professionalId && r.dayOfWeek === dayOfWeek && r.isActive !== false && r.isOpen !== false
+      );
+    }
+
+    if (matchingRules.length === 0) {
+      return { startMinutes: gridStartMinutes, endMinutes: gridEndMinutes, isOpen: false };
+    }
+
+    const starts = matchingRules.map((r: any) => parseTimeToMinutes(r.startTime || '08:00')).filter((n: number) => n > 0);
+    const ends = matchingRules.map((r: any) => parseTimeToMinutes(r.endTime || '18:00')).filter((n: number) => n > 0);
+
+    const minStart = starts.length > 0 ? Math.min(...starts) : gridStartMinutes;
+    const maxEnd = ends.length > 0 ? Math.max(...ends) : gridEndMinutes;
+
+    return {
+      startMinutes: minStart,
+      endMinutes: maxEnd,
+      isOpen: true
+    };
+  };
+
   const allDayBlocks = useMemo(() => {
     return blocks.filter((b) => !b.startTime || b.startTime === '00:00');
   }, [blocks]);
 
   // Total de minutos da escala e altura total do grid
-  const totalScaleMinutes = DAY_END_MINUTES - DAY_START_MINUTES; // 840 min (14h)
+  const totalScaleMinutes = gridEndMinutes - gridStartMinutes;
   const totalGridHeight = (totalScaleMinutes / 60) * hourHeight;
 
   // Minuto atual para a linha "Agora"
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const showNowLine = nowMinutes >= DAY_START_MINUTES && nowMinutes <= DAY_END_MINUTES;
-  const nowTopPosition = ((nowMinutes - DAY_START_MINUTES) / 60) * hourHeight;
+  const showNowLine = nowMinutes >= gridStartMinutes && nowMinutes <= gridEndMinutes;
+  const nowTopPosition = ((nowMinutes - gridStartMinutes) / 60) * hourHeight;
 
-  // Auto-scroll para a hora atual ou 08:00 na primeira montagem
+  // Auto-scroll para a hora atual ou início da escala na primeira montagem
   useEffect(() => {
     if (scrollContainerRef.current) {
-      const scrollY = Math.max(0, (((Math.min(Math.max(now.getHours(), 8), 18) - START_HOUR) * hourHeight) - 80));
+      const scrollY = Math.max(0, (((Math.min(Math.max(now.getHours(), startHour), endHour) - startHour) * hourHeight) - 80));
       scrollContainerRef.current.scrollTo({ top: scrollY, behavior: 'smooth' });
     }
-  }, [hourHeight]);
+  }, [hourHeight, startHour, endHour]);
 
   // Largura de coluna
   // No mobile, no modo semana cabem os 7 dias confortavelmente divididos na tela
@@ -471,8 +756,8 @@ export function AgendaWeeklyGrid({
 
             const isBlockedByBlock = isColumnDayBlocked(col.date, col.professionalId);
             const isRuleClosed = isDayClosedByAvailabilityRule(col.date, col.professionalId);
-            // Regra de exceção: Se houver agendamentos, o dia NUNCA é bloqueado visualmente
-            const isEffectivelyClosed = (isRuleClosed && colApptsCount === 0) || isBlockedByBlock;
+            // Dia sem expediente ou bloqueado
+            const isDayWithoutSchedule = isRuleClosed || isBlockedByBlock;
 
             return (
               <button
@@ -484,18 +769,22 @@ export function AgendaWeeklyGrid({
                   }
                 }}
                 className={`flex-1 min-w-0 py-2 sm:py-2.5 px-1 flex flex-col items-center justify-center border-r last:border-r-0 border-slate-200 transition-colors cursor-pointer ${
-                  isEffectivelyClosed
+                  isDayWithoutSchedule && colApptsCount === 0
                     ? 'bg-slate-100/90 hover:bg-slate-200/80'
-                    : isCurrentDay
-                      ? 'bg-tenant-light'
-                      : 'hover:bg-slate-50'
+                    : isDayWithoutSchedule && colApptsCount > 0
+                      ? 'bg-amber-50/50 hover:bg-amber-100/60'
+                      : isCurrentDay
+                        ? 'bg-tenant-light'
+                        : 'hover:bg-slate-50'
                 }`}
-                style={isCurrentDay && !isEffectivelyClosed ? { backgroundColor: `${tenantPrimaryColor}14` } : undefined}
+                style={isCurrentDay && !isDayWithoutSchedule ? { backgroundColor: `${tenantPrimaryColor}14` } : undefined}
                 title={
                   isBlockedByBlock
                     ? 'Dia bloqueado para agendamentos'
-                    : isRuleClosed && colApptsCount === 0
-                      ? 'Fechado nas regras de funcionamento'
+                    : isRuleClosed
+                      ? colApptsCount > 0
+                        ? `Fechado nas regras da agenda (${colApptsCount} encaixe${colApptsCount === 1 ? '' : 's'} agendado${colApptsCount === 1 ? '' : 's'})`
+                        : 'Fechado nas regras de funcionamento'
                       : isWeekMode
                         ? 'Toque para abrir a visão deste dia'
                         : undefined
@@ -504,13 +793,15 @@ export function AgendaWeeklyGrid({
                 {/* Sigla do Dia da Semana (SEG, TER, QUA...) */}
                 <span
                   className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider block ${
-                    isEffectivelyClosed
+                    isDayWithoutSchedule && colApptsCount === 0
                       ? 'text-slate-400'
-                      : isCurrentDay
-                        ? 'text-tenant-primary font-extrabold'
-                        : 'text-slate-500'
+                      : isDayWithoutSchedule && colApptsCount > 0
+                        ? 'text-amber-800 font-extrabold'
+                        : isCurrentDay
+                          ? 'text-tenant-primary font-extrabold'
+                          : 'text-slate-500'
                   }`}
-                  style={isCurrentDay && !isEffectivelyClosed ? { color: tenantPrimaryColor } : undefined}
+                  style={isCurrentDay && !isDayWithoutSchedule ? { color: tenantPrimaryColor } : undefined}
                 >
                   {col.weekdayShort}
                 </span>
@@ -518,14 +809,16 @@ export function AgendaWeeklyGrid({
                 {/* Número do Dia com Círculo Sólido Dinâmico se Hoje/Ativo */}
                 <div
                   className={`mt-0.5 sm:mt-1 flex items-center justify-center font-extrabold text-xs sm:text-sm ${
-                    isEffectivelyClosed
+                    isDayWithoutSchedule && colApptsCount === 0
                       ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-200 text-slate-500 font-bold'
-                      : isCurrentDay
-                        ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-xs'
-                        : 'text-slate-800'
+                      : isDayWithoutSchedule && colApptsCount > 0
+                        ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-amber-200/80 text-amber-900 font-bold border border-amber-300 shadow-2xs'
+                        : isCurrentDay
+                          ? 'w-7 h-7 sm:w-8 sm:h-8 rounded-full shadow-xs'
+                          : 'text-slate-800'
                   }`}
                   style={
-                    isCurrentDay && !isEffectivelyClosed
+                    isCurrentDay && !isDayWithoutSchedule
                       ? {
                           backgroundColor: tenantPrimaryColor,
                           color: getContrastColor(tenantPrimaryColor)
@@ -542,10 +835,16 @@ export function AgendaWeeklyGrid({
                     <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-600 uppercase tracking-tight">
                       Bloqueado
                     </span>
-                  ) : isRuleClosed && colApptsCount === 0 ? (
-                    <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-500 uppercase tracking-tight">
-                      Fechado
-                    </span>
+                  ) : isRuleClosed ? (
+                    colApptsCount > 0 ? (
+                      <span className="text-[8.5px] sm:text-[9px] font-extrabold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs whitespace-nowrap">
+                        Fechado ({colApptsCount})
+                      </span>
+                    ) : (
+                      <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-500 uppercase tracking-tight">
+                        Fechado
+                      </span>
+                    )
                   ) : colApptsCount > 0 ? (
                     <span className="text-[9px] sm:text-[9.5px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap">
                       {colApptsCount} {colApptsCount === 1 ? 'agend.' : 'agend.'}
@@ -577,7 +876,7 @@ export function AgendaWeeklyGrid({
             const dayOfWeek = col.date.getDay();
 
             const allDayForCol = allDayBlocks.filter((b) => {
-              const bDateStr = b.date ? formatLocalDateToYMD(new Date(b.date)) : null;
+              const bDateStr = b.date ? formatLocalDateToYMD(b.date) : null;
               const matchesDate = bDateStr === dateStr || b.dayOfWeek === dayOfWeek;
               const matchesProf = col.professionalId ? b.professionalId === col.professionalId : true;
               return matchesDate && matchesProf;
@@ -605,24 +904,27 @@ export function AgendaWeeklyGrid({
       </div>
 
       {/* ========================================================================= */}
-      {/* 3. TIMELINE VERTICAL CONTÍNUA DE HORÁRIOS (07:00 ÀS 21:00)               */}
+      {/* 3. TIMELINE VERTICAL CONTÍNUA DE HORÁRIOS CONFIGURADOS DINAMICAMENTE       */}
       {/* ========================================================================= */}
       <div
         ref={scrollContainerRef}
-        className="overflow-y-auto max-h-[70vh] sm:max-h-[75vh] scrollbar-thin relative flex bg-white"
+        className="overflow-y-auto max-h-[calc(100dvh-230px)] sm:max-h-[76vh] scrollbar-thin relative flex bg-white overscroll-contain touch-pan-y"
       >
         {/* Coluna Lateral Esquerda: Horas (Sticky ou fixa na lateral) */}
         <div
           style={{ height: `${totalGridHeight}px` }}
           className="w-10 sm:w-14 shrink-0 border-r border-slate-200 relative bg-white select-none z-10"
         >
-          {HOURS.map((hour, hIdx) => {
+          {gridHours.map((hour, hIdx) => {
             const topPos = hIdx * hourHeight;
+            const isFirst = hIdx === 0;
             return (
               <div
                 key={hour}
-                style={{ top: `${topPos}px` }}
-                className="absolute left-0 right-0 -translate-y-1/2 flex items-center justify-center text-[10px] sm:text-[11px] font-mono font-medium text-slate-400"
+                style={{ top: isFirst ? '2px' : `${topPos}px` }}
+                className={`absolute left-0 right-0 flex items-center justify-center text-[10px] sm:text-[11px] font-mono font-medium text-slate-400 ${
+                  isFirst ? 'translate-y-0' : '-translate-y-1/2'
+                }`}
               >
                 {hour}
               </div>
@@ -637,8 +939,8 @@ export function AgendaWeeklyGrid({
         >
           {/* Linhas de Fundo das Horas (Dividem a grade inteira) */}
           <div className="absolute inset-0 pointer-events-none flex flex-col">
-            {HOURS.map((hour, hIdx) => {
-              if (hIdx === HOURS.length - 1) return null;
+            {gridHours.map((hour, hIdx) => {
+              if (hIdx === gridHours.length - 1) return null;
               return (
                 <div
                   key={hour}
@@ -669,7 +971,7 @@ export function AgendaWeeklyGrid({
             // Filtra bloqueios deste dia com hora definida
             const dayTimedBlocks = blocks.filter((b) => {
               if (!b.startTime || b.startTime === '00:00') return false;
-              const bDateStr = b.date ? formatLocalDateToYMD(new Date(b.date)) : null;
+              const bDateStr = b.date ? formatLocalDateToYMD(b.date) : null;
               const matchesDate = bDateStr === dateStr || b.dayOfWeek === dayOfWeek;
               const matchesProf = col.professionalId ? !b.professionalId || b.professionalId === col.professionalId : true;
               return matchesDate && matchesProf;
@@ -677,55 +979,45 @@ export function AgendaWeeklyGrid({
 
             const isBlockedByBlock = isColumnDayBlocked(col.date, col.professionalId);
             const isRuleClosed = isDayClosedByAvailabilityRule(col.date, col.professionalId);
-            // Regra de exceção: Se houver agendamentos, a coluna NÃO fica fechada
-            const isEffectivelyClosed = (isRuleClosed && dayAppts.length === 0) || isBlockedByBlock;
+            const isDayWithoutSchedule = isRuleClosed || isBlockedByBlock;
 
-            // Calcula o layout com detecção de concorrência e sobreposição
-            const layoutItems = computeEventsLayout(dayAppts, dayTimedBlocks);
+            // Calcula o layout com detecção de concorrência e sobreposição respeitando a escala da grade
+            const layoutItems = computeEventsLayout(dayAppts, dayTimedBlocks, gridStartMinutes, gridEndMinutes);
 
-            // Calcula slots de 30 minutos livres entre atendimentos
-            const freeSlots: { startMinutes: number; timeStr: string }[] = [];
-            if (!isEffectivelyClosed) {
-              for (let m = DAY_START_MINUTES; m < DAY_END_MINUTES; m += 30) {
-                const slotStart = m;
-                const slotEnd = m + 30;
-                const hasCollision = layoutItems.some(
-                  (item) => slotStart < item.endMinutes && slotEnd > item.startMinutes
-                );
-                if (!hasCollision) {
-                  freeSlots.push({ startMinutes: m, timeStr: formatMinutesToTime(m) });
-                }
-              }
-            }
+            // Horários reais de abertura e fechamento do salão no dia
+            const { startMinutes: workingStartMinutes, endMinutes: workingEndMinutes, isOpen: isDayOpen } = getDayWorkingHours(col.date, col.professionalId);
+
+            // Regra anti-falha: Janelas de tempo livre SÓ são calculadas se o dia for aberto nas regras do salão
+            const isDayEffectivelyOpen = isDayOpen && !isRuleClosed && !isBlockedByBlock;
+            const freeGaps = isDayEffectivelyOpen
+              ? computeDayFreeGaps(layoutItems, workingStartMinutes, workingEndMinutes)
+              : [];
 
             return (
               <div
                 key={col.id || cIdx}
                 onClick={(e) => {
-                  if (isEffectivelyClosed) {
-                    e.stopPropagation();
-                    return;
-                  }
-                  // Ao clicar no espaço livre, detecta o horário do clique
+                  // Ao clicar no espaço livre, detecta o horário do clique (mesmo em dias fechados para permitir encaixes da dona)
                   const rect = e.currentTarget.getBoundingClientRect();
                   const clickY = e.clientY - rect.top;
-                  const clickedMinutes = DAY_START_MINUTES + (clickY / hourHeight) * 60;
+                  const clickedMinutes = gridStartMinutes + (clickY / hourHeight) * 60;
                   const roundedMin = Math.max(
-                    DAY_START_MINUTES,
-                    Math.min(DAY_END_MINUTES - 30, Math.floor(clickedMinutes / 30) * 30)
+                    gridStartMinutes,
+                    Math.min(gridEndMinutes - 30, Math.floor(clickedMinutes / 30) * 30)
                   );
                   const timeStr = formatMinutesToTime(roundedMin);
                   onSlotClick(dateStr, timeStr, col.professionalId);
                 }}
-                className={`flex-1 min-w-0 border-r last:border-r-0 border-slate-200 relative transition-colors ${
-                  isEffectivelyClosed
-                    ? 'cursor-not-allowed'
+                className={`flex-1 min-w-0 border-r last:border-r-0 border-slate-200 relative transition-colors cursor-pointer ${
+                  isDayWithoutSchedule
+                    ? 'hover:bg-slate-100/60'
                     : isCurrentDay
-                      ? 'cursor-pointer hover:bg-slate-50/50'
-                      : 'cursor-pointer hover:bg-slate-50/40'
+                      ? 'hover:bg-slate-50/50'
+                      : 'hover:bg-slate-50/40'
                 }`}
+                title={isDayWithoutSchedule ? 'Dia fechado na vitrine — Clique para agendar um encaixe manual' : undefined}
                 style={
-                  isEffectivelyClosed
+                  isDayWithoutSchedule
                     ? {
                         background:
                           'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 12px, #f1f5f9 12px, #f1f5f9 24px)'
@@ -736,7 +1028,7 @@ export function AgendaWeeklyGrid({
                 }
               >
                 {/* Linha "Agora" em Tempo Real (se for o dia de hoje) */}
-                {isCurrentDay && showNowLine && !isEffectivelyClosed && (
+                {isCurrentDay && showNowLine && !isDayWithoutSchedule && (
                   <div
                     style={{ top: `${nowTopPosition}px` }}
                     className="absolute left-0 right-0 z-20 border-t-2 border-red-500 pointer-events-none flex items-center"
@@ -745,42 +1037,123 @@ export function AgendaWeeklyGrid({
                   </div>
                 )}
 
+                {/* Faixa sombreada de Horário Antes do Expediente em dias abertos */}
+                {isDayEffectivelyOpen && workingStartMinutes > gridStartMinutes && (
+                  <div
+                    style={{
+                      top: 0,
+                      height: `${((workingStartMinutes - gridStartMinutes) / 60) * hourHeight}px`,
+                      background: 'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 8px, #f1f5f9 8px, #f1f5f9 16px)'
+                    }}
+                    className="absolute inset-x-0 z-1 pointer-events-none border-b border-slate-200/80 flex items-center justify-center p-1"
+                  >
+                    {((workingStartMinutes - gridStartMinutes) / 60) * hourHeight >= 28 && (
+                      <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider">
+                        Antes do Expediente ({formatMinutesToTime(workingStartMinutes)})
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Faixa sombreada de Horário Após o Expediente em dias abertos */}
+                {isDayEffectivelyOpen && workingEndMinutes < gridEndMinutes && (
+                  <div
+                    style={{
+                      top: `${((workingEndMinutes - gridStartMinutes) / 60) * hourHeight}px`,
+                      height: `${((gridEndMinutes - workingEndMinutes) / 60) * hourHeight}px`,
+                      background: 'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 8px, #f1f5f9 8px, #f1f5f9 16px)'
+                    }}
+                    className="absolute inset-x-0 z-1 pointer-events-none border-t border-slate-200/80 flex items-center justify-center p-1"
+                  >
+                    {((gridEndMinutes - workingEndMinutes) / 60) * hourHeight >= 28 && (
+                      <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider">
+                        Após o Expediente ({formatMinutesToTime(workingEndMinutes)})
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {/* Badge de Dia Fechado ou Bloqueado */}
-                {isEffectivelyClosed && (
+                {isDayWithoutSchedule && (
                   <div className="absolute inset-x-1 top-2 z-10 flex justify-center pointer-events-none">
-                    <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-200/90 text-slate-500 border border-slate-300/70 shadow-2xs">
-                      {isBlockedByBlock ? 'Dia Bloqueado' : 'Fechado'}
+                    {dayAppts.length > 0 ? (
+                      <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-100/90 text-amber-800 border border-amber-300/80 shadow-2xs">
+                        {isBlockedByBlock ? 'Bloqueio' : 'Fechado'} ({dayAppts.length} encaixe{dayAppts.length > 1 ? 's' : ''})
+                      </span>
+                    ) : (
+                      <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-200/90 text-slate-500 border border-slate-300/70 shadow-2xs">
+                        {isBlockedByBlock ? 'Dia Bloqueado' : 'Fechado'}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* Banner de Aviso de Dia Fechado na Visão Dia */}
+                {isDayWithoutSchedule && viewMode === 'day' && dayAppts.length === 0 && (
+                  <div className="absolute inset-x-4 top-16 z-20 flex flex-col items-center justify-center p-6 bg-slate-100/95 border border-slate-300/80 rounded-2xl text-center shadow-xs">
+                    <span className="text-sm font-extrabold text-slate-700">
+                      {isBlockedByBlock ? 'Dia com Bloqueio de Horário' : 'Estabelecimento / Profissional Fechado'}
+                    </span>
+                    <span className="text-xs text-slate-500 mt-1 max-w-md">
+                      Não há expediente configurado para esta data conforme as regras de funcionamento semanais. Clique na grade para adicionar um encaixe manual se desejar.
                     </span>
                   </div>
                 )}
 
-                {/* Horários Livres Clicáveis entre Atendimentos */}
-                {!isEffectivelyClosed &&
-                  freeSlots.map((slot) => {
-                    const slotTop = ((slot.startMinutes - DAY_START_MINUTES) / 60) * hourHeight;
-                    const slotHeight = Math.max(18, (30 / 60) * hourHeight - 2);
+                {/* Janelas Livres Inteligentes Consolidadas (Smart Free Time Gaps) */}
+                {!isDayWithoutSchedule &&
+                  freeGaps.map((gap) => {
+                    const gapTop = ((gap.startMinutes - gridStartMinutes) / 60) * hourHeight;
+                    const gapHeight = Math.max(22, ((gap.durationMinutes) / 60) * hourHeight - 2);
+                    const isCompact = gap.durationMinutes <= 45;
 
                     return (
                       <div
-                        key={`free-${slot.timeStr}`}
+                        key={`gap-${gap.startTimeStr}-${gap.endTimeStr}`}
                         onClick={(e) => {
                           e.stopPropagation();
-                          onSlotClick(dateStr, slot.timeStr, col.professionalId);
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const clickY = e.clientY - rect.top;
+                          const clickedMin = gap.startMinutes + (clickY / hourHeight) * 60;
+                          const roundedMin = Math.max(
+                            gap.startMinutes,
+                            Math.min(gap.endMinutes - 30, Math.floor(clickedMin / 30) * 30)
+                          );
+                          const targetTime = formatMinutesToTime(roundedMin);
+                          onSlotClick(dateStr, targetTime, col.professionalId);
                         }}
                         style={{
-                          top: `${slotTop + 1}px`,
-                          height: `${slotHeight}px`,
-                          left: '2px',
-                          right: '2px'
+                          top: `${gapTop + 1}px`,
+                          height: `${gapHeight}px`,
+                          left: '3px',
+                          right: '3px'
                         }}
-                        className="absolute z-5 rounded border border-dashed border-slate-200/80 hover:border-emerald-500/70 bg-slate-50/20 hover:bg-emerald-50/50 transition-all flex items-center justify-center cursor-pointer group/slot"
-                        title={`Horário Livre: ${slot.timeStr} (Clique para agendar)`}
+                        className={`absolute z-5 rounded-xl border border-dashed border-slate-200/90 hover:border-emerald-500 bg-slate-50/40 hover:bg-emerald-50/40 transition-all flex flex-col items-center justify-center cursor-pointer group/gap overflow-hidden p-1.5 text-center select-none shadow-2xs ${
+                          isCompact ? 'py-0.5' : ''
+                        }`}
+                        title={`Horário livre: ${gap.startTimeStr} às ${gap.endTimeStr} (${gap.durationMinutes} min). Clique para agendar neste intervalo.`}
                       >
-                        <span className="text-[8.5px] sm:text-[9px] font-mono font-medium text-slate-400 group-hover/slot:text-emerald-700 transition-colors flex items-center gap-1 select-none">
-                          <span className="text-[10px] font-bold text-slate-300 group-hover/slot:text-emerald-600">+</span>
-                          <span>{slot.timeStr}</span>
-                          <span className="hidden sm:inline text-[7.5px] uppercase font-bold text-slate-300 group-hover/slot:text-emerald-600">Livre</span>
-                        </span>
+                        {isCompact ? (
+                          <div className="flex items-center gap-1 text-[8.5px] sm:text-[9px] font-semibold text-slate-500 group-hover/gap:text-emerald-700">
+                            <span className="font-mono">{gap.startTimeStr}</span>
+                            <span>•</span>
+                            <span className="truncate">{gap.durationMinutes}m livres</span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-0.5 max-w-full">
+                            <div className="flex items-center gap-1 text-[8.5px] sm:text-[9.5px] font-bold text-slate-400 group-hover/gap:text-emerald-600">
+                              <span className="font-mono bg-white/90 px-1 py-0.2 rounded border border-slate-200/60 shadow-2xs">
+                                {gap.startTimeStr} - {gap.endTimeStr}
+                              </span>
+                            </div>
+                            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-600 group-hover/gap:text-emerald-800 leading-tight">
+                              {gap.label}
+                            </span>
+                            <span className="opacity-0 group-hover/gap:opacity-100 transition-opacity text-[8px] sm:text-[8.5px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full mt-0.5">
+                              + Agendar horário
+                            </span>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -788,7 +1161,7 @@ export function AgendaWeeklyGrid({
                 {/* Eventos Posicionados de Forma Absoluta */}
                 {layoutItems.map((evt) => {
                   const durationMinutes = evt.endMinutes - evt.startMinutes;
-                  const top = ((evt.startMinutes - DAY_START_MINUTES) / 60) * hourHeight;
+                  const top = ((evt.startMinutes - gridStartMinutes) / 60) * hourHeight;
                   const height = Math.max(22, (durationMinutes / 60) * hourHeight);
 
                   const widthPercent = 100 / evt.totalCols;
@@ -876,8 +1249,13 @@ export function AgendaWeeklyGrid({
                         }`}
                         title={`${appt.startTime} - ${appt.client?.name || 'Cliente'} (${serviceName})`}
                       >
-                        {/* Linha 1: Horário | Nome da Cliente (Exato padrão solicitado) */}
-                        <div className="flex items-baseline gap-1 min-w-0 leading-tight">
+                        {/* Linha 1: Bolinha de Status | Horário | Nome da Cliente */}
+                        <div className="flex items-center gap-1.5 min-w-0 leading-tight">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0 ring-1 ring-white/90 shadow-2xs"
+                            style={{ backgroundColor: colorStyle.statusColor }}
+                            title={`Status: ${appt.status}`}
+                          />
                           <span className="text-[9px] sm:text-[9.5px] font-mono font-extrabold shrink-0">
                             {appt.startTime}
                           </span>

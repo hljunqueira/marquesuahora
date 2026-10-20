@@ -38,8 +38,9 @@ export class AvailabilityService {
     serviceIds: string[];
     dateStr: string; // YYYY-MM-DD
     professionalId?: string;
+    excludeScheduleId?: string;
   }): Promise<DayAvailability> {
-    const { tenantId, serviceIds, dateStr, professionalId } = params;
+    const { tenantId, serviceIds, dateStr, professionalId, excludeScheduleId } = params;
 
     const tenant = await prisma.tenant.findUnique({
       where: { id: tenantId }
@@ -73,26 +74,39 @@ export class AvailabilityService {
     }
 
     // 1. Busca os serviços solicitados
-    const services = await prisma.service.findMany({
+    let services = await prisma.service.findMany({
       where: {
         id: { in: serviceIds },
         tenantId,
-        allowOnlineBooking: true
+        ...(excludeScheduleId ? {} : { allowOnlineBooking: true })
       }
     });
 
+    if (services.length === 0 && excludeScheduleId) {
+      services = await prisma.service.findMany({
+        where: { id: { in: serviceIds }, tenantId }
+      });
+    }
+
     if (services.length === 0) {
-      return {
-        date: dateStr,
-        isOpen: false,
-        reason: 'Nenhum serviço disponível para agendamento online.',
-        totalSlots: 0,
-        slots: { morning: [], afternoon: [], night: [] }
-      };
+      const fallbackService = await prisma.service.findFirst({
+        where: { tenantId }
+      });
+      if (fallbackService) {
+        services = [fallbackService];
+      } else {
+        return {
+          date: dateStr,
+          isOpen: false,
+          reason: 'Nenhum serviço disponível para agendamento.',
+          totalSlots: 0,
+          slots: { morning: [], afternoon: [], night: [] }
+        };
+      }
     }
 
     const totalDurationMinutes = services.reduce(
-      (sum, s) => sum + s.durationMinutes + (tenant.bufferMinutes || 0),
+      (sum, s) => sum + s.durationMinutes,
       0
     );
 
@@ -100,18 +114,28 @@ export class AvailabilityService {
     const { targetDate, dayOfWeek } = parseYMDToSafeUtcDate(dateStr);
 
     // 3. Busca profissionais aptos para executar os serviços
-    const candidateProfessionals = await prisma.professional.findMany({
+    let candidateProfessionals = await prisma.professional.findMany({
       where: {
         tenantId,
         isActive: true,
         ...(professionalId ? { id: professionalId } : {}),
-        services: {
-          some: {
-            serviceId: { in: serviceIds }
-          }
-        }
+        ...(serviceIds.length > 0 && !excludeScheduleId
+          ? {
+              services: {
+                some: {
+                  serviceId: { in: serviceIds }
+                }
+              }
+            }
+          : {})
       }
     });
+
+    if (candidateProfessionals.length === 0 && professionalId) {
+      candidateProfessionals = await prisma.professional.findMany({
+        where: { id: professionalId, tenantId }
+      });
+    }
 
     if (candidateProfessionals.length === 0) {
       return {
@@ -240,6 +264,7 @@ export class AvailabilityService {
       where: {
         tenantId,
         date: targetDate,
+        ...(excludeScheduleId ? { id: { not: excludeScheduleId } } : {}),
         status: {
           in: [ScheduleStatus.PENDING, ScheduleStatus.CONFIRMED, ScheduleStatus.IN_SERVICE]
         }

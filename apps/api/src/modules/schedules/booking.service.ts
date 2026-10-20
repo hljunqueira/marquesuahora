@@ -117,7 +117,7 @@ export class BookingService {
     }
 
     const totalDurationMinutes = services.reduce(
-      (sum, s) => sum + s.durationMinutes + (tenant.bufferMinutes || 0),
+      (sum, s) => sum + s.durationMinutes,
       0
     );
     const calculatedTotalPrice = services.reduce((sum, s) => sum + Number(s.price), 0);

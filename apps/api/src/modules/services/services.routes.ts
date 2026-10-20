@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
+import { getBrazilTodayYMD, parseYMDToSafeUtcDate } from '../../utils/date-utils';
 
 const serviceInputSchema = z.object({
   name: z.string().min(2, 'O nome do serviço é obrigatório.'),
@@ -136,6 +137,58 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
 
     if (service.count === 0) {
       return reply.status(404).send({ error: 'Não encontrado', message: 'Serviço não encontrado.' });
+    }
+
+    if (data.durationMinutes && data.durationMinutes > 0) {
+      try {
+        const activeSchedules = await prisma.schedule.findMany({
+          where: {
+            tenantId,
+            OR: [
+              { serviceId: id },
+              { items: { some: { serviceId: id } } }
+            ],
+            status: { in: ['PENDING', 'CONFIRMED', 'IN_SERVICE'] },
+            date: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+          },
+          include: {
+            service: true,
+            items: { include: { service: true } }
+          }
+        });
+
+        for (const sch of activeSchedules) {
+          if (sch.startTime) {
+            const [sh, sm] = sch.startTime.split(':').map(Number);
+            if (!isNaN(sh) && !isNaN(sm)) {
+              let finalDuration = data.durationMinutes;
+              if (sch.items && sch.items.length > 1) {
+                finalDuration = sch.items.reduce((sum, item) => {
+                  return sum + (item.serviceId === id ? data.durationMinutes! : (item.service?.durationMinutes || 0));
+                }, 0);
+              }
+              const endTotalMin = sh * 60 + sm + finalDuration;
+              const endH = Math.floor(endTotalMin / 60) % 24;
+              const endM = endTotalMin % 60;
+              const newEndTime = `${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}`;
+              await prisma.schedule.update({
+                where: { id: sch.id },
+                data: {
+                  totalDurationMinutes: finalDuration,
+                  endTime: newEndTime
+                }
+              });
+
+              await prisma.scheduleItem.updateMany({
+                where: { scheduleId: sch.id, serviceId: id },
+                data: { durationMinutes: data.durationMinutes }
+              });
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[SERVICE_UPDATE] Erro ao sincronizar agendamentos futuros:', err);
+      }
     }
 
     const updated = await prisma.service.findUnique({ where: { id } });

@@ -4,20 +4,46 @@ interface WhatsAppIconProps extends React.SVGProps<SVGSVGElement> {
   className?: string;
   size?: number;
   color?: string;
+  variant?: 'official' | 'monochrome';
 }
 
 export const WhatsAppIcon: React.FC<WhatsAppIconProps> = ({
   className = '',
   size = 20,
-  color = 'currentColor',
+  color,
+  variant = 'monochrome',
   ...props
 }) => {
+  if (variant === 'official') {
+    return (
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 32 32"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={className}
+        aria-hidden="true"
+        {...props}
+      >
+        {/* Círculo Oficial Verde WhatsApp (#25D366) */}
+        <circle cx="16" cy="16" r="16" fill="#25D366" />
+        {/* Telefone Oficial em Branco */}
+        <path
+          d="M23.1 8.9C21.2 7 18.7 6 16 6C10.5 6 6 10.5 6 16C6 17.8 6.5 19.5 7.4 21L6 26L11.2 24.6C12.6 25.4 14.3 25.9 16 25.9C21.5 25.9 26 21.4 26 16C26 13.3 25 10.8 23.1 8.9ZM16 24.2C14.5 24.2 13 23.8 11.7 23.1L11.4 22.9L8.3 23.7L9.1 20.7L8.9 20.4C8.1 19.1 7.7 17.6 7.7 16C7.7 11.4 11.4 7.7 16 7.7C18.2 7.7 20.3 8.6 21.9 10.1C23.5 11.7 24.3 13.8 24.3 16C24.3 20.6 20.6 24.2 16 24.2ZM20.6 18.1C20.3 18 19.1 17.4 18.8 17.3C18.6 17.2 18.5 17.2 18.3 17.4C18.1 17.7 17.7 18.2 17.5 18.4C17.4 18.5 17.2 18.6 17 18.5C16.7 18.3 16 18.1 15 17.2C14.3 16.6 13.8 15.8 13.7 15.5C13.5 15.3 13.7 15.1 13.8 15C13.9 14.9 14.1 14.7 14.2 14.6C14.3 14.4 14.4 14.3 14.4 14.2C14.5 14 14.5 13.9 14.4 13.7C14.4 13.6 13.9 12.3 13.7 11.8C13.5 11.3 13.3 11.4 13.1 11.4C13 11.4 12.8 11.4 12.7 11.4C12.5 11.4 12.2 11.5 12 11.7C11.8 11.9 11.2 12.5 11.2 13.7C11.2 14.9 12.1 16.1 12.2 16.2C12.3 16.4 13.9 18.9 16.4 20C17 20.3 17.5 20.4 17.8 20.5C18.4 20.7 18.9 20.7 19.4 20.6C19.9 20.5 20.9 20 21.1 19.4C21.3 18.8 21.3 18.3 21.2 18.2C21.1 18.2 20.9 18.2 20.6 18.1Z"
+          fill="white"
+        />
+      </svg>
+    );
+  }
+
+  const effectiveColor = color || 'currentColor';
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill={color}
+      fill={effectiveColor}
       xmlns="http://www.w3.org/2000/svg"
       className={className}
       aria-hidden="true"

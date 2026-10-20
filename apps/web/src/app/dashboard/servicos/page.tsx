@@ -1,12 +1,13 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Loader2 } from 'lucide-react';
+import { motion, AnimatePresence, Reorder } from 'motion/react';
+import { Loader2, GripVertical } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { api } from '@/lib/api';
 import { resolveImageUrl } from '@/lib/imageUrl';
 import { ColorTonePicker } from '@/components/ui/ColorTonePicker';
+import { invalidateQueries, useQueryInvalidation } from '@/lib/queryEvents';
 
 interface ServiceItem {
   id: string;
@@ -199,6 +200,18 @@ export default function DashboardServicosPage() {
     fetchCategories();
     fetchServices();
   }, []);
+
+  // Invalidação e Sincronização em Tempo Real via Barramento TypeSafe
+  useQueryInvalidation(['categories', 'services', 'tenant'], (invalidatedKey) => {
+    if (invalidatedKey === 'categories') {
+      fetchCategories();
+    } else if (invalidatedKey === 'services') {
+      fetchServices(true);
+    } else if (invalidatedKey === 'tenant') {
+      const saved = localStorage.getItem('tenant_primary_color');
+      if (saved) setTenantPrimaryColor(saved);
+    }
+  });
 
   // Revalidação em Segundo Plano
   useEffect(() => {
@@ -395,7 +408,7 @@ export default function DashboardServicosPage() {
       setIsModalOpen(false);
       fetchServices();
       fetchCategories();
-      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+      invalidateQueries(['services', 'categories', 'showcase']);
     } catch (err: any) {
       showToast(err?.response?.data?.message || 'Erro ao salvar serviço no banco.');
     }
@@ -408,7 +421,7 @@ export default function DashboardServicosPage() {
       showToast(res.data?.message || `Serviço "${deleteTarget.name}" removido com sucesso.`);
       setDeleteTarget(null);
       fetchServices();
-      window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
+      invalidateQueries(['services', 'categories', 'showcase']);
     } catch {
       showToast('Erro ao excluir serviço.');
     }
@@ -429,6 +442,7 @@ export default function DashboardServicosPage() {
       setNewCatName('');
       setNewCatDesc('');
       fetchCategories();
+      invalidateQueries(['categories', 'services', 'showcase']);
     } catch (err: any) {
       showToast(err?.response?.data?.message || 'Erro ao cadastrar categoria.');
     } finally {
@@ -447,6 +461,7 @@ export default function DashboardServicosPage() {
       setEditingCatId(null);
       fetchCategories();
       fetchServices(true);
+      invalidateQueries(['categories', 'services', 'showcase']);
     } catch (err: any) {
       showToast(err?.response?.data?.message || 'Erro ao atualizar categoria.');
     }
@@ -460,8 +475,24 @@ export default function DashboardServicosPage() {
       setCategoryDeleteTarget(null);
       fetchCategories();
       fetchServices(true);
+      invalidateQueries(['categories', 'services', 'showcase']);
     } catch (err: any) {
       showToast(err?.response?.data?.message || 'Erro ao excluir categoria.');
+    }
+  };
+
+  // Reordenação instantânea por Drag & Drop
+  const handleReorderCategories = async (newOrder: CategoryItem[]) => {
+    setCategoriesList(newOrder);
+    try {
+      await api.put('/categories/reorder', {
+        orderedIds: newOrder.map((c) => c.id)
+      });
+      showToast('Ordem das categorias atualizada com sucesso!');
+      invalidateQueries(['categories', 'services', 'showcase']);
+    } catch {
+      showToast('Erro ao salvar nova ordem das categorias.');
+      fetchCategories();
     }
   };
 
@@ -471,19 +502,7 @@ export default function DashboardServicosPage() {
     const reordered = [...categoriesList];
     const [removed] = reordered.splice(index, 1);
     reordered.splice(targetIndex, 0, removed);
-    setCategoriesList(reordered);
-    try {
-      await api.put('/categories/reorder', {
-        orderedIds: reordered.map((c) => c.id)
-      });
-      showToast('Ordem das categorias atualizada!');
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('marquesuahora_agenda_sync'));
-      }
-    } catch {
-      showToast('Erro ao atualizar ordem das categorias.');
-      fetchCategories();
-    }
+    handleReorderCategories(reordered);
   };
 
   // Lista de Categorias Únicas para os Filtros
@@ -657,26 +676,72 @@ export default function DashboardServicosPage() {
           </div>
         </div>
 
-        {/* Pílulas de Categorias */}
+        {/* Pílulas de Categorias com Drag & Drop */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs font-semibold border-t border-slate-100 pt-3">
           <span className="text-[11px] text-slate-400 mr-1 shrink-0">Categorias:</span>
-          {categories.map((cat) => {
-            const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
-            return (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
-                  isSelected
-                    ? 'btn-primary-tenant shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {cat === 'TODAS' ? 'Todas as Categorias' : cat}
-              </button>
-            );
-          })}
+          <button
+            type="button"
+            onClick={() => setSelectedCategory('TODAS')}
+            className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+              selectedCategory.toUpperCase() === 'TODAS'
+                ? 'btn-primary-tenant shadow-2xs'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            Todas as Categorias
+          </button>
+
+          {categoriesList.length > 0 ? (
+            <Reorder.Group
+              axis="x"
+              values={categoriesList}
+              onReorder={handleReorderCategories}
+              className="flex items-center gap-1.5 shrink-0"
+            >
+              {categoriesList.map((cat) => {
+                const isSelected = selectedCategory.toLowerCase() === cat.name.toLowerCase();
+                return (
+                  <Reorder.Item
+                    key={cat.id}
+                    value={cat}
+                    className="shrink-0"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategory(cat.name)}
+                      className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-grab active:cursor-grabbing flex items-center gap-1 ${
+                        isSelected
+                          ? 'btn-primary-tenant shadow-2xs'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                      title="Arraste para reordenar a categoria"
+                    >
+                      <GripVertical className="w-3 h-3 text-slate-400/80 -ml-0.5" />
+                      <span>{cat.name}</span>
+                    </button>
+                  </Reorder.Item>
+                );
+              })}
+            </Reorder.Group>
+          ) : (
+            categories.filter((c) => c !== 'TODAS').map((cat) => {
+              const isSelected = selectedCategory.toLowerCase() === cat.toLowerCase();
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all cursor-pointer ${
+                    isSelected
+                      ? 'btn-primary-tenant shadow-2xs'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -892,75 +957,7 @@ export default function DashboardServicosPage() {
               </div>
 
               <form onSubmit={handleSave} noValidate className="mt-6 space-y-5">
-                {/* SEÇÃO 1: FOTO DO PROCEDIMENTO (UPLOAD REAL VIA MULTIPART) */}
-                <div className="p-4 bg-slate-50/70 border border-slate-200/80 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800 block">
-                      Foto do Procedimento
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      JPG, PNG ou WEBP
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col sm:flex-row items-center gap-4">
-                    {/* Preview da Foto */}
-                    <div className="relative w-28 h-28 rounded-2xl bg-white border border-slate-200 overflow-hidden shrink-0 shadow-2xs flex items-center justify-center">
-                      {imageUrl ? (
-                        <>
-                          <img
-                            src={resolveImageUrl(imageUrl)}
-                            alt="Prévia"
-                            className="w-full h-full object-cover"
-                          />
-                          <button
-                            type="button"
-                            disabled={uploadingServiceImage}
-                            onClick={() => setImageUrl('')}
-                            className="absolute top-1 right-1 px-2 py-0.5 bg-slate-900/80 hover:bg-rose-600 text-white rounded-lg text-[10px] font-bold transition-colors cursor-pointer disabled:opacity-50"
-                            title="Remover foto"
-                          >
-                            Remover
-                          </button>
-                        </>
-                      ) : (
-                        <div className="text-center p-2">
-                          <span className="text-[10px] text-slate-400 block leading-tight">
-                            Sem imagem
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Botão de Upload */}
-                    <div className="space-y-2 flex-1 w-full">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          disabled={uploadingServiceImage}
-                          onClick={() => fileInputRef.current?.click()}
-                          className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-2xs inline-flex items-center gap-2 disabled:opacity-50"
-                        >
-                          <span>{uploadingServiceImage ? 'Enviando foto...' : (imageUrl ? 'Trocar Foto' : 'Enviar Foto')}</span>
-                        </button>
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/*"
-                          disabled={uploadingServiceImage}
-                          onChange={handleFileUpload}
-                          className="hidden"
-                        />
-                      </div>
-
-                      <span className="text-[10px] text-slate-400 block">
-                        Fotos atrativas aumentam a conversão de agendamentos na sua vitrine.
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* SEÇÃO 2: DADOS BÁSICOS */}
+                {/* DADOS BÁSICOS */}
                 <div className="space-y-3">
                   <div>
                     <label className="text-xs font-semibold text-slate-700 block mb-1">
@@ -1335,113 +1332,139 @@ export default function DashboardServicosPage() {
                     Nenhuma categoria cadastrada ainda. Crie a primeira categoria acima.
                   </div>
                 ) : (
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {categoriesList.map((cat, index) => {
-                      const isEditing = editingCatId === cat.id;
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    <p className="text-[11px] text-slate-500 font-medium flex items-center gap-1.5 pb-1">
+                      <GripVertical className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Arraste os itens para definir a prioridade na vitrine online:</span>
+                    </p>
 
-                      if (isEditing) {
+                    <Reorder.Group
+                      axis="y"
+                      values={categoriesList}
+                      onReorder={handleReorderCategories}
+                      className="space-y-2"
+                    >
+                      {categoriesList.map((cat, index) => {
+                        const isEditing = editingCatId === cat.id;
+
+                        if (isEditing) {
+                          return (
+                            <div
+                              key={cat.id}
+                              className="p-3 bg-purple-50/70 border border-purple-300 rounded-xl space-y-2"
+                            >
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <input
+                                  type="text"
+                                  value={editCatName}
+                                  onChange={(e) => setEditCatName(e.target.value)}
+                                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none font-bold"
+                                />
+                                <input
+                                  type="text"
+                                  placeholder="Descrição..."
+                                  value={editCatDesc}
+                                  onChange={(e) => setEditCatDesc(e.target.value)}
+                                  className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none"
+                                />
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingCatId(null)}
+                                  className="px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateCategory(cat.id)}
+                                  className="px-3 py-1 text-xs font-bold text-white bg-slate-900 rounded-lg"
+                                >
+                                  Salvar
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         return (
-                          <div
+                          <Reorder.Item
                             key={cat.id}
-                            className="p-3 bg-purple-50/70 border border-purple-300 rounded-xl space-y-2"
+                            value={cat}
+                            className="flex items-center justify-between p-3 bg-white border border-slate-200/90 rounded-xl hover:border-slate-300 hover:shadow-xs transition-all text-xs cursor-grab active:cursor-grabbing select-none"
                           >
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              <input
-                                type="text"
-                                value={editCatName}
-                                onChange={(e) => setEditCatName(e.target.value)}
-                                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none font-bold"
-                              />
-                              <input
-                                type="text"
-                                placeholder="Descrição..."
-                                value={editCatDesc}
-                                onChange={(e) => setEditCatDesc(e.target.value)}
-                                className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg outline-none"
-                              />
+                            <div className="flex items-center gap-2.5 overflow-hidden">
+                              <GripVertical className="w-4 h-4 text-slate-400 shrink-0 cursor-grab active:cursor-grabbing hover:text-slate-700" />
+                              <div className="overflow-hidden">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-bold text-slate-900 truncate">
+                                    {cat.name}
+                                  </span>
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 shrink-0">
+                                    {cat._count?.services ?? 0} serviço(s)
+                                  </span>
+                                </div>
+                                {cat.description && (
+                                  <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                    {cat.description}
+                                  </p>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex justify-end gap-2">
+
+                            <div className="flex items-center gap-1 shrink-0 ml-3">
                               <button
                                 type="button"
-                                onClick={() => setEditingCatId(null)}
-                                className="px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg"
+                                disabled={index === 0}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveCategory(index, 'up');
+                                }}
+                                className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Mover para cima"
                               >
-                                Cancelar
+                                ▲
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleUpdateCategory(cat.id)}
-                                className="px-3 py-1 text-xs font-bold text-white bg-slate-900 rounded-lg"
+                                disabled={index === categoriesList.length - 1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMoveCategory(index, 'down');
+                                }}
+                                className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                title="Mover para baixo"
                               >
-                                Salvar
+                                ▼
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingCatId(cat.id);
+                                  setEditCatName(cat.name);
+                                  setEditCatDesc(cat.description || '');
+                                }}
+                                className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setCategoryDeleteTarget(cat);
+                                }}
+                                className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                              >
+                                Excluir
                               </button>
                             </div>
-                          </div>
+                          </Reorder.Item>
                         );
-                      }
-
-                      return (
-                        <div
-                          key={cat.id}
-                          className="flex items-center justify-between p-3 bg-white border border-slate-200 rounded-xl hover:border-slate-300 transition-all text-xs"
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-slate-900">
-                                {cat.name}
-                              </span>
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600">
-                                {cat._count?.services ?? 0} serviço(s)
-                              </span>
-                            </div>
-                            {cat.description && (
-                              <p className="text-[11px] text-slate-500 mt-0.5">
-                                {cat.description}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0 ml-3">
-                            <button
-                              type="button"
-                              disabled={index === 0}
-                              onClick={() => handleMoveCategory(index, 'up')}
-                              className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                              title="Mover para cima"
-                            >
-                              ▲
-                            </button>
-                            <button
-                              type="button"
-                              disabled={index === categoriesList.length - 1}
-                              onClick={() => handleMoveCategory(index, 'down')}
-                              className="px-2 py-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-                              title="Mover para baixo"
-                            >
-                              ▼
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingCatId(cat.id);
-                                setEditCatName(cat.name);
-                                setEditCatDesc(cat.description || '');
-                              }}
-                              className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setCategoryDeleteTarget(cat)}
-                              className="px-2.5 py-1 text-xs font-semibold text-slate-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                      })}
+                    </Reorder.Group>
                   </div>
                 )}
               </div>
