@@ -81,8 +81,6 @@ export function BookingWizard({
   });
   const [professionalError, setProfessionalError] = useState<string | null>(null);
 
-  // Filtro de categoria selecionada no Passo 1
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('ALL');
 
   // Passo 2: Data e Horário
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -158,71 +156,86 @@ export function BookingWizard({
     });
   };
 
-  // Categorias com contagens para o filtro
-  const categoriesWithCounts = useMemo(() => {
-    const list: { id: string; name: string; count: number }[] = [];
-    const catMap = new Map<string, { name: string; count: number }>();
+  // Agrupa serviços por Categoria/Especialidade respeitando rigorosamente a ordem
+  const categorizedServices = useMemo(() => {
+    const map: Record<
+      string,
+      { categoryName: string; description?: string | null; sortOrder: number; services: ServiceItem[] }
+    > = {};
 
+    // 1. Inicializa com as categorias do tenant na ordem correta
     if (tenant.categories && tenant.categories.length > 0) {
-      tenant.categories.forEach((cat) => {
-        catMap.set(cat.id, { name: cat.name, count: 0 });
+      tenant.categories.forEach((cat, idx) => {
+        map[cat.id] = {
+          categoryName: cat.name,
+          description: cat.description,
+          sortOrder: (cat as any).sortOrder !== undefined ? (cat as any).sortOrder : idx,
+          services: []
+        };
       });
     }
 
-    let uncategorizedCount = 0;
-
+    // 2. Distribui os serviços nas categorias
     tenant.services.forEach((s) => {
-      if (s.categoryId && catMap.has(s.categoryId)) {
-        const item = catMap.get(s.categoryId)!;
-        item.count += 1;
-      } else if (s.category) {
-        let found = false;
-        for (const [id, val] of catMap.entries()) {
-          if (val.name.trim().toLowerCase() === s.category.trim().toLowerCase()) {
-            val.count += 1;
-            found = true;
-            break;
-          }
+      let targetKey = s.categoryId && map[s.categoryId] ? s.categoryId : null;
+
+      if (!targetKey && s.category) {
+        const found = Object.entries(map).find(
+          ([_, val]) => val.categoryName.trim().toLowerCase() === s.category.trim().toLowerCase()
+        );
+        if (found) targetKey = found[0];
+      }
+
+      if (!targetKey) {
+        targetKey = s.category || 'Geral';
+        if (!map[targetKey]) {
+          map[targetKey] = {
+            categoryName: s.category || 'Outros Serviços',
+            description: null,
+            sortOrder: 9999,
+            services: []
+          };
         }
-        if (!found) uncategorizedCount += 1;
-      } else {
-        uncategorizedCount += 1;
       }
+
+      map[targetKey].services.push(s);
     });
 
-    catMap.forEach((val, id) => {
-      if (val.count > 0) {
-        list.push({ id, name: val.name, count: val.count });
-      }
-    });
-
-    if (uncategorizedCount > 0) {
-      list.push({ id: 'OTHER', name: 'Outros Procedimentos', count: uncategorizedCount });
-    }
-
-    return list;
+    const entries = Object.entries(map).filter(([_, data]) => data.services.length > 0);
+    entries.sort((a, b) => a[1].sortOrder - b[1].sortOrder);
+    return entries;
   }, [tenant.categories, tenant.services]);
 
-  // Serviços filtrados pelo chip selecionado
-  const displayedServices = useMemo(() => {
-    if (selectedCategoryFilter === 'ALL') {
-      return tenant.services;
-    }
+  // Estado de categorias expandidas (acordeão)
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
 
-    return tenant.services.filter((s) => {
-      if (selectedCategoryFilter === 'OTHER') {
-        return !s.categoryId && !s.category;
-      }
-      if (s.categoryId === selectedCategoryFilter) return true;
-      if (s.category) {
-        const cat = tenant.categories?.find((c) => c.id === selectedCategoryFilter);
-        if (cat && cat.name.trim().toLowerCase() === s.category.trim().toLowerCase()) {
-          return true;
+  // Inicializa com a primeira categoria aberta por padrão
+  useEffect(() => {
+    if (categorizedServices.length > 0) {
+      setExpandedCategories((prev) => {
+        if (Object.keys(prev).length > 0) return prev;
+
+        if (initialServiceId) {
+          const match = categorizedServices.find(([_, data]) =>
+            data.services.some((s) => s.id === initialServiceId)
+          );
+          if (match) {
+            return { [match[0]]: true };
+          }
         }
-      }
-      return false;
-    });
-  }, [selectedCategoryFilter, tenant.services, tenant.categories]);
+
+        const firstKey = categorizedServices[0][0];
+        return { [firstKey]: true };
+      });
+    }
+  }, [categorizedServices, initialServiceId]);
+
+  const toggleCategory = (catKey: string) => {
+    setExpandedCategories((prev) => ({
+      ...prev,
+      [catKey]: !prev[catKey]
+    }));
+  };
 
   // Nome do profissional selecionado
   const selectedProfessionalName = useMemo(() => {
@@ -650,108 +663,162 @@ export function BookingWizard({
               </div>
             )}
 
-            {/* Pílulas de Filtro por Categoria de Serviços */}
-            {categoriesWithCounts.length > 1 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <button
-                  type="button"
-                  onClick={() => setSelectedCategoryFilter('ALL')}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                    selectedCategoryFilter === 'ALL'
-                      ? 'text-white shadow-2xs'
-                      : 'bg-slate-100 hover:bg-slate-200/80 text-slate-600'
-                  }`}
-                  style={{
-                    backgroundColor: selectedCategoryFilter === 'ALL' ? brandColor : undefined
-                  }}
-                >
-                  Todos ({tenant.services.length})
-                </button>
-
-                {categoriesWithCounts.map((cat) => {
-                  const isSelected = selectedCategoryFilter === cat.id;
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setSelectedCategoryFilter(cat.id)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                        isSelected
-                          ? 'text-white shadow-2xs'
-                          : 'bg-slate-100 hover:bg-slate-200/80 text-slate-600'
-                      }`}
-                      style={{
-                        backgroundColor: isSelected ? brandColor : undefined
-                      }}
-                    >
-                      {cat.name} ({cat.count})
-                    </button>
-                  );
-                })}
+            {/* Categorias & Especialidades em Acordeão com Apple Design */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between pb-1">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                  Especialidades & Procedimentos
+                </span>
+                <span className="text-[11px] text-slate-400 font-medium">
+                  Toque para abrir e escolher
+                </span>
               </div>
-            )}
 
-            {/* Lista de Procedimentos / Serviços */}
-            <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:thin]">
-              {displayedServices.map((service) => {
-                const isSelected = selectedServiceIds.includes(service.id);
+              {categorizedServices.length === 0 ? (
+                <div className="p-6 rounded-2xl border border-slate-200/80 bg-slate-50/50 text-xs text-slate-500 text-center">
+                  Nenhum procedimento disponível para agendamento online no momento.
+                </div>
+              ) : (
+                categorizedServices.map(([catKey, data]) => {
+                  const isOpen = !!expandedCategories[catKey];
+                  const hasSelectedInside = data.services.some((s) =>
+                    selectedServiceIds.includes(s.id)
+                  );
+                  const selectedCountInside = data.services.filter((s) =>
+                    selectedServiceIds.includes(s.id)
+                  ).length;
 
-                return (
-                  <div
-                    key={service.id}
-                    onClick={() => toggleService(service.id)}
-                    className={`p-3.5 sm:p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
-                      isSelected
-                        ? 'border-brand-purple bg-purple-50/50 shadow-xs'
-                        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/40'
-                    }`}
-                    style={{
-                      borderColor: isSelected ? brandColor : undefined
-                    }}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-sm font-extrabold text-slate-900 leading-tight">
-                        {service.name}
-                      </h4>
-                      {service.description && (
-                        <p className="mt-0.5 text-xs text-slate-500 line-clamp-2 leading-relaxed">
-                          {service.description}
-                        </p>
-                      )}
-                      <div className="mt-2 flex items-center gap-2 text-xs">
-                        <span className="font-medium text-slate-500">
-                          {service.durationMinutes} min
-                        </span>
-                        <span className="text-slate-300">·</span>
-                        <span className="font-black text-slate-900">
-                          R$ {service.price.toFixed(2).replace('.', ',')}
-                        </span>
-                        {service.requiresDeposit && (
-                          <>
-                            <span className="text-slate-300">·</span>
-                            <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 font-extrabold text-[10px]">
-                              Sinal: {service.depositType === 'PERCENTAGE' ? `${service.depositAmount || 50}%` : `R$ ${Number(service.depositAmount || 50).toFixed(0)}`}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
+                  return (
                     <div
-                      className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all shrink-0 ${
-                        isSelected
-                          ? 'text-white shadow-2xs'
-                          : 'border border-slate-300 text-slate-400'
-                      }`}
-                      style={{
-                        backgroundColor: isSelected ? brandColor : undefined
-                      }}
+                      key={catKey}
+                      className={`rounded-2xl border transition-all duration-300 overflow-hidden ${
+                        hasSelectedInside
+                          ? 'border-slate-300 shadow-2xs'
+                          : 'border-slate-200/80 hover:border-slate-300/80 shadow-[0_1px_3px_rgba(0,0,0,0.02)]'
+                      } bg-white`}
                     >
-                      {isSelected ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                      {/* Cabeçalho do Acordeão (Apple Button Surface) */}
+                      <button
+                        type="button"
+                        onClick={() => toggleCategory(catKey)}
+                        className="w-full px-4 py-3.5 flex items-center justify-between text-left transition-colors bg-slate-50/60 hover:bg-slate-100/60 cursor-pointer select-none group"
+                      >
+                        <div className="min-w-0 pr-3">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-900 group-hover:text-slate-950 transition-colors">
+                              {data.categoryName}
+                            </h3>
+                            {hasSelectedInside && (
+                              <span
+                                className="px-2 py-0.5 rounded-full text-[10px] font-black text-white shadow-2xs"
+                                style={{ backgroundColor: brandColor }}
+                              >
+                                {selectedCountInside} selecionado{selectedCountInside > 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                          {data.description && (
+                            <p className="text-[11px] text-slate-500 mt-0.5 font-normal line-clamp-1">
+                              {data.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <span className="text-[11px] font-semibold text-slate-500 bg-white/80 border border-slate-200/60 px-2.5 py-0.5 rounded-full shadow-2xs">
+                            {data.services.length} {data.services.length === 1 ? 'opção' : 'opções'}
+                          </span>
+                          <div
+                            className={`w-7 h-7 rounded-full flex items-center justify-center transition-transform duration-300 ${
+                              isOpen
+                                ? 'rotate-180 bg-slate-200/70 text-slate-800'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}
+                          >
+                            <ChevronDown className="w-4 h-4" />
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* Lista de Procedimentos da Categoria (Expandida) */}
+                      {isOpen && (
+                        <div className="p-3 sm:p-3.5 space-y-2.5 bg-slate-50/30 border-t border-slate-100/90 animate-in fade-in-50 duration-200">
+                          {data.services.map((service) => {
+                            const isSelected = selectedServiceIds.includes(service.id);
+                            const cleanName = service.name
+                              .replace(/\s*\|\s*/g, ' - ')
+                              .replace(/\s+/g, ' ')
+                              .trim();
+
+                            return (
+                              <div
+                                key={service.id}
+                                onClick={() => toggleService(service.id)}
+                                className={`p-3.5 rounded-xl border transition-all duration-200 cursor-pointer flex items-center justify-between gap-3 ${
+                                  isSelected
+                                    ? 'bg-white shadow-xs'
+                                    : 'bg-white border-slate-200/70 hover:border-slate-300 hover:bg-slate-50/40'
+                                }`}
+                                style={{
+                                  borderColor: isSelected ? brandColor : undefined,
+                                  boxShadow: isSelected
+                                    ? `0 0 0 1px ${brandColor}30, 0 2px 6px -1px rgba(0,0,0,0.04)`
+                                    : undefined
+                                }}
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="text-xs sm:text-sm font-bold text-slate-900 leading-snug">
+                                    {cleanName}
+                                  </h4>
+                                  {service.description && (
+                                    <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-2 leading-relaxed">
+                                      {service.description}
+                                    </p>
+                                  )}
+                                  <div className="mt-2 flex items-center gap-2 text-xs">
+                                    <span className="font-medium text-slate-500 text-[11px]">
+                                      {service.durationMinutes} min
+                                    </span>
+                                    <span className="text-slate-300">·</span>
+                                    <span className="font-black text-slate-900 text-xs sm:text-sm">
+                                      R$ {service.price.toFixed(2).replace('.', ',')}
+                                    </span>
+                                    {service.requiresDeposit && (
+                                      <>
+                                        <span className="text-slate-300">·</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 font-bold text-[10px] border border-purple-200/60">
+                                          Sinal: {service.depositType === 'PERCENTAGE' ? `${service.depositAmount || 50}%` : `R$ ${Number(service.depositAmount || 50).toFixed(0)}`}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div
+                                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center transition-all shrink-0 border ${
+                                    isSelected
+                                      ? 'text-white shadow-xs border-transparent'
+                                      : 'border-slate-300 text-slate-400 bg-white hover:border-slate-400'
+                                  }`}
+                                  style={{
+                                    backgroundColor: isSelected ? brandColor : undefined
+                                  }}
+                                >
+                                  {isSelected ? (
+                                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                  ) : (
+                                    <Plus className="w-3.5 h-3.5" />
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
 
             {/* Barra de Resumo e Avanço */}

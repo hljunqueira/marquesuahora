@@ -20,12 +20,10 @@ import { ShowcaseGallery } from '@/components/showcase/ShowcaseGallery';
 import { ShowcaseInfoCards } from '@/components/showcase/ShowcaseInfoCards';
 import { ShowcaseCourses } from '@/components/showcase/ShowcaseCourses';
 import { ShowcaseProducts } from '@/components/showcase/ShowcaseProducts';
-import { ShowcaseServiceMenu } from '@/components/showcase/ShowcaseServiceMenu';
-import { BookingWizardModal } from '@/components/showcase/BookingWizardModal';
+import { BookingWizard } from '@/components/showcase/BookingWizard';
 import { ClientPortalModal } from '@/components/showcase/ClientPortalModal';
 import { SlugClaim404Page } from '@/components/showcase/SlugClaim404Page';
 import { WhatsAppIcon } from '@/components/icons/WhatsAppIcon';
-import { CalendarPlus } from 'lucide-react';
 
 type ShowcaseTab = 'BOOKING' | 'GALLERY' | 'PRODUCTS' | 'COURSES' | 'ABOUT';
 
@@ -38,13 +36,6 @@ export default function PublicShowcasePage() {
   const [error, setError] = useState<string | null>(null);
   const [isPortalOpen, setIsPortalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<ShowcaseTab>('BOOKING');
-  const [isBookingOpen, setIsBookingOpen] = useState(false);
-  const [preselectedServiceId, setPreselectedServiceId] = useState<string | null>(null);
-
-  const handleOpenBooking = (serviceId?: string) => {
-    setPreselectedServiceId(serviceId || null);
-    setIsBookingOpen(true);
-  };
 
   const fetchShowcaseData = useCallback(
     async (silent = false) => {
@@ -81,7 +72,13 @@ export default function PublicShowcasePage() {
   });
 
   const scrollToBooking = () => {
-    handleOpenBooking();
+    setActiveTab('BOOKING');
+    setTimeout(() => {
+      const el = document.getElementById('agendamento');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth' });
+      }
+    }, 50);
   };
 
   if (loading) {
@@ -109,7 +106,7 @@ export default function PublicShowcasePage() {
       {/* 1. Topo da Marca (Header Panorâmico + Avatar + Bio + Redes) */}
       <ShowcaseHeader
         tenant={tenant}
-        onBookClick={() => handleOpenBooking()}
+        onBookClick={scrollToBooking}
         onPortalClick={() => setIsPortalOpen(true)}
       />
 
@@ -229,23 +226,18 @@ export default function PublicShowcasePage() {
         {activeTab === 'BOOKING' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
             {/* Coluna Esquerda no Desktop: Informações Essenciais e Diferenciais */}
-            <div className="hidden lg:block lg:col-span-5 space-y-5 sticky top-20">
+            <div className="hidden lg:block lg:col-span-5 space-y-6 sticky top-20">
               <ShowcaseInfoCards tenant={tenant} />
               {hasGallery && (
                 <ShowcaseGallery photos={tenant.galleryPhotos} tenantName={tenant.name} />
               )}
             </div>
 
-            {/* Coluna Direita: O Menu / Catálogo de Procedimentos (Opção A) */}
-            <div className="lg:col-span-7 space-y-6">
-              <ShowcaseServiceMenu
-                tenant={tenant}
-                brandColor={brandColor}
-                onSelectService={(id) => handleOpenBooking(id)}
-                onOpenBooking={() => handleOpenBooking()}
-              />
+            {/* Coluna Direita (ou Top no Mobile): O Widget de Agendamento em 4 Passos com Serviços Colapsáveis e Design Apple */}
+            <div id="agendamento" className="lg:col-span-7 space-y-6">
+              <BookingWizard tenant={tenant} brandColor={brandColor} />
 
-              {/* No mobile, exibir a galeria de fotos e cartões de informação após os serviços */}
+              {/* No mobile, exibir a galeria de fotos e cartões de informação logo após o agendamento */}
               <div className="block lg:hidden space-y-5 pt-4">
                 {hasGallery && (
                   <ShowcaseGallery photos={tenant.galleryPhotos} tenantName={tenant.name} />
@@ -263,7 +255,7 @@ export default function PublicShowcasePage() {
             <div className="text-center pt-2">
               <button
                 type="button"
-                onClick={() => handleOpenBooking()}
+                onClick={scrollToBooking}
                 style={{ backgroundColor: brandColor }}
                 className="px-6 py-3 rounded-2xl text-white font-bold text-sm shadow-md hover:opacity-95 transition-opacity cursor-pointer inline-flex items-center gap-2"
               >
@@ -289,29 +281,6 @@ export default function PublicShowcasePage() {
         )}
       </main>
 
-      {/* Barra Flutuante Mobile Fixa no Rodapé (Padrão Fresha / GlossGenius) */}
-      {!isBookingOpen && (
-        <div className="fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200/90 p-3 shadow-2xl lg:hidden flex items-center justify-between gap-3 animate-in slide-in-from-bottom duration-200">
-          <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider truncate">
-              {tenant.name}
-            </p>
-            <p className="text-xs font-black text-slate-900 truncate">
-              Atendimento com hora marcada
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => handleOpenBooking()}
-            className="px-5 py-2.5 rounded-xl font-bold text-xs text-white shadow-md active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
-            style={{ backgroundColor: brandColor }}
-          >
-            <CalendarPlus className="w-4 h-4" />
-            <span>Agendar Horário</span>
-          </button>
-        </div>
-      )}
-
       {/* Botão Flutuante Oficial de WhatsApp para Dúvidas Rápidas */}
       {tenant.phone && (
         <a
@@ -320,7 +289,7 @@ export default function PublicShowcasePage() {
           )}`}
           target="_blank"
           rel="noopener noreferrer"
-          className="fixed bottom-16 sm:bottom-5 right-4 sm:right-5 z-40 drop-shadow-xl hover:scale-108 active:scale-95 transition-all duration-200"
+          className="fixed bottom-5 right-4 sm:right-5 z-40 drop-shadow-xl hover:scale-108 active:scale-95 transition-all duration-200"
           title="Falar no WhatsApp"
           aria-label="Falar no WhatsApp"
         >
@@ -329,7 +298,7 @@ export default function PublicShowcasePage() {
       )}
 
       {/* Rodapé Institucional Minimalista */}
-      <footer className="py-6 border-t border-slate-200/60 bg-white/50 text-center text-xs text-slate-400 pb-20 lg:pb-6">
+      <footer className="py-6 border-t border-slate-200/60 bg-white/50 text-center text-xs text-slate-400">
         <p>
           © {new Date().getFullYear()} {tenant.name} · Plataforma{' '}
           <span className="font-bold text-slate-600">Marque Sua Hora</span>
@@ -346,15 +315,6 @@ export default function PublicShowcasePage() {
           onClose={() => setIsPortalOpen(false)}
         />
       )}
-
-      {/* Modal / Bottom Sheet Fluido de Agendamento em 4 Passos (Opção A) */}
-      <BookingWizardModal
-        isOpen={isBookingOpen}
-        onClose={() => setIsBookingOpen(false)}
-        tenant={tenant}
-        brandColor={brandColor}
-        initialServiceId={preselectedServiceId}
-      />
     </div>
   );
 }
