@@ -201,6 +201,7 @@ interface FreeGap {
   isFirstGapOfDay: boolean;
   isLastGapOfDay: boolean;
   label: string;
+  durText: string;
   detailLabel: string;
 }
 
@@ -210,11 +211,17 @@ function computeDayFreeGaps(
   dayStartMinutes: number,
   dayEndMinutes: number
 ): FreeGap[] {
+  const formatDurationShort = (minsTotal: number): string => {
+    const h = Math.floor(minsTotal / 60);
+    const m = minsTotal % 60;
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h${m > 0 ? `${m}m` : ''}`;
+  };
+
   if (layoutItems.length === 0) {
     const duration = dayEndMinutes - dayStartMinutes;
-    const hours = Math.floor(duration / 60);
-    const mins = duration % 60;
-    const durText = mins > 0 ? `${hours}h${mins}` : `${hours} horas`;
+    const durText = formatDurationShort(duration);
     return [
       {
         startMinutes: dayStartMinutes,
@@ -224,8 +231,9 @@ function computeDayFreeGaps(
         endTimeStr: formatMinutesToTime(dayEndMinutes),
         isFirstGapOfDay: true,
         isLastGapOfDay: true,
-        label: `${durText} livres`,
-        detailLabel: `${formatMinutesToTime(dayStartMinutes)} às ${formatMinutesToTime(dayEndMinutes)} · Dia todo disponível`
+        label: 'Dia todo livre',
+        durText,
+        detailLabel: `${formatMinutesToTime(dayStartMinutes)} às ${formatMinutesToTime(dayEndMinutes)} · Dia todo disponível (${durText})`
       }
     ];
   }
@@ -257,26 +265,10 @@ function computeDayFreeGaps(
     if (busy.start > currentPointer) {
       const duration = busy.start - currentPointer;
       if (duration >= 20) {
-        const hours = Math.floor(duration / 60);
-        const mins = duration % 60;
-        let durText = '';
-        if (hours === 0) {
-          durText = `${mins} min`;
-        } else if (hours === 1 && mins === 0) {
-          durText = `1 hora`;
-        } else if (mins === 0) {
-          durText = `${hours} horas`;
-        } else {
-          durText = `${hours}h${mins > 0 ? `${mins}m` : ''}`;
-        }
-
+        const durText = formatDurationShort(duration);
         const isFirst = i === 0 && currentPointer === dayStartMinutes;
         const startStr = formatMinutesToTime(currentPointer);
         const endStr = formatMinutesToTime(busy.start);
-
-        const label = isFirst
-          ? `${durText} livres até o 1º atendimento`
-          : `${durText} livres até próximo atendimento`;
 
         gaps.push({
           startMinutes: currentPointer,
@@ -286,8 +278,9 @@ function computeDayFreeGaps(
           endTimeStr: endStr,
           isFirstGapOfDay: isFirst,
           isLastGapOfDay: false,
-          label,
-          detailLabel: `${startStr} às ${endStr}`
+          label: 'Livre',
+          durText,
+          detailLabel: `${startStr} às ${endStr} (${durText})`
         });
       }
     }
@@ -298,19 +291,7 @@ function computeDayFreeGaps(
   if (currentPointer < dayEndMinutes) {
     const duration = dayEndMinutes - currentPointer;
     if (duration >= 20) {
-      const hours = Math.floor(duration / 60);
-      const mins = duration % 60;
-      let durText = '';
-      if (hours === 0) {
-        durText = `${mins} min`;
-      } else if (hours === 1 && mins === 0) {
-        durText = `1 hora`;
-      } else if (mins === 0) {
-        durText = `${hours} horas`;
-      } else {
-        durText = `${hours}h${mins > 0 ? `${mins}m` : ''}`;
-      }
-
+      const durText = formatDurationShort(duration);
       const startStr = formatMinutesToTime(currentPointer);
       const endStr = formatMinutesToTime(dayEndMinutes);
 
@@ -322,8 +303,9 @@ function computeDayFreeGaps(
         endTimeStr: endStr,
         isFirstGapOfDay: mergedBusy.length === 0,
         isLastGapOfDay: true,
-        label: `${durText} livres até o fechamento`,
-        detailLabel: `${startStr} às ${endStr}`
+        label: 'Livre',
+        durText,
+        detailLabel: `${startStr} às ${endStr} (${durText})`
       });
     }
   }
@@ -1045,14 +1027,8 @@ export function AgendaWeeklyGrid({
                       height: `${((workingStartMinutes - gridStartMinutes) / 60) * hourHeight}px`,
                       background: 'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 8px, #f1f5f9 8px, #f1f5f9 16px)'
                     }}
-                    className="absolute inset-x-0 z-1 pointer-events-none border-b border-slate-200/80 flex items-center justify-center p-1"
-                  >
-                    {((workingStartMinutes - gridStartMinutes) / 60) * hourHeight >= 28 && (
-                      <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider">
-                        Antes do Expediente ({formatMinutesToTime(workingStartMinutes)})
-                      </span>
-                    )}
-                  </div>
+                    className="absolute inset-x-0 z-1 pointer-events-none border-b border-slate-200/80"
+                  />
                 )}
 
                 {/* Faixa sombreada de Horário Após o Expediente em dias abertos */}
@@ -1063,18 +1039,12 @@ export function AgendaWeeklyGrid({
                       height: `${((gridEndMinutes - workingEndMinutes) / 60) * hourHeight}px`,
                       background: 'repeating-linear-gradient(45deg, #f8fafc, #f8fafc 8px, #f1f5f9 8px, #f1f5f9 16px)'
                     }}
-                    className="absolute inset-x-0 z-1 pointer-events-none border-t border-slate-200/80 flex items-center justify-center p-1"
-                  >
-                    {((gridEndMinutes - workingEndMinutes) / 60) * hourHeight >= 28 && (
-                      <span className="text-[8.5px] uppercase font-bold text-slate-400 tracking-wider">
-                        Após o Expediente ({formatMinutesToTime(workingEndMinutes)})
-                      </span>
-                    )}
-                  </div>
+                    className="absolute inset-x-0 z-1 pointer-events-none border-t border-slate-200/80"
+                  />
                 )}
 
-                {/* Badge de Dia Fechado ou Bloqueado */}
-                {isDayWithoutSchedule && (
+                {/* Badge de Dia Fechado ou Bloqueado apenas na visão diária (na visão semanal o topo da coluna já informa) */}
+                {isDayWithoutSchedule && viewMode === 'day' && (
                   <div className="absolute inset-x-1 top-2 z-10 flex justify-center pointer-events-none">
                     {dayAppts.length > 0 ? (
                       <span className="text-[8.5px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-100/90 text-amber-800 border border-amber-300/80 shadow-2xs">
@@ -1100,11 +1070,11 @@ export function AgendaWeeklyGrid({
                   </div>
                 )}
 
-                {/* Janelas Livres Inteligentes Consolidadas (Smart Free Time Gaps) */}
+                {/* Janelas Livres Inteligentes Consolidadas (Verde bem clarinho e suave, sem poluição de texto) */}
                 {!isDayWithoutSchedule &&
                   freeGaps.map((gap) => {
                     const gapTop = ((gap.startMinutes - gridStartMinutes) / 60) * hourHeight;
-                    const gapHeight = Math.max(22, ((gap.durationMinutes) / 60) * hourHeight - 2);
+                    const gapHeight = Math.max(20, ((gap.durationMinutes) / 60) * hourHeight - 2);
                     const isCompact = gap.durationMinutes <= 45;
 
                     return (
@@ -1125,32 +1095,30 @@ export function AgendaWeeklyGrid({
                         style={{
                           top: `${gapTop + 1}px`,
                           height: `${gapHeight}px`,
-                          left: '3px',
-                          right: '3px'
+                          left: '2px',
+                          right: '2px'
                         }}
-                        className={`absolute z-5 rounded-xl border border-dashed border-slate-200/90 hover:border-emerald-500 bg-slate-50/40 hover:bg-emerald-50/40 transition-all flex flex-col items-center justify-center cursor-pointer group/gap overflow-hidden p-1.5 text-center select-none shadow-2xs ${
-                          isCompact ? 'py-0.5' : ''
+                        className={`absolute z-5 rounded-xl border border-dashed border-emerald-300/80 hover:border-emerald-500 bg-emerald-50/50 hover:bg-emerald-100/60 transition-all flex flex-col items-center justify-center cursor-pointer group/gap overflow-hidden p-1 text-center select-none shadow-2xs ${
+                          isCompact ? 'py-0.5' : 'py-1'
                         }`}
-                        title={`Horário livre: ${gap.startTimeStr} às ${gap.endTimeStr} (${gap.durationMinutes} min). Clique para agendar neste intervalo.`}
+                        title={`Horário livre: ${gap.startTimeStr} às ${gap.endTimeStr} (${gap.durText}). Clique para agendar neste intervalo.`}
                       >
                         {isCompact ? (
-                          <div className="flex items-center gap-1 text-[8.5px] sm:text-[9px] font-semibold text-slate-500 group-hover/gap:text-emerald-700">
-                            <span className="font-mono">{gap.startTimeStr}</span>
-                            <span>•</span>
-                            <span className="truncate">{gap.durationMinutes}m livres</span>
+                          <div className="flex items-center gap-1 text-[8.5px] sm:text-[9px] font-bold text-emerald-800">
+                            <span className="font-mono">{gap.startTimeStr} - {gap.endTimeStr}</span>
+                            <span>·</span>
+                            <span>Livre</span>
                           </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center gap-0.5 max-w-full">
-                            <div className="flex items-center gap-1 text-[8.5px] sm:text-[9.5px] font-bold text-slate-400 group-hover/gap:text-emerald-600">
-                              <span className="font-mono bg-white/90 px-1 py-0.2 rounded border border-slate-200/60 shadow-2xs">
-                                {gap.startTimeStr} - {gap.endTimeStr}
-                              </span>
-                            </div>
-                            <span className="text-[9px] sm:text-[10px] font-extrabold text-slate-600 group-hover/gap:text-emerald-800 leading-tight">
-                              {gap.label}
+                            <span className="font-mono text-[9px] sm:text-[9.5px] font-bold text-emerald-900 bg-white/90 px-1.5 py-0.2 rounded border border-emerald-200/70 shadow-2xs">
+                              {gap.startTimeStr} - {gap.endTimeStr}
                             </span>
-                            <span className="opacity-0 group-hover/gap:opacity-100 transition-opacity text-[8px] sm:text-[8.5px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full mt-0.5">
-                              + Agendar horário
+                            <span className="text-[9.5px] sm:text-[10px] font-extrabold text-emerald-800 leading-tight">
+                              Livre ({gap.durText})
+                            </span>
+                            <span className="opacity-0 group-hover/gap:opacity-100 transition-opacity text-[8px] font-bold text-emerald-700 bg-emerald-100/90 px-1.5 py-0.2 rounded-full mt-0.5">
+                              + Agendar
                             </span>
                           </div>
                         )}

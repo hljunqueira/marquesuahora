@@ -76,9 +76,18 @@ export default function LoginPage() {
 
       if (token) {
         localStorage.setItem('auth_token', token);
+        localStorage.setItem('@marcatuahora:token', token);
         localStorage.setItem('user_data', JSON.stringify(user));
+
+        if (typeof document !== 'undefined') {
+          document.cookie = `auth_token=${encodeURIComponent(token)}; path=/; max-age=2592000; SameSite=Lax`;
+        }
+
         if (refreshToken) {
           localStorage.setItem('refresh_token', refreshToken);
+          if (typeof document !== 'undefined') {
+            document.cookie = `refresh_token=${encodeURIComponent(refreshToken)}; path=/; max-age=7776000; SameSite=Lax`;
+          }
         }
       }
 

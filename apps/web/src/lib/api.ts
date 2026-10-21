@@ -12,10 +12,46 @@ export const api = axios.create({
   }
 });
 
+// Helpers de Cookie seguros para persistência resiliente em navegadores móveis (Safari/iOS)
+function getCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = document.cookie.match(new RegExp('(^|;\\s*)(' + name + ')=([^;]*)'));
+  return match ? decodeURIComponent(match[3]) : null;
+}
+
+function setCookie(name: string, value: string, days: number) {
+  if (typeof document === 'undefined') return;
+  const expires = new Date(Date.now() + days * 864e5).toUTCString();
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+}
+
+function clearAuthStorage() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('@marcatuahora:token');
+  localStorage.removeItem('refresh_token');
+  localStorage.removeItem('user_data');
+  localStorage.removeItem('tenant_data');
+
+  if (typeof document !== 'undefined') {
+    document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax';
+    document.cookie = 'refresh_token=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax';
+  }
+}
+
 // Interceptor de Requisição: Injeta automaticamente o token JWT
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('@marcatuahora:token');
+    let token = localStorage.getItem('auth_token') || localStorage.getItem('@marcatuahora:token');
+    if (!token) {
+      // Fallback para cookie no Safari/iOS
+      const cookieToken = getCookie('auth_token');
+      if (cookieToken) {
+        token = cookieToken;
+        localStorage.setItem('auth_token', cookieToken);
+        localStorage.setItem('@marcatuahora:token', cookieToken);
+      }
+    }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -23,7 +59,7 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Interceptor de Resposta: Tratamento inteligente de expiração de sessão (401)
+// Interceptor de Resposta: Tratamento inteligente de expiração de sessão (401) com fila concorrente
 let isRefreshing = false;
 let failedQueue: Array<{
   resolve: (value?: unknown) => void;
@@ -53,26 +89,36 @@ api.interceptors.response.use(
       }
 
       const pathname = window.location.pathname;
-      const isPublicPath =
-        pathname === '/' ||
-        pathname.startsWith('/login') ||
-        pathname.startsWith('/cadastro') ||
-        pathname.startsWith('/onboarding') ||
-        pathname.startsWith('/esqueci-senha');
+      const isProtectedRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/admin');
 
-      // Se já estiver em rota pública ou tentando login/refresh, não entra em loop
+      // Se for rota pública ou requisição de autenticação, não entra em loop e não redireciona
       if (
-        isPublicPath ||
+        !isProtectedRoute ||
         originalRequest.url?.includes('/auth/login') ||
         originalRequest.url?.includes('/auth/refresh')
       ) {
         return Promise.reject(error);
       }
 
-      const storedRefreshToken = localStorage.getItem('refresh_token');
+      // Se já está acontecendo um refresh, enfileira a requisição para executar assim que o token renovar
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((newToken) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return api(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
 
-      // Se temos refresh token e ainda não estamos tentando renovar
-      if (storedRefreshToken && !isRefreshing) {
+      const storedRefreshToken =
+        localStorage.getItem('refresh_token') || getCookie('refresh_token');
+
+      // Se temos refresh token, tenta renovar o acesso silenciosamente
+      if (storedRefreshToken) {
         originalRequest._retry = true;
         isRefreshing = true;
 
@@ -88,8 +134,11 @@ api.interceptors.response.use(
           if (newToken) {
             localStorage.setItem('auth_token', newToken);
             localStorage.setItem('@marcatuahora:token', newToken);
+            setCookie('auth_token', newToken, 30);
+
             if (newRefreshToken) {
               localStorage.setItem('refresh_token', newRefreshToken);
+              setCookie('refresh_token', newRefreshToken, 90);
             }
 
             api.defaults.headers.common.Authorization = `Bearer ${newToken}`;
@@ -100,32 +149,22 @@ api.interceptors.response.use(
           }
         } catch (refreshErr: any) {
           processQueue(refreshErr, null);
-          // Só desloga se o servidor explicitamente rejeitou o refresh token com 401
-          if (refreshErr.response?.status === 401) {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('@marcatuahora:token');
-            localStorage.removeItem('refresh_token');
-            localStorage.removeItem('user_data');
-            localStorage.removeItem('tenant_data');
 
+          // Só desloga e redireciona se o servidor explicitamente rejeitou o refresh token com 401
+          if (refreshErr.response?.status === 401 && isProtectedRoute) {
+            clearAuthStorage();
             window.location.href = '/login?expired=true';
             return Promise.reject(refreshErr);
           }
-          // Se for erro de rede/timeout, não expira a sessão
           return Promise.reject(refreshErr);
         } finally {
           isRefreshing = false;
         }
       }
 
-      // Se não há refresh token E recebemos 401 definitivo
-      if (!storedRefreshToken) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('@marcatuahora:token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user_data');
-        localStorage.removeItem('tenant_data');
-
+      // Se não há refresh token e estamos em rota protegida
+      if (!storedRefreshToken && isProtectedRoute) {
+        clearAuthStorage();
         window.location.href = '/login?expired=true';
       }
     }

@@ -69,15 +69,18 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
   );
 
   // Top 5 bar chart data
-  const topChartData = (data?.rankingByBookings || []).slice(0, 5).map((c) => ({
-    label: c.name.split(' ')[0],
-    value: c.totalBookings,
-    formattedValue: `${c.totalBookings} agendamentos`,
-  }));
+  const topChartData = (data?.rankingByBookings || []).slice(0, 5).map((c: any) => {
+    const bookings = c.totalBookings ?? c.bookingsCount ?? 0;
+    return {
+      label: c.name.split(' ')[0],
+      value: bookings,
+      formattedValue: `${bookings} agendamento${bookings === 1 ? '' : 's'}`,
+    };
+  });
 
-  const topSpenderData = (data?.rankingBySpent || []).slice(0, 5).map((c) => ({
+  const topSpenderData = (data?.rankingBySpent || []).slice(0, 5).map((c: any) => ({
     label: c.name.split(' ')[0],
-    value: c.totalSpent,
+    value: Number(c.totalSpent || 0),
     formattedValue: formatBRL(c.totalSpent),
   }));
 
@@ -98,10 +101,10 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
             <Users className="w-4 h-4" style={{ color: tenantColor }} />
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">
-            {data?.summary?.totalClients || 0}
+            {data?.summary?.totalClients ?? (data as any)?.totalActiveClientsInPeriod ?? 0}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">
-            {data?.summary?.activeInPeriod || 0} ativos no período
+            {data?.summary?.activeInPeriod ?? (data as any)?.totalActiveClientsInPeriod ?? 0} ativos no período
           </span>
         </div>
 
@@ -111,7 +114,7 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
             <Repeat className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">
-            {data?.summary?.frequentCount || 0}
+            {data?.summary?.frequentCount ?? (data as any)?.metrics?.vipCount ?? 0}
           </div>
           <span className="text-[11px] text-emerald-700 font-semibold mt-1 block">
             Alta fidelização & retenção
@@ -124,7 +127,7 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
             <DollarSign className="w-4 h-4 text-indigo-600" />
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">
-            {formatBRL(data?.summary?.averageLtv || 0)}
+            {formatBRL(data?.summary?.averageLtv ?? (data as any)?.metrics?.averageTicket ?? 0)}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block font-mono">Valor vitalício médio</span>
         </div>
@@ -135,7 +138,7 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
             <AlertCircle className="w-4 h-4 text-rose-600" />
           </div>
           <div className="text-2xl font-black text-slate-900 font-mono">
-            {data?.summary?.atRiskCount || 0}
+            {data?.summary?.atRiskCount ?? (data as any)?.metrics?.atRiskCount ?? 0}
           </div>
           <span className="text-[11px] text-rose-700 font-semibold mt-1 block">
             Sem retorno há &gt; 45 dias
@@ -261,17 +264,19 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className="font-bold text-slate-900 font-mono">
-                          {client.totalBookings}
+                          {client.totalBookings ?? (client as any).bookingsCount ?? 0}
                         </span>
-                        <span className="text-[10px] text-slate-400 ml-1 font-mono">
-                          ({client.completedBookings} concl.)
-                        </span>
+                        {(client.completedBookings !== undefined || (client as any).bookingsCount !== undefined) && (
+                          <span className="text-[10px] text-slate-400 ml-1 font-mono">
+                            ({client.completedBookings ?? (client as any).bookingsCount ?? 0} concl.)
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-right font-bold text-emerald-600 font-mono">
                         {formatBRL(client.totalSpent)}
                       </td>
                       <td className="py-3 px-4 text-right font-medium text-slate-700 font-mono">
-                        {formatBRL(client.averageTicket)}
+                        {formatBRL(client.averageTicket ?? (client as any).ticketMedio ?? 0)}
                       </td>
                       <td className="py-3 px-4 text-center">
                         {client.phone && (

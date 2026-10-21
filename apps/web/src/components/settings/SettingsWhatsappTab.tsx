@@ -139,13 +139,13 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
 
   // Polling automático enquanto o QR Code ou Pairing Code estiver na tela aguardando leitura/digitação
   useEffect(() => {
-    if (!status.isConnected && (status.qrCode || status.pairingCode)) {
+    if (!status.isConnected && (status.qrCode || status.pairingCode || status.phoneNumber)) {
       const interval = setInterval(() => {
         fetchStatus();
-      }, 5000);
+      }, 4000);
       return () => clearInterval(interval);
     }
-  }, [status.isConnected, status.qrCode, status.pairingCode, fetchStatus]);
+  }, [status.isConnected, status.qrCode, status.pairingCode, status.phoneNumber, fetchStatus]);
 
   const handleConnect = async (customPhone?: string) => {
     setConnecting(true);
@@ -158,9 +158,9 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
         configured: true,
         isConnected: res.data.isConnected,
         instanceName: res.data.instanceName,
-        phoneNumber: res.data.phoneNumber,
+        phoneNumber: res.data.phoneNumber || customPhone || prev.phoneNumber,
         qrCode: res.data.qrCode,
-        pairingCode: res.data.pairingCode || prev.pairingCode || null
+        pairingCode: res.data.pairingCode || (customPhone ? null : prev.pairingCode)
       }));
     } catch (err: any) {
       console.error('Erro ao conectar WhatsApp:', err);
@@ -775,7 +775,7 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
                 rows={4}
                 value={welcomeCustom}
                 onChange={(e) => setWelcomeCustom(e.target.value)}
-                placeholder={`Olá{cliente}! Seja muito bem-vindo(a) ao *${settings.name || '{salão}'}*! É um prazer ter você por aqui.\n\nPara consultar nossos serviços, valores e agendar seu horário com praticidade pelo celular, acesse nosso link oficial:\n👉 https://marquesuahora.com.br/${settings.slug || '{link}'}\n\nSe tiver qualquer dúvida, pode nos chamar por aqui!`}
+                placeholder={`Olá{cliente}! Seja muito bem-vinda ao estúdio *${settings.name || '{salão}'}*!\n\nComo posso te ajudar hoje? Me conte qual procedimento você gostaria de agendar.`}
                 className="w-full p-3.5 rounded-xl bg-slate-50/70 border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:bg-white transition-all font-sans leading-relaxed"
               />
 

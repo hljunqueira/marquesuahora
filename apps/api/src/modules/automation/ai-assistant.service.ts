@@ -131,7 +131,17 @@ export class AiAssistantService {
         return false;
       });
 
-      if (matchedService) {
+      // Verifica se o cliente mencionou termos de manutenção sem especificar o tipo
+      const isAmbiguousMaintenance =
+        rawLower.includes('manuten') &&
+        !rawLower.includes('alongamento') &&
+        !rawLower.includes('fibra') &&
+        !rawLower.includes('gel') &&
+        !rawLower.includes('outra');
+
+      if (isAmbiguousMaintenance) {
+        availabilityContext = `A cliente perguntou sobre "manutenção", mas o estúdio oferece opções com duração e preços diferentes: Manutenção de Alongamento em Fibra (R$ 135) e Manutenção de Banho de Gel (R$ 110). Pergunte com carinho qual das duas ela gostaria de agendar para verificar o horário ideal.`;
+      } else if (matchedService) {
         try {
           const slotsData = await AvailabilityService.getAvailableSlots({
             tenantId,
@@ -145,48 +155,53 @@ export class AiAssistantService {
             ...slotsData.slots.night.filter(s => s.available).map(s => s.time)
           ];
 
+          const cleanName = matchedService.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim();
+
           if (allAvailable.length > 0) {
-            const sampleSlots = allAvailable.slice(0, 5).join(', ');
-            availabilityContext = `Para ${formattedDate} (${matchedService.name}), temos horários livres como: ${sampleSlots}.`;
+            const sampleSlots = allAvailable.slice(0, 3).join(' ou ');
+            availabilityContext = `Para ${formattedDate} (${cleanName}), temos horários livres às ${sampleSlots}. Pergunte qual deles fica melhor para ela.`;
           } else {
-            availabilityContext = `Para ${formattedDate}, a agenda está completa para o serviço de "${matchedService.name}". Sugira outro dia ou o link oficial.`;
+            availabilityContext = `Para ${formattedDate}, os horários para ${cleanName} já foram preenchidos. Pergunte se ela gostaria de ver horários para outro dia.`;
           }
         } catch (err: any) {
           console.warn('[AiAssistant] Erro ao consultar disponibilidade:', err.message);
         }
       } else {
         // Cliente perguntou de data/horário mas NÃO indicou qual serviço quer fazer
-        const sampleServices = activeServices.slice(0, 4).map(s => s.name).join(', ');
-        availabilityContext = `O cliente perguntou sobre horários para ${formattedDate}, mas NÃO informou qual serviço ou procedimento deseja realizar. NUNCA assuma nem adivinhe o serviço. Responda confirmando que temos horários disponíveis para essa data e PERGUNTE com carinho qual serviço ela gostaria de fazer (dê como exemplo opções como: ${sampleServices}), para que você possa checar os horários ideais com a duração exata.`;
+        const sampleServices = activeServices
+          .slice(0, 3)
+          .map(s => s.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim())
+          .join(', ');
+        availabilityContext = `O cliente perguntou sobre horários para ${formattedDate}, mas NÃO informou qual procedimento deseja realizar. NUNCA adivinhe. Responda confirmando que temos horários disponíveis sim e pergunte com carinho qual procedimento ela gostaria de agendar (dê como exemplo: ${sampleServices}), para checar a duração certinha.`;
       }
     }
 
     // 4. Regra de Sinal Anti-Falta (específica para 1ª cliente ou geral)
     let depositInfo = '';
-    if (tenant.depositRequired) {
-      let previousBookingsCount = 0;
-      try {
-        previousBookingsCount = await prisma.schedule.count({
-          where: {
-            tenantId,
-            client: { phone: { endsWith: clientPhone.slice(-8) } }
-          }
-        });
-      } catch {}
+    let previousBookingsCount = 0;
+    try {
+      previousBookingsCount = await prisma.schedule.count({
+        where: {
+          tenantId,
+          client: { phone: { endsWith: clientPhone.slice(-8) } }
+        }
+      });
+    } catch {}
 
-      if (previousBookingsCount === 0 && tenant.depositFirstBookingType) {
-        depositInfo = `Regra de Sinal (1ª vez no salão): exigimos sinal de ${
-          tenant.depositFirstBookingType === 'PERCENTAGE'
-            ? `${Number(tenant.depositFirstBookingValue)}% do valor`
-            : `R$ ${Number(tenant.depositFirstBookingValue).toFixed(2)}`
-        } via PIX direto para confirmar a reserva. Chave PIX: ${tenant.pixKey || 'fornecida no agendamento'}.`;
-      } else {
-        depositInfo = `Regra de Sinal padrão: ${
-          tenant.depositType === 'PERCENTAGE'
-            ? `${Number(tenant.depositAmount)}%`
-            : `R$ ${Number(tenant.depositAmount).toFixed(2)}`
-        } via PIX direto.`;
-      }
+    const isFirstTimeClient = previousBookingsCount === 0;
+
+    if (isFirstTimeClient && tenant.depositOnFirstBooking) {
+      depositInfo = `Regra de Sinal Anti-Falta para novas clientes (1ª vez): solicitamos sinal antecipado de ${
+        tenant.depositFirstBookingType === 'PERCENTAGE'
+          ? `${Number(tenant.depositFirstBookingValue)}% do valor`
+          : `R$ ${Number(tenant.depositFirstBookingValue).toFixed(2)}`
+      } via PIX direto para confirmar a reserva do horário. Chave PIX do salão: ${tenant.pixKey || ''}${tenant.pixKeyHolder ? ` (Favorecido: ${tenant.pixKeyHolder})` : ''}. O valor é abatido no dia do atendimento.`;
+    } else if (tenant.depositRequired) {
+      depositInfo = `Regra de Sinal padrão do salão: ${
+        tenant.depositType === 'PERCENTAGE'
+          ? `${Number(tenant.depositAmount)}%`
+          : `R$ ${Number(tenant.depositAmount).toFixed(2)}`
+      } via PIX direto. Chave PIX: ${tenant.pixKey || ''}${tenant.pixKeyHolder ? ` (${tenant.pixKeyHolder})` : ''}.`;
     }
 
     // 5. Monta o Prompt com Padrão Humanizer
@@ -198,7 +213,7 @@ export class AiAssistantService {
     }
 
     const servicesList = activeServices
-      .map(s => `• ${s.name}: R$ ${Number(s.price).toFixed(2)} (${s.durationMinutes} min)`)
+      .map(s => `• ${s.name.replace(/\s*\|\s*/g, ' - ')}: R$ ${Number(s.price).toFixed(2)} (${s.durationMinutes} min)`)
       .join('\n');
 
     const productsList = activeProducts.length > 0
@@ -221,41 +236,43 @@ export class AiAssistantService {
 
     const openingHours = `${tenant.openingTime || '09:00'} às ${tenant.closingTime || '20:00'}`;
 
-    const systemPrompt = `Você é a recepcionista atenciosa, educada e prestativa do estabelecimento "${tenant.name}".
-Seu objetivo é acolher a cliente com carinho e naturalidade, esclarecer dúvidas com segurança e conduzir com elegância para agendamento, compra de produtos ou cursos.
+    const systemPrompt = `Você é a recepcionista acolhedora, atenciosa e educada do estúdio "${tenant.name}".
+Seu objetivo é conversar com a cliente de forma humana e calorosa pelo WhatsApp, esclarecer dúvidas com segurança e conduzir o agendamento passo a passo.
 
 DADOS DO ESTABELECIMENTO:
 - Estabelecimento: ${tenant.name}
-- Endereço: ${fullAddress || 'Consulte nosso endereço no link'}
+- Endereço: ${fullAddress || 'Centro'}
 - Horário de Atendimento: ${openingHours}
-- Profissionais: ${professionalsList}
-- Link Oficial: https://marquesuahora.com.br/${tenant.slug}
+- Profissional Responsável: ${professionalsList}
 ${depositInfo ? `\nPOLÍTICA DE SINAL ANTI-FALTA:\n${depositInfo}\n` : ''}
 ${availabilityContext ? `\nDISPONIBILIDADE / SITUAÇÃO DE HORÁRIOS:\n${availabilityContext}\n` : ''}
-SERVIÇOS OFERECIDOS:
+SERVIÇOS DO ESTABELECIMENTO:
 ${servicesList}
 
 PRODUTOS À VENDA:
 ${productsList}
-Link da Vitrine de Produtos: https://marquesuahora.com.br/${tenant.slug}#produtos
 
 CURSOS E TREINAMENTOS:
 ${coursesList}
-Link da Vitrine de Cursos: https://marquesuahora.com.br/${tenant.slug}#cursos
-${aiSettings?.customInstructions ? `\nINSTRUÇÕES ADICIONAIS DO SALÃO:\n${aiSettings.customInstructions}\n` : ''}
+${aiSettings?.customInstructions ? `\nINSTRUÇÕES ESPECÍFICAS DO SALÃO:\n${aiSettings.customInstructions}\n` : ''}
 
-REGRAS DE ABORDAGEM E COMUNICAÇÃO:
-1. Responda em tom humano, caloroso e simpático, como uma excelente recepcionista conversando no WhatsApp.
-2. SE O CLIENTE PERGUNTAR POR HORÁRIOS/VAGAS (ex: "tem horário para amanhã?"):
-   - Se ela NÃO disse qual procedimento quer fazer: confirme que temos horários disponíveis sim e PERGUNTE com gentileza qual serviço ela gostaria de agendar (cite 2 a 3 opções de exemplo), explicando que precisa saber para checar a duração exata do atendimento.
-   - Se ela JÁ disse qual procedimento quer e você tem os horários livres acima: informe os horários disponíveis e pergunte qual fica melhor para ela.
-3. SE O CLIENTE PERGUNTAR SOBRE PRODUTOS (cosméticos, cuidados, itens para levar):
-   - Apresente os produtos da lista acima com seus respectivos valores e convide-a a ver mais detalhes ou adquirir na vitrine online: https://marquesuahora.com.br/${tenant.slug}#produtos.
-4. SE O CLIENTE PERGUNTAR SOBRE CURSOS (aulas, aprender a técnica, formação):
-   - Apresente os cursos disponíveis e oriente que ela pode conferir a grade completa e detalhes na aba de cursos: https://marquesuahora.com.br/${tenant.slug}#cursos.
-5. Sempre que oportuno, forneça o link oficial para agendamento online: https://marquesuahora.com.br/${tenant.slug}.
-6. Seja concisa: responda em 1 a 2 parágrafos curtos.
-7. NUNCA use frases robóticas ("Como uma IA...", "Certamente!", "Com certeza!"). Não use travessões longos. Não use emojis em excesso.`;
+REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP (SIGA RIGOROSAMENTE):
+1. TOM ACOLHEDOR E NATURAL: Fale de forma simpática e educada, como uma profissional de atendimento de beleza. Trate sempre a cliente no feminino ("Seja bem-vinda"). NUNCA chame a pessoa de "cliente".
+2. REGRA DO LINK DO SITE (EXTREMAMENTE IMPORTANTE):
+   - NUNCA envie links do site no início ou no meio da conversa!
+   - NUNCA termine mensagens com frases automáticas como "Se preferir, agende pelo link oficial...". Isso parece robô e desvaloriza o atendimento.
+   - Envie o link (https://marquesuahora.com.br/${tenant.slug}) APENAS se a cliente pedir expressamente ("tem site?", "qual o link?") ou no momento final da conversa para pagamento do sinal de reserva.
+3. CONDUÇÃO DINÂMICA DO AGENDAMENTO:
+   - Se a cliente perguntou por horários sem citar o procedimento: confirme que temos horários livres e pergunte qual procedimento ela deseja fazer (cite 2 a 3 exemplos naturais, ex: alongamento em fibra, banho de gel ou manutenção).
+   - Se a cliente disse um termo genérico (ex: apenas "manutenção"): pergunte primeiro se é manutenção de alongamento ou de banho de gel para saber a duração correta.
+   - Se o procedimento já estiver claro e você tiver os horários: ofereça 2 opções diretas (ex: "Temos às 11:30 ou às 14:00. Qual desses dois fica melhor para você?").
+4. RESPOSTAS CURTAS (PADRÃO WHATSAPP):
+   - Responda em no máximo 2 a 3 frases curtas. Mensagens longas não são lidas no WhatsApp.
+   - Sempre termine com uma pergunta direta convidando a cliente a responder.
+   - Remova caracteres de sistema: nunca escreva barras verticais ("|"). Use linguagem natural.
+5. TRAVAS:
+   - Não use frases robóticas ("Como uma IA...", "Certamente!", "Com certeza!").
+   - Não exagere em emojis. Use no máximo 1 emoji discreto por mensagem.`;
 
     try {
       const conversationMessages = history.map(turn => ({
@@ -356,34 +373,37 @@ REGRAS DE ABORDAGEM E COMUNICAÇÃO:
     availabilityContext?: string,
     clientName?: string | null
   ): string {
-    const greeting = clientName ? `Olá, ${clientName}!` : 'Olá!';
+    const firstName = clientName ? clientName.trim().split(' ')[0] : '';
+    const greeting = firstName ? `Olá, ${firstName}!` : 'Olá!';
 
     if (availabilityContext && availabilityContext.includes('NÃO informou qual serviço')) {
-      const sample = services.slice(0, 3).map(s => s.name).join(', ');
+      const sample = services
+        .slice(0, 3)
+        .map(s => s.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim())
+        .join(', ');
+
       return (
         `${greeting} Temos horários disponíveis sim!\n\n` +
-        `Para eu te passar as opções com a duração certinha, qual procedimento você gostaria de realizar? (Por exemplo: ${sample}, entre outros).\n\n` +
-        `Se preferir ver todos os serviços, produtos, cursos e agendar online agora mesmo:\n` +
-        `👉 https://marquesuahora.com.br/${tenant.slug}`
+        `Para eu verificar as opções certinhas com a duração ideal, qual procedimento você gostaria de realizar? (Por exemplo: ${sample}).`
+      );
+    }
+
+    if (availabilityContext && availabilityContext.includes('manutenção')) {
+      return (
+        `${greeting} Claro! Você gostaria de fazer a manutenção de Alongamento em Fibra ou de Banho de Gel?`
       );
     }
 
     if (availabilityContext) {
       return (
         `${greeting} ${availabilityContext}\n\n` +
-        `Para garantir sua vaga e escolher o profissional da sua preferência, acesse nosso link direto:\n` +
-        `👉 https://marquesuahora.com.br/${tenant.slug}`
+        `Algum desses horários fica bom para você?`
       );
     }
 
     return (
-      `${greeting} Que prazer ter você em contato com o *${tenant.name}*!\n\n` +
-      `Como posso te ajudar hoje?\n` +
-      `• Agendamento de horários (qual procedimento você procura?)\n` +
-      `• Conhecer nossos serviços, produtos e cursos\n` +
-      `• Dúvidas gerais\n\n` +
-      `Você também pode conferir tudo e agendar diretamente pelo nosso link oficial:\n` +
-      `👉 https://marquesuahora.com.br/${tenant.slug}`
+      `${greeting} Seja muito bem-vinda ao estúdio *${tenant.name}*!\n\n` +
+      `Como posso te ajudar hoje? Me conte qual procedimento você gostaria de agendar.`
     );
   }
 }

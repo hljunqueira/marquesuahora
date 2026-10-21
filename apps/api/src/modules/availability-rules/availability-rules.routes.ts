@@ -105,6 +105,22 @@ export const availabilityRulesRoutes: FastifyPluginAsync = async (app) => {
             isActive: d.isOpen
           }))
         });
+
+        // Sincroniza horários gerais no Tenant quando a grade for geral da loja
+        if (!targetProfessionalId) {
+          const openDays = data.days.filter((d) => d.isOpen);
+          if (openDays.length > 0) {
+            const sortedStarts = [...openDays].sort((a, b) => a.startTime.localeCompare(b.startTime));
+            const sortedEnds = [...openDays].sort((a, b) => b.endTime.localeCompare(a.endTime));
+            await tx.tenant.update({
+              where: { id: tenantId },
+              data: {
+                openingTime: sortedStarts[0].startTime,
+                closingTime: sortedEnds[0].endTime
+              }
+            });
+          }
+        }
       }
     });
 

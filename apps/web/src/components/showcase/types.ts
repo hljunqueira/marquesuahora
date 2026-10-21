@@ -48,6 +48,16 @@ export interface ProductItem {
   imageUrl?: string | null;
 }
 
+export interface WeeklyScheduleDay {
+  dayOfWeek: number;
+  dayName: string;
+  shortName: string;
+  isOpen: boolean;
+  startTime: string;
+  endTime: string;
+  isToday?: boolean;
+}
+
 export interface TenantShowcase {
   id: string;
   name: string;
@@ -70,7 +80,13 @@ export interface TenantShowcase {
   description?: string | null;
   openingTime?: string | null;
   closingTime?: string | null;
+  generalOpeningTime?: string | null;
+  generalClosingTime?: string | null;
   isOpenNow?: boolean;
+  todayIsOpen?: boolean;
+  todayScheduleLabel?: string;
+  weeklySchedule?: WeeklyScheduleDay[];
+  operatingHoursSummary?: string;
   categories: CategoryItem[];
   services: ServiceItem[];
   professionals: ProfessionalItem[];

@@ -6,22 +6,36 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  viewportFit: 'cover'
+  viewportFit: 'cover',
+  themeColor: '#7c3aed'
 };
 
 export const metadata: Metadata = {
   title: 'Marque Sua Hora — Plataforma Premium de Agendamentos e Gestão',
   description:
     'A plataforma definitiva para salões de alto padrão, barbearias, clínicas de estética e personal trainers. Vitrine elegante, No-Show Shield com PIX dinâmico e lista de espera inteligente.',
+  manifest: '/manifest.json',
   icons: {
-    icon: '/brand/logooficial-comfundo.jpeg',
-    shortcut: '/brand/logooficial-comfundo.jpeg',
-    apple: '/brand/logooficial-comfundo.jpeg'
+    icon: [
+      { url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icon.png', sizes: '512x512', type: 'image/png' }
+    ],
+    shortcut: '/favicon-32x32.png',
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      { url: '/brand/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }
+    ]
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'MarqueSuaHora'
   },
   openGraph: {
     title: 'Marque Sua Hora — Plataforma Premium de Agendamentos',
     description: 'Transforme a gestão do seu salão com vitrine editorial, sinal PIX anti-faltas e lista de espera.',
-    images: ['/brand/logooficial-comfundo.jpeg']
+    images: ['/brand/app-icon.jpg']
   }
 };
 

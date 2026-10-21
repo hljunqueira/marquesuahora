@@ -53,9 +53,12 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
     return reply.send({
       isAllowed,
+      currentPlan: tenant?.plan?.code || 'FREE',
       currentPlanCode: tenant?.plan?.code || 'FREE',
       currentPlanName: tenant?.plan?.name || 'Plano Básico',
-      requiredPlan: 'EQUIPE_PRO'
+      requiredPlan: 'EQUIPE_PRO',
+      tenantName: tenant?.name || 'MarqueSuaHora',
+      tenantPrimaryColor: tenant?.primaryColor || '#5c0701'
     });
   });
 
@@ -104,7 +107,10 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
           totalPrice: true,
           depositAmount: true,
           depositPaid: true,
-          clientId: true
+          clientId: true,
+          client: {
+            select: { id: true, name: true }
+          }
         }
       }),
       prisma.financialEntry.findMany({
@@ -136,6 +142,36 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const activeSchedules = schedules.filter((s) => s.status !== ScheduleStatus.CANCELLED);
     const scheduleGrossRevenue = activeSchedules.reduce((acc, s) => acc + Number(s.totalPrice || 0), 0);
 
+    // Sinais PIX retidos
+    let antiNoShowTotal = 0;
+    for (const s of schedules) {
+      if (s.depositPaid && Number(s.depositAmount || 0) > 0) {
+        antiNoShowTotal += Number(s.depositAmount || 0);
+      }
+    }
+
+    // Cliente Campeão (quem mais agendou ou mais investiu no período)
+    const clientAggMap = new Map<string, { name: string; bookings: number; spent: number }>();
+    for (const s of activeSchedules) {
+      if (!s.client) continue;
+      const existing = clientAggMap.get(s.clientId);
+      const price = Number(s.totalPrice || 0);
+      if (!existing) {
+        clientAggMap.set(s.clientId, { name: s.client.name, bookings: 1, spent: price });
+      } else {
+        existing.bookings += 1;
+        existing.spent += price;
+      }
+    }
+
+    let topClient: { name: string; bookings: number; spent: number } | null = null;
+    if (clientAggMap.size > 0) {
+      const sorted = Array.from(clientAggMap.values()).sort(
+        (a, b) => b.bookings - a.bookings || b.spent - a.spent
+      );
+      topClient = sorted[0];
+    }
+
     // Faturamento financeiro total (entradas) e saídas
     let totalIncome = 0;
     let totalExpense = 0;
@@ -146,7 +182,12 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const netRevenue = (totalIncome > 0 ? totalIncome : scheduleGrossRevenue) - totalExpense;
-    const ticketMedio = completedCount > 0 ? scheduleGrossRevenue / completedCount : 0;
+    const ticketMedio =
+      completedCount > 0
+        ? scheduleGrossRevenue / completedCount
+        : totalBookings > 0
+          ? scheduleGrossRevenue / totalBookings
+          : 0;
     const attendanceRate = totalBookings > 0 ? Math.round((completedCount / totalBookings) * 100) : 0;
     const noShowRate = totalBookings > 0 ? Math.round((noShowCount / totalBookings) * 100) : 0;
 
@@ -157,19 +198,27 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const countNps = npsResult?._count?._all || 0;
 
     return reply.send({
-      grossRevenue: scheduleGrossRevenue,
-      netRevenue,
-      totalIncome,
-      totalExpense,
+      // Ambos formatos para compatibilidade perfeita com qualquer componente
+      grossRevenue: Math.round(scheduleGrossRevenue * 100) / 100,
+      totalRevenue: Math.round(scheduleGrossRevenue * 100) / 100,
+      netRevenue: Math.round(netRevenue * 100) / 100,
+      totalIncome: Math.round(totalIncome * 100) / 100,
+      totalExpense: Math.round(totalExpense * 100) / 100,
       totalBookings,
+      totalSchedules: totalBookings,
       completedCount,
+      completedSchedules: completedCount,
       cancelledCount,
       noShowCount,
       ticketMedio: Math.round(ticketMedio * 100) / 100,
       attendanceRate,
+      completionRate: attendanceRate,
       noShowRate,
       uniqueClientsInPeriod,
       totalRegisteredClients: clientsCount,
+      topClient: topClient || { name: 'Nenhum', bookings: 0, spent: 0 },
+      antiNoShowTotal: Math.round(antiNoShowTotal * 100) / 100,
+      npsScore: avgNps ? Math.round(avgNps * 10) / 10 : 5.0,
       npsAverage: avgNps ? Math.round(avgNps * 10) / 10 : 5.0,
       npsReviewsCount: countNps
     });
@@ -208,17 +257,20 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     // Mapeamento agregado por Cliente
-    const clientAggMap = new Map<string, {
-      id: string;
-      name: string;
-      phone: string;
-      email?: string | null;
-      bookingsCount: number;
-      totalSpent: number;
-      lastVisitDate: string | null;
-      noShowCount: number;
-      createdAt: Date;
-    }>();
+    const clientAggMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        phone: string;
+        email?: string | null;
+        bookingsCount: number;
+        totalSpent: number;
+        lastVisitDate: string | null;
+        noShowCount: number;
+        createdAt: Date;
+      }
+    >();
 
     for (const sch of schedules) {
       if (!sch.client) continue;
@@ -252,7 +304,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const now = new Date();
     const ranking = Array.from(clientAggMap.values()).map((c) => {
       const ticketMedio = c.bookingsCount > 0 ? c.totalSpent / c.bookingsCount : 0;
-      
+
       let daysSinceLastVisit: number | null = null;
       if (c.lastVisitDate) {
         const lastDate = new Date(c.lastVisitDate);
@@ -271,30 +323,50 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       return {
         ...c,
+        totalBookings: c.bookingsCount,
+        completedBookings: c.bookingsCount,
+        cancelledBookings: 0,
         totalSpent: Math.round(c.totalSpent * 100) / 100,
         ticketMedio: Math.round(ticketMedio * 100) / 100,
+        averageTicket: Math.round(ticketMedio * 100) / 100,
+        lastBookingDate: c.lastVisitDate,
         daysSinceLastVisit,
         fidelityStatus
       };
     });
 
     // Ordenação padrão: Quem mais agendou (Frequência)
-    const sortedByBookings = [...ranking].sort((a, b) => b.bookingsCount - a.bookingsCount || b.totalSpent - a.totalSpent);
+    const sortedByBookings = [...ranking].sort(
+      (a, b) => b.bookingsCount - a.bookingsCount || b.totalSpent - a.totalSpent
+    );
     // Ordenação secundária: Quem mais gastou (LTV)
-    const sortedBySpent = [...ranking].sort((a, b) => b.totalSpent - a.totalSpent || b.bookingsCount - a.bookingsCount);
+    const sortedBySpent = [...ranking].sort(
+      (a, b) => b.totalSpent - a.totalSpent || b.bookingsCount - a.bookingsCount
+    );
 
+    const totalClientsCount = await prisma.client.count({ where: { tenantId } });
     const vipCount = ranking.filter((c) => c.fidelityStatus === 'VIP').length;
     const atRiskCount = ranking.filter((c) => c.fidelityStatus === 'AT_RISK').length;
-    const newClientsCount = ranking.filter((c) => c.fidelityStatus === 'NEW').length;
+    const frequentCount = ranking.filter((c) => c.fidelityStatus === 'FREQUENT' || c.fidelityStatus === 'VIP').length;
+    const totalSpentSum = ranking.reduce((acc, c) => acc + c.totalSpent, 0);
+    const averageLtv = ranking.length > 0 ? Math.round((totalSpentSum / ranking.length) * 100) / 100 : 0;
 
     return reply.send({
+      summary: {
+        totalClients: totalClientsCount,
+        activeInPeriod: ranking.length,
+        frequentCount: frequentCount || vipCount,
+        atRiskCount,
+        averageLtv
+      },
       rankingByBookings: sortedByBookings,
       rankingBySpent: sortedBySpent,
+      allClients: sortedByBookings,
       totalActiveClientsInPeriod: ranking.length,
       metrics: {
         vipCount,
         atRiskCount,
-        newClientsCount,
+        newClientsCount: ranking.filter((c) => c.fidelityStatus === 'NEW').length,
         mostFrequentClient: sortedByBookings[0] || null,
         highestSpenderClient: sortedBySpent[0] || null
       }
@@ -324,7 +396,9 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         startTime: true,
         status: true,
         source: true,
-        totalPrice: true
+        totalPrice: true,
+        depositAmount: true,
+        depositPaid: true
       }
     });
 
@@ -332,6 +406,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const weekdayLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
     const weekdayMap = weekdayLabels.map((label, idx) => ({
       dayOfWeek: idx,
+      day: label,
       label,
       count: 0,
       revenue: 0
@@ -339,17 +414,17 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
     // Picos por horário: Manhã (07-12h), Tarde (12-18h), Noite (18-23h)
     const timeBlocks = [
-      { label: 'Manhã (07h - 12h)', count: 0, revenue: 0 },
-      { label: 'Tarde (12h - 18h)', count: 0, revenue: 0 },
-      { label: 'Noite (18h - 22h)', count: 0, revenue: 0 }
+      { bracket: 'Manhã (07h - 12h)', label: 'Manhã (07h - 12h)', count: 0, revenue: 0 },
+      { bracket: 'Tarde (12h - 18h)', label: 'Tarde (12h - 18h)', count: 0, revenue: 0 },
+      { bracket: 'Noite (18h - 22h)', label: 'Noite (18h - 22h)', count: 0, revenue: 0 }
     ];
 
     // Origens de agendamento (Vitrine vs Manual vs Copiloto)
-    const sourceMap: Record<string, { label: string; count: number }> = {
-      ONLINE: { label: 'Vitrine Online', count: 0 },
-      MANUAL_RECEPTION: { label: 'Balcão / Recepção', count: 0 },
-      WHATSAPP_AI: { label: 'Copiloto IA / WhatsApp', count: 0 },
-      WAITLIST_AUTOFILL: { label: 'Lista de Espera', count: 0 }
+    const sourceMap: Record<string, { source: string; label: string; count: number; percentage: number }> = {
+      ONLINE: { source: 'ONLINE', label: 'Vitrine Online', count: 0, percentage: 0 },
+      MANUAL_RECEPTION: { source: 'MANUAL_RECEPTION', label: 'Balcão / Recepção', count: 0, percentage: 0 },
+      WHATSAPP_AI: { source: 'WHATSAPP_AI', label: 'Copiloto IA / WhatsApp', count: 0, percentage: 0 },
+      WAITLIST_AUTOFILL: { source: 'WAITLIST_AUTOFILL', label: 'Lista de Espera', count: 0, percentage: 0 }
     };
 
     for (const sch of schedules) {
@@ -387,7 +462,48 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    const totalSchedules = schedules.length;
+    const completed = schedules.filter((s) => s.status === ScheduleStatus.COMPLETED).length;
+    const cancelled = schedules.filter((s) => s.status === ScheduleStatus.CANCELLED).length;
+    const noShow = schedules.filter((s) => s.status === ScheduleStatus.NO_SHOW).length;
+    const completionRate = totalSchedules > 0 ? Math.round((completed / totalSchedules) * 100) : 0;
+    const cancellationRate = totalSchedules > 0 ? Math.round((cancelled / totalSchedules) * 100) : 0;
+
+    const activeCount = totalSchedules - cancelled;
+    for (const k of Object.keys(sourceMap)) {
+      sourceMap[k].percentage = activeCount > 0 ? Math.round((sourceMap[k].count / activeCount) * 100) : 0;
+    }
+
+    const protectedBookings = schedules.filter((s) => s.depositPaid && Number(s.depositAmount || 0) > 0).length;
+    const totalDepositHeld = schedules.reduce(
+      (acc, s) => acc + (s.depositPaid ? Number(s.depositAmount || 0) : 0),
+      0
+    );
+
     return reply.send({
+      summary: {
+        totalSchedules,
+        completed,
+        cancelled,
+        noShow,
+        completionRate,
+        cancellationRate
+      },
+      byDayOfWeek: weekdayMap.map((w) => ({
+        day: w.label,
+        count: w.count,
+        revenue: Math.round(w.revenue * 100) / 100
+      })),
+      byTimeBracket: timeBlocks.map((t) => ({
+        bracket: t.label,
+        count: t.count,
+        revenue: Math.round(t.revenue * 100) / 100
+      })),
+      bySource: Object.values(sourceMap),
+      antiNoShowStats: {
+        protectedBookings,
+        totalDepositHeld: Math.round(totalDepositHeld * 100) / 100
+      },
       weekdayDistribution: weekdayMap,
       timeBlocksDistribution: timeBlocks,
       bookingSources: Object.values(sourceMap)
@@ -424,14 +540,17 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       }
     });
 
-    const serviceMap = new Map<string, {
-      id: string;
-      name: string;
-      color: string;
-      durationMinutes: number;
-      count: number;
-      revenue: number;
-    }>();
+    const serviceMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        color: string;
+        durationMinutes: number;
+        count: number;
+        revenue: number;
+      }
+    >();
 
     for (const sch of schedules) {
       if (!sch.service) continue;
@@ -458,9 +577,35 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const sortedByCount = [...list].sort((a, b) => b.count - a.count);
     const sortedByRevenue = [...list].sort((a, b) => b.revenue - a.revenue);
 
+    const totalServicesSold = list.reduce((acc, s) => acc + s.count, 0);
+    const totalRevenue = list.reduce((acc, s) => acc + s.revenue, 0);
+    const totalDurationMinutes = list.reduce((acc, s) => acc + s.count * s.durationMinutes, 0);
+    const totalHoursDelivered = Math.round((totalDurationMinutes / 60) * 10) / 10;
+    const averageTicket =
+      totalServicesSold > 0 ? Math.round((totalRevenue / totalServicesSold) * 100) / 100 : 0;
+
+    const mapService = (s: any) => ({
+      id: s.id,
+      name: s.name,
+      category: null,
+      color: s.color,
+      count: s.count,
+      totalRevenue: s.revenue,
+      revenue: s.revenue,
+      averagePrice: s.count > 0 ? Math.round((s.revenue / s.count) * 100) / 100 : 0,
+      durationMinutes: s.durationMinutes,
+      totalDurationMinutes: s.count * s.durationMinutes
+    });
+
     return reply.send({
-      rankingByVolume: sortedByCount,
-      rankingByRevenue: sortedByRevenue
+      summary: {
+        totalServicesSold,
+        totalRevenue: Math.round(totalRevenue * 100) / 100,
+        averageTicket,
+        totalHoursDelivered
+      },
+      rankingByVolume: sortedByCount.map(mapService),
+      rankingByRevenue: sortedByRevenue.map(mapService)
     });
   });
 
@@ -475,7 +620,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     if (startDate) dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
     if (endDate) dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
 
-    const [entries, creditAccounts, depositSchedules] = await Promise.all([
+    const [entries, creditAccounts, depositSchedules, periodSchedules] = await Promise.all([
       prisma.financialEntry.findMany({
         where: {
           tenantId,
@@ -493,14 +638,22 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
           ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
         },
         select: { depositAmount: true }
+      }),
+      prisma.schedule.findMany({
+        where: {
+          tenantId,
+          status: { not: ScheduleStatus.CANCELLED },
+          ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {})
+        },
+        select: { totalPrice: true }
       })
     ]);
 
-    const methodsMap: Record<string, { label: string; amount: number; count: number }> = {
-      PIX: { label: 'PIX', amount: 0, count: 0 },
-      CREDIT_CARD: { label: 'Cartão de Crédito', amount: 0, count: 0 },
-      DEBIT_CARD: { label: 'Cartão de Débito', amount: 0, count: 0 },
-      CASH: { label: 'Dinheiro', amount: 0, count: 0 }
+    const methodsMap: Record<string, { method: string; label: string; amount: number; count: number }> = {
+      PIX: { method: 'PIX', label: 'PIX', amount: 0, count: 0 },
+      CREDIT_CARD: { method: 'CREDIT_CARD', label: 'Cartão de Crédito', amount: 0, count: 0 },
+      DEBIT_CARD: { method: 'DEBIT_CARD', label: 'Cartão de Débito', amount: 0, count: 0 },
+      CASH: { method: 'CASH', label: 'Dinheiro', amount: 0, count: 0 }
     };
 
     let totalIncome = 0;
@@ -520,6 +673,14 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // Se não há entradas manuais em FinancialEntry, usa faturamento dos agendamentos
+    const scheduleRevenue = periodSchedules.reduce((acc, s) => acc + Number(s.totalPrice || 0), 0);
+    const effectiveGrossRevenue = totalIncome > 0 ? totalIncome : scheduleRevenue;
+    if (totalIncome === 0 && scheduleRevenue > 0) {
+      methodsMap.PIX.amount = scheduleRevenue;
+      methodsMap.PIX.count = periodSchedules.length;
+    }
+
     // Sinais PIX arrecadados
     const totalDeposits = depositSchedules.reduce((acc, s) => acc + Number(s.depositAmount || 0), 0);
 
@@ -534,17 +695,46 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    const totalMethodAmount = Object.values(methodsMap).reduce((acc, m) => acc + m.amount, 0);
+    const byMethod = Object.entries(methodsMap).map(([k, m]) => ({
+      method: k,
+      label: m.label,
+      amount: Math.round(m.amount * 100) / 100,
+      percentage: totalMethodAmount > 0 ? Math.round((m.amount / totalMethodAmount) * 100) : 0
+    }));
+
+    const incomeCount = entries.filter((e) => e.type === 'INCOME').length;
+    const effectiveTransactions = incomeCount > 0 ? incomeCount : periodSchedules.length;
+    const averageTicket = effectiveTransactions > 0 ? Math.round((effectiveGrossRevenue / effectiveTransactions) * 100) / 100 : 0;
+
     return reply.send({
-      totalIncome,
-      totalExpense,
-      netTotal: totalIncome - totalExpense,
-      totalDeposits,
-      paymentMethods: Object.values(methodsMap),
+      summary: {
+        grossRevenue: Math.round(effectiveGrossRevenue * 100) / 100,
+        netEstimatedRevenue: Math.round((effectiveGrossRevenue - totalExpense) * 100) / 100,
+        totalTransactions: entries.length > 0 ? entries.length : periodSchedules.length,
+        averageTicket
+      },
+      byMethod,
+      antiNoShowStats: {
+        depositCollected: Math.round(totalDeposits * 100) / 100,
+        depositCount: depositSchedules.length,
+        noShowsAvoidedEstimatedValue: Math.round(totalDeposits * 2 * 100) / 100
+      },
       creditAccounts: {
-        totalReceivable: openCreditTotal + partialCreditTotal,
-        openAmount: openCreditTotal,
-        partialAmount: partialCreditTotal
-      }
+        totalDebtOpen: Math.round((openCreditTotal + partialCreditTotal) * 100) / 100,
+        totalPaidInPeriod: 0,
+        activeDebtorsCount: creditAccounts.filter(
+          (c) => c.status === 'OPEN' || c.status === 'OVERDUE' || c.status === 'PARTIAL'
+        ).length,
+        totalReceivable: Math.round((openCreditTotal + partialCreditTotal) * 100) / 100,
+        openAmount: Math.round(openCreditTotal * 100) / 100,
+        partialAmount: Math.round(partialCreditTotal * 100) / 100
+      },
+      totalIncome: Math.round(effectiveGrossRevenue * 100) / 100,
+      totalExpense: Math.round(totalExpense * 100) / 100,
+      netTotal: Math.round((effectiveGrossRevenue - totalExpense) * 100) / 100,
+      totalDeposits: Math.round(totalDeposits * 100) / 100,
+      paymentMethods: Object.values(methodsMap)
     });
   });
 
@@ -559,7 +749,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     if (startDate) dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
     if (endDate) dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
 
-    const [professionals, schedules] = await Promise.all([
+    const [professionalsList, schedules] = await Promise.all([
       prisma.professional.findMany({
         where: { tenantId, isActive: true },
         select: {
@@ -584,7 +774,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       })
     ]);
 
-    const teamReport = professionals.map((prof) => {
+    const teamReport = professionalsList.map((prof) => {
       const profSchedules = schedules.filter((s) => s.professionalId === prof.id);
       const completed = profSchedules.filter((s) => s.status === ScheduleStatus.COMPLETED);
       const cancelled = profSchedules.filter((s) => s.status === ScheduleStatus.CANCELLED);
@@ -592,26 +782,45 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       const grossRevenue = completed.reduce((acc, s) => acc + Number(s.totalPrice || 0), 0);
       const commissionRate = Number(prof.commissionRate || 0);
       const estimatedCommission = commissionRate > 0 ? (grossRevenue * commissionRate) / 100 : 0;
-      const completionRate = profSchedules.length > 0 ? Math.round((completed.length / profSchedules.length) * 100) : 0;
+      const completionRate =
+        profSchedules.length > 0 ? Math.round((completed.length / profSchedules.length) * 100) : 0;
 
       return {
         id: prof.id,
         name: prof.name,
         role: prof.role || 'Profissional',
         color: prof.color || '#5c0701',
+        avatarUrl: null,
+        totalAppointments: profSchedules.length,
         totalBookings: profSchedules.length,
         completedCount: completed.length,
         cancelledCount: cancelled.length,
         grossRevenue: Math.round(grossRevenue * 100) / 100,
         commissionRate,
+        commissionEarned: Math.round(estimatedCommission * 100) / 100,
         estimatedCommission: Math.round(estimatedCommission * 100) / 100,
+        salonNetRevenue: Math.round((grossRevenue - estimatedCommission) * 100) / 100,
         completionRate
       };
     });
 
     teamReport.sort((a, b) => b.grossRevenue - a.grossRevenue);
 
-    return reply.send({ team: teamReport });
+    const activeProfessionals = teamReport.filter((p) => p.totalBookings > 0).length;
+    const totalTeamRevenue = teamReport.reduce((acc, p) => acc + p.grossRevenue, 0);
+    const totalCommissionsDue = teamReport.reduce((acc, p) => acc + p.estimatedCommission, 0);
+    const salonRetainedRevenue = totalTeamRevenue - totalCommissionsDue;
+
+    return reply.send({
+      summary: {
+        activeProfessionals,
+        totalTeamRevenue: Math.round(totalTeamRevenue * 100) / 100,
+        totalCommissionsDue: Math.round(totalCommissionsDue * 100) / 100,
+        salonRetainedRevenue: Math.round(salonRetainedRevenue * 100) / 100
+      },
+      professionals: teamReport,
+      team: teamReport
+    });
   });
 
   // 7. GET /reports/products - Venda de cosméticos e estoque
@@ -625,18 +834,39 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const lowStockAlerts = products.filter((p) => p.stockQuantity <= (p.minStock || 2));
-    const totalInventoryValue = products.reduce((acc, p) => acc + (Number(p.salePrice || 0) * (p.stockQuantity || 0)), 0);
+    const totalInventoryValue = products.reduce(
+      (acc, p) => acc + Number(p.salePrice || 0) * (p.stockQuantity || 0),
+      0
+    );
+
+    const mapProduct = (p: any) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category || 'Geral',
+      salePrice: Number(p.salePrice || 0),
+      stock: p.stockQuantity || 0,
+      minStock: p.minStock || 0,
+      totalSoldInPeriod: 0,
+      revenueInPeriod: 0,
+      isLowStock: (p.stockQuantity || 0) <= (p.minStock || 2)
+    });
+
+    const mappedLowStock = lowStockAlerts.map(mapProduct);
+    const mappedTop = products.map(mapProduct).slice(0, 10);
 
     return reply.send({
+      summary: {
+        totalProducts: products.length,
+        totalStockValuation: Math.round(totalInventoryValue * 100) / 100,
+        totalItemsSold: 0,
+        totalProductRevenue: 0,
+        lowStockAlertCount: lowStockAlerts.length
+      },
+      topSold: mappedTop,
+      lowStockList: mappedLowStock,
       totalProducts: products.length,
       lowStockCount: lowStockAlerts.length,
-      lowStockProducts: lowStockAlerts.map((p) => ({
-        id: p.id,
-        name: p.name,
-        stockQuantity: p.stockQuantity,
-        minStock: p.minStock,
-        price: Number(p.salePrice)
-      })),
+      lowStockProducts: mappedLowStock,
       totalInventoryValue: Math.round(totalInventoryValue * 100) / 100
     });
   });
@@ -667,7 +897,30 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       completedStudents += c.accesses.filter((a) => a.completedAt !== null).length;
     }
 
+    const averageCompletionRate =
+      totalStudents > 0 ? Math.round((completedStudents / totalStudents) * 100) : 0;
+
+    const mappedCourses = courses.map((c) => {
+      const tStudents = c.accesses.length;
+      const cStudents = c.accesses.filter((a) => a.completedAt !== null).length;
+      return {
+        id: c.id,
+        title: c.title,
+        category: null,
+        totalStudents: tStudents,
+        completedStudents: cStudents,
+        completionRate: tStudents > 0 ? Math.round((cStudents / tStudents) * 100) : 0
+      };
+    });
+
     return reply.send({
+      summary: {
+        totalCourses: courses.length,
+        totalEnrollments: totalStudents,
+        totalCompletions: completedStudents,
+        averageCompletionRate
+      },
+      courses: mappedCourses,
       totalCourses: courses.length,
       totalStudents,
       completedStudents,
@@ -711,7 +964,36 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const reviewsCount = npsSchedules.length;
     const averageScore = reviewsCount > 0 ? totalScore / reviewsCount : 5.0;
 
+    const promotersCount = starCounts[4] + starCounts[3]; // 5 e 4 estrelas
+    const passivesCount = starCounts[2]; // 3 estrelas
+    const detractorsCount = starCounts[1] + starCounts[0]; // 2 e 1 estrelas
+    const promoterPercentage = reviewsCount > 0 ? Math.round((promotersCount / reviewsCount) * 100) : 100;
+    const passivePercentage = reviewsCount > 0 ? Math.round((passivesCount / reviewsCount) * 100) : 0;
+    const detractorPercentage = reviewsCount > 0 ? Math.round((detractorsCount / reviewsCount) * 100) : 0;
+    const npsScore = reviewsCount > 0 ? promoterPercentage - detractorPercentage : 100;
+
+    const recentFeedbacks = npsSchedules.map((s) => ({
+      id: s.id,
+      score: s.npsScore || 5,
+      feedback: s.npsFeedback,
+      clientName: s.client?.name || 'Cliente',
+      serviceName: s.service?.name || 'Atendimento',
+      date: s.date ? s.date.toISOString().slice(0, 10) : ''
+    }));
+
     return reply.send({
+      summary: {
+        npsScore,
+        averageRating: Math.round(averageScore * 10) / 10,
+        totalEvaluations: reviewsCount,
+        promotersCount,
+        passivesCount,
+        detractorsCount,
+        promoterPercentage,
+        passivePercentage,
+        detractorPercentage
+      },
+      recentFeedbacks,
       averageScore: Math.round(averageScore * 10) / 10,
       totalReviews: reviewsCount,
       starDistribution: [
@@ -721,14 +1003,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         { stars: 2, count: starCounts[1] },
         { stars: 1, count: starCounts[0] }
       ],
-      recentReviews: npsSchedules.map((s) => ({
-        id: s.id,
-        score: s.npsScore,
-        feedback: s.npsFeedback,
-        clientName: s.client?.name || 'Cliente',
-        serviceName: s.service?.name || 'Atendimento',
-        date: s.date ? s.date.toISOString().slice(0, 10) : null
-      }))
+      recentReviews: recentFeedbacks
     });
   });
 };

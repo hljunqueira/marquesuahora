@@ -323,10 +323,10 @@ export default function DashboardRelatoriosPage() {
                       Faturamento Bruto
                     </span>
                     <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 font-mono">
-                      {formatBRL(overviewData?.totalRevenue || 0)}
+                      {formatBRL(overviewData?.totalRevenue ?? overviewData?.grossRevenue ?? 0)}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block font-mono">
-                      {overviewData?.totalSchedules || 0} agendamentos
+                      {overviewData?.totalSchedules ?? overviewData?.totalBookings ?? 0} agendamentos
                     </span>
                   </div>
 
@@ -338,10 +338,10 @@ export default function DashboardRelatoriosPage() {
                       Taxa de Conclusão
                     </span>
                     <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono">
-                      {overviewData?.completionRate?.toFixed(1) || '0.0'}%
+                      {((overviewData?.completionRate ?? overviewData?.attendanceRate ?? 0)).toFixed(1)}%
                     </div>
                     <span className="text-[11px] font-semibold text-emerald-700 mt-1 block">
-                      {overviewData?.completedSchedules || 0} atendidos
+                      {overviewData?.completedSchedules ?? overviewData?.completedCount ?? 0} atendidos
                     </span>
                   </div>
 
@@ -354,12 +354,12 @@ export default function DashboardRelatoriosPage() {
                     </span>
                     <div
                       className="text-base sm:text-lg font-extrabold text-slate-900 truncate"
-                      title={overviewData?.topClient?.name}
+                      title={overviewData?.topClient?.name || clientsData?.rankingByBookings?.[0]?.name}
                     >
-                      {overviewData?.topClient?.name || 'Nenhum'}
+                      {overviewData?.topClient?.name || clientsData?.rankingByBookings?.[0]?.name || 'Nenhum'}
                     </div>
                     <span className="text-[11px] font-bold mt-1 block font-mono" style={{ color: tenantColor }}>
-                      {overviewData?.topClient?.bookings || 0} agendamentos
+                      {overviewData?.topClient?.bookings ?? clientsData?.rankingByBookings?.[0]?.totalBookings ?? clientsData?.rankingByBookings?.[0]?.bookingsCount ?? 0} agendamentos
                     </span>
                   </div>
 
@@ -371,7 +371,7 @@ export default function DashboardRelatoriosPage() {
                       Sinal PIX Retido
                     </span>
                     <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 font-mono">
-                      {formatBRL(overviewData?.antiNoShowTotal || 0)}
+                      {formatBRL(overviewData?.antiNoShowTotal ?? overviewData?.totalDeposits ?? 0)}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block">
                       100% direto na sua conta
@@ -386,7 +386,7 @@ export default function DashboardRelatoriosPage() {
                       NPS & Reputação
                     </span>
                     <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono" style={{ color: tenantColor }}>
-                      +{overviewData?.npsScore || 0}
+                      +{overviewData?.npsScore ?? overviewData?.npsAverage ?? 0}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block">
                       Satisfação & recomendação

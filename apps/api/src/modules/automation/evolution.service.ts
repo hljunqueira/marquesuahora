@@ -266,15 +266,25 @@ export class EvolutionService {
         } else if (liveState === 'connecting' || !isConnected) {
           // Busca pairingCode em tempo real se a instância estiver aguardando pareamento
           try {
-            const connRes = await axios.get(
-              `${this.getBaseUrl()}/instance/connect/${config.instanceName}`,
-              {
-                headers: { apikey: config.apiKey || this.getGlobalApiKey() },
-                timeout: 3000
-              }
-            );
+            const connectUrl = config.phoneNumber
+              ? `${this.getBaseUrl()}/instance/connect/${config.instanceName}?number=${config.phoneNumber}`
+              : `${this.getBaseUrl()}/instance/connect/${config.instanceName}`;
+
+            const connRes = await axios.get(connectUrl, {
+              headers: { apikey: config.apiKey || this.getGlobalApiKey() },
+              timeout: 3500
+            });
             if (connRes.data?.pairingCode) {
               const code = String(connRes.data.pairingCode);
+              pairingCode = code;
+              this.pairingCodes.set(config.instanceName, code);
+            } else if (
+              connRes.data?.code &&
+              typeof connRes.data.code === 'string' &&
+              connRes.data.code.length < 20 &&
+              !connRes.data.code.startsWith('data:image')
+            ) {
+              const code = String(connRes.data.code);
               pairingCode = code;
               this.pairingCodes.set(config.instanceName, code);
             }
@@ -431,22 +441,30 @@ export class EvolutionService {
     }
 
     // 3. Se foi solicitado pairingCode e a Evolution API ainda estiver gerando com o WhatsApp (1-2s de latência),
-    // realiza até 3 tentativas curtas de verificação para entregar o código imediatamente na mesma requisição
+    // realiza até 4 tentativas curtas de verificação para entregar o código imediatamente na mesma requisição
     if (cleanPhone && !pairingCode && !isConnected) {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        await new Promise((resolve) => setTimeout(resolve, 1400));
+      for (let attempt = 0; attempt < 4; attempt++) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
         try {
-          const pollRes = await axios.get(`${this.getBaseUrl()}/instance/connect/${instanceName}`, {
-            headers: { apikey: apiKey },
-            timeout: 4000
-          });
+          const pollRes = await axios.get(
+            `${this.getBaseUrl()}/instance/connect/${instanceName}?number=${cleanPhone}`,
+            {
+              headers: { apikey: apiKey },
+              timeout: 4500
+            }
+          );
           const pollData = pollRes.data;
           if (pollData?.pairingCode) {
-            pairingCode = pollData.pairingCode;
+            pairingCode = String(pollData.pairingCode);
             break;
           }
-          if (pollData?.code && typeof pollData.code === 'string' && pollData.code.length < 20) {
-            pairingCode = pollData.code;
+          if (
+            pollData?.code &&
+            typeof pollData.code === 'string' &&
+            pollData.code.length < 20 &&
+            !pollData.code.startsWith('data:image')
+          ) {
+            pairingCode = String(pollData.code);
             break;
           }
         } catch {
@@ -455,14 +473,8 @@ export class EvolutionService {
       }
     }
 
-    // 4. Se a Evolution API externa falhar ou rate-limitar, gera código alfanumérico seguro para não travar a recepção
-    if (cleanPhone && !pairingCode && !isConnected) {
-      const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-      let randomCode = '';
-      for (let i = 0; i < 8; i++) {
-        randomCode += chars.charAt(Math.floor(Math.random() * chars.length));
-      }
-      pairingCode = randomCode;
+    if (!pairingCode && cleanPhone && !isConnected) {
+      console.warn(`[Evolution WhatsApp] Pairing code ainda em geração pela Evolution para ${instanceName}. O frontend continuará consultando via polling.`);
     }
 
     if (pairingCode) {

@@ -176,8 +176,10 @@ export function ShowcaseHeader({ tenant, onBookClick, onPortalClick }: ShowcaseH
 
               <div className="inline-flex items-center px-3 py-1.5 text-xs text-slate-500 font-medium">
                 <span>
-                  {tenant.isOpenNow && tenant.openingTime && tenant.closingTime
-                    ? `Atendimento hoje: ${tenant.openingTime} às ${tenant.closingTime}`
+                  {tenant.todayIsOpen
+                    ? tenant.isOpenNow
+                      ? `Aberto agora · Atendimento hoje: ${tenant.todayScheduleLabel || `${tenant.openingTime} às ${tenant.closingTime}`}`
+                      : `Atendimento hoje: ${tenant.todayScheduleLabel || `${tenant.openingTime} às ${tenant.closingTime}`}`
                     : 'Atendimento hoje: Fechado'}
                 </span>
               </div>

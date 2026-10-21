@@ -17,7 +17,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       include: {
         plan: true,
         availabilityRules: {
-          where: { professionalId: null }
+          orderBy: [{ professionalId: 'asc' }, { dayOfWeek: 'asc' }]
         },
         categories: {
           where: { isActive: true },
@@ -113,30 +113,70 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // 2. Regra da Grade Semanal de Atendimento (AvailabilityRule global do salão)
-    const todayRule = tenant.availabilityRules?.find((r) => r.dayOfWeek === currentDayOfWeek);
+    const generalRules = tenant.availabilityRules.filter((r) => !r.professionalId);
+    const rulesToUse = generalRules.length > 0 ? generalRules : tenant.availabilityRules;
 
-    let isOpenNow = false;
+    const DAY_NAMES = [
+      'Domingo',
+      'Segunda-feira',
+      'Terça-feira',
+      'Quarta-feira',
+      'Quinta-feira',
+      'Sexta-feira',
+      'Sábado'
+    ];
+    const SHORT_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+    const weeklySchedule = [0, 1, 2, 3, 4, 5, 6].map((day) => {
+      const rule = rulesToUse.find((r) => r.dayOfWeek === day);
+      const isOpen = rule ? rule.isActive : day !== 0;
+      const startTime = rule?.startTime || tenant.openingTime || '09:00';
+      const endTime = rule?.endTime || tenant.closingTime || '19:00';
+      return {
+        dayOfWeek: day,
+        dayName: DAY_NAMES[day],
+        shortName: SHORT_NAMES[day],
+        isOpen,
+        startTime,
+        endTime,
+        isToday: day === currentDayOfWeek
+      };
+    });
+
+    const todayRule = rulesToUse.find((r) => r.dayOfWeek === currentDayOfWeek);
+    let todayIsOpen = false;
     let todayOpeningTime = tenant.openingTime || '09:00';
     let todayClosingTime = tenant.closingTime || '19:00';
 
     if (isHolidayBlocked) {
-      isOpenNow = false;
+      todayIsOpen = false;
     } else if (todayRule) {
       todayOpeningTime = todayRule.startTime;
       todayClosingTime = todayRule.endTime;
-      if (todayRule.isActive) {
-        isOpenNow = currentTimeStr >= todayRule.startTime && currentTimeStr < todayRule.endTime;
-      } else {
-        // Marcado como Fechado na grade semanal (ex: Domingo)
-        isOpenNow = false;
-      }
+      todayIsOpen = todayRule.isActive;
     } else {
-      // Se não há regra cadastrada explicitamente para o dia, Domingo é fechado por padrão
-      if (currentDayOfWeek === 0) {
-        isOpenNow = false;
-      } else {
-        isOpenNow = currentTimeStr >= todayOpeningTime && currentTimeStr < todayClosingTime;
-      }
+      todayIsOpen = currentDayOfWeek !== 0;
+    }
+
+    const isOpenNow = todayIsOpen && currentTimeStr >= todayOpeningTime && currentTimeStr < todayClosingTime;
+
+    let todayScheduleLabel = '';
+    if (isHolidayBlocked) {
+      todayScheduleLabel = 'Feriado (Fechado hoje)';
+    } else if (todayIsOpen) {
+      todayScheduleLabel = `${todayOpeningTime} às ${todayClosingTime}`;
+    } else {
+      todayScheduleLabel = 'Fechado hoje';
+    }
+
+    const openDaysList = weeklySchedule.filter((d) => d.isOpen);
+    let operatingHoursSummary = '';
+    if (openDaysList.length === 7) {
+      operatingHoursSummary = `Todos os dias das ${tenant.openingTime || '09:00'} às ${tenant.closingTime || '19:00'}`;
+    } else if (openDaysList.length > 0) {
+      operatingHoursSummary = openDaysList.map((d) => `${d.shortName}: ${d.startTime} às ${d.endTime}`).join(' · ');
+    } else {
+      operatingHoursSummary = 'Consulte horários na agenda';
     }
 
     const allGalleryPhotos = (tenant.galleryPhotos && tenant.galleryPhotos.length > 0)
@@ -166,7 +206,13 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       terminology: tenant.terminology,
       openingTime: todayOpeningTime,
       closingTime: todayClosingTime,
+      generalOpeningTime: tenant.openingTime || todayOpeningTime,
+      generalClosingTime: tenant.closingTime || todayClosingTime,
       isOpenNow,
+      todayIsOpen,
+      todayScheduleLabel,
+      weeklySchedule,
+      operatingHoursSummary,
       galleryPhotos: allGalleryPhotos,
       depositRequired: tenant.depositRequired,
       depositType: tenant.depositType,

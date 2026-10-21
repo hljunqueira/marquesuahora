@@ -233,10 +233,22 @@ export const SettingsBookingTab: React.FC<SettingsBookingTabProps> = ({
       });
 
       // Também sincroniza os horários gerais de abertura e fechamento
-      const firstOpen = weekdays.find((d) => d.isOpen);
-      if (firstOpen) {
-        onChange('openingTime', firstOpen.startTime);
-        onChange('closingTime', firstOpen.endTime);
+      const openDays = weekdays.filter((d) => d.isOpen);
+      if (openDays.length > 0) {
+        const sortedStarts = [...openDays].sort((a, b) => a.startTime.localeCompare(b.startTime));
+        const sortedEnds = [...openDays].sort((a, b) => b.endTime.localeCompare(a.endTime));
+        const newOpen = sortedStarts[0].startTime;
+        const newClose = sortedEnds[0].endTime;
+        onChange('openingTime', newOpen);
+        onChange('closingTime', newClose);
+        try {
+          await api.put('/tenants/me/settings', {
+            openingTime: newOpen,
+            closingTime: newClose
+          });
+        } catch (settingsSyncErr) {
+          console.warn('Aviso: sincronização secundária de horários no tenant:', settingsSyncErr);
+        }
       }
 
       setScheduleSaveSuccess(true);

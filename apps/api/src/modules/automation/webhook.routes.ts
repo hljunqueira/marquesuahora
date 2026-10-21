@@ -345,8 +345,9 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
         }
 
         // Se já passaram mais de 30 segundos, responde de forma natural, calorosa e concisa:
-        const clientDisplayName = client?.name ? `, ${client.name}` : '';
-        const shortGreeting = `Olá${clientDisplayName}! Como posso te ajudar hoje? Se quiser agendar ou consultar nossos serviços, produtos e cursos, é só acessar: https://marquesuahora.com.br/${tenant.slug}`;
+        const firstName = client?.name ? client.name.trim().split(' ')[0] : '';
+        const clientGreeting = firstName ? `Olá, ${firstName}!` : 'Olá!';
+        const shortGreeting = `${clientGreeting} Como posso te ajudar hoje? Me conte qual procedimento você gostaria de agendar.`;
 
         console.log(`[WhatsApp Boas-Vindas] Cliente ${clientPhone} já recebeu boas-vindas nas últimas 24h. Enviando saudação curta.`);
         await EvolutionService.sendTextMessage(tenant.id, clientPhone, shortGreeting);
@@ -358,11 +359,15 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
 
       // Dispara o template de boas-vindas configurado (1ª vez nas 24h):
       let welcomeText = (tenant.welcomeMessageCustom?.trim()) ||
-        'Olá, {cliente}! Seja muito bem-vinda(o) ao *{salão}*!\n\nComo posso te ajudar hoje?\n• Agendar um horário (qual procedimento você gostaria de realizar?)\n• Conhecer nossos serviços, produtos e cursos\n• Tirar dúvidas\n\nSe preferir escolher o seu profissional e agendar online com facilidade, acesse nosso link oficial:\n👉 {link}';
+        'Olá{cliente}! Seja muito bem-vinda ao *{salão}*!\n\nComo posso te ajudar hoje? Me conte qual procedimento você gostaria de agendar.';
 
-      const clientDisplayName = client?.name || 'cliente';
+      const firstName = client?.name ? client.name.trim().split(' ')[0] : '';
+      const clientNamePlaceholder = firstName ? `, ${firstName}` : '';
+
       welcomeText = welcomeText
-        .replace(/{cliente}/gi, clientDisplayName)
+        .replace(/,\s*{cliente}/gi, clientNamePlaceholder)
+        .replace(/{cliente}/gi, firstName ? firstName : '')
+        .replace(/\s+!/g, '!')
         .replace(/{salão}|{salao}/gi, tenant.name)
         .replace(/{link}/gi, `https://marquesuahora.com.br/${tenant.slug}`);
 

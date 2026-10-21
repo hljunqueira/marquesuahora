@@ -862,7 +862,7 @@ export function ClientPortalModal({
                         Horário de Atendimento
                       </span>
                       <p className="font-semibold text-slate-800">
-                        {portalData?.tenant.openingTime} às {portalData?.tenant.closingTime}
+                        {(portalData?.tenant as any)?.operatingHoursSummary || (portalData?.tenant as any)?.todayScheduleLabel || `${portalData?.tenant.openingTime} às ${portalData?.tenant.closingTime}`}
                       </p>
                     </div>
 

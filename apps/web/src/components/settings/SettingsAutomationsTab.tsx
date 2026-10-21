@@ -67,7 +67,7 @@ export const SettingsAutomationsTab: React.FC<SettingsAutomationsTabProps> = ({
               maxLength={2000}
               value={settings.welcomeMessageCustom ?? ''}
               onChange={(e) => onChange('welcomeMessageCustom', e.target.value)}
-              placeholder="Olá{cliente}! Seja muito bem-vindo(a) ao *{salão}*! É um prazer ter você por aqui.&#10;&#10;Para consultar nossos serviços, valores e agendar seu horário com praticidade pelo celular, acesse nosso link oficial:&#10;👉 {link}&#10;&#10;Se tiver qualquer dúvida, pode nos chamar por aqui!"
+              placeholder="Olá{cliente}! Seja muito bem-vinda ao estúdio *{salão}*!&#10;&#10;Como posso te ajudar hoje? Me conte qual procedimento você gostaria de agendar."
               className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition-all font-sans resize-y"
             />
             <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-500">
