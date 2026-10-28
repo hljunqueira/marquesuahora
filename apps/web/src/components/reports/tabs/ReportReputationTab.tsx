@@ -131,7 +131,12 @@ export function ReportReputationTab({ data, tenantColor = '#5c0701' }: ReportRep
           <p className="text-xs text-slate-400 mb-4">
             Proporção de promotores (4-5 estrelas), neutros e detratores
           </p>
-          <ReportDonutChart data={donutData} centerLabel="NPS" height={220} />
+          <ReportDonutChart
+            data={donutData}
+            centerLabel="NPS"
+            centerValue={totalEvaluations > 0 ? (npsScore > 0 ? `+${npsScore}` : `${npsScore}`) : '0'}
+            size={150}
+          />
         </div>
 
         {/* Depoimentos e Avaliações Recentes */}

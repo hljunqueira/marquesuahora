@@ -110,7 +110,7 @@ export function ReportFinancialTab({ data, tenantColor = '#5c0701' }: ReportFina
           <h3 className="text-sm font-bold text-slate-900 mb-4">
             Mix de Formas de Pagamento
           </h3>
-          <ReportDonutChart data={methodDonutData} centerLabel="Receita" height={220} />
+          <ReportDonutChart data={methodDonutData} centerLabel="Receita" isCurrency={true} size={150} />
         </div>
 
         <div className="lg:col-span-2 p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">

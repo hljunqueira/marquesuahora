@@ -327,13 +327,16 @@ export default function DashboardRelatoriosPage() {
             {activeTab === 'overview' && (
               <div className="space-y-8">
                 {/* Faixa de Destaque Executivo (Resumo Geral) */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5 sm:gap-4">
-                  <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[120px]">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-3.5 xl:gap-4">
+                  <div className="relative overflow-hidden p-3.5 sm:p-4 xl:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[116px]">
                     <div className="absolute top-0 inset-x-0 h-1 bg-emerald-500" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       Faturamento Bruto
                     </span>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 font-mono">
+                    <div
+                      className="text-lg sm:text-xl xl:text-2xl font-black text-emerald-600 tracking-tight truncate"
+                      title={formatBRL(overviewData?.totalRevenue ?? overviewData?.grossRevenue ?? 0)}
+                    >
                       {formatBRL(overviewData?.totalRevenue ?? overviewData?.grossRevenue ?? 0)}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block font-mono">
@@ -341,12 +344,12 @@ export default function DashboardRelatoriosPage() {
                     </span>
                   </div>
 
-                  <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[120px]">
+                  <div className="relative overflow-hidden p-3.5 sm:p-4 xl:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[116px]">
                     <div className="absolute top-0 inset-x-0 h-1" style={{ backgroundColor: tenantColor }} />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       Taxa de Conclusão
                     </span>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono">
+                    <div className="text-lg sm:text-xl xl:text-2xl font-black text-slate-900 tracking-tight">
                       {((overviewData?.completionRate ?? overviewData?.attendanceRate ?? 0)).toFixed(1)}%
                     </div>
                     <span className="text-[11px] font-semibold text-emerald-700 mt-1 block">
@@ -354,13 +357,13 @@ export default function DashboardRelatoriosPage() {
                     </span>
                   </div>
 
-                  <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[120px]">
+                  <div className="relative overflow-hidden p-3.5 sm:p-4 xl:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[116px]">
                     <div className="absolute top-0 inset-x-0 h-1 bg-indigo-500" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       Cliente Campeão
                     </span>
                     <div
-                      className="text-base sm:text-lg font-extrabold text-slate-900 truncate"
+                      className="text-sm sm:text-base xl:text-lg font-black text-slate-900 truncate"
                       title={overviewData?.topClient?.name || clientsData?.rankingByBookings?.[0]?.name}
                     >
                       {formatName(overviewData?.topClient?.name || clientsData?.rankingByBookings?.[0]?.name || 'Nenhum')}
@@ -370,12 +373,15 @@ export default function DashboardRelatoriosPage() {
                     </span>
                   </div>
 
-                  <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[120px]">
+                  <div className="relative overflow-hidden p-3.5 sm:p-4 xl:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[116px]">
                     <div className="absolute top-0 inset-x-0 h-1 bg-teal-500" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       Sinal PIX Retido
                     </span>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 font-mono">
+                    <div
+                      className="text-lg sm:text-xl xl:text-2xl font-black text-emerald-600 tracking-tight truncate"
+                      title={formatBRL(overviewData?.antiNoShowTotal ?? overviewData?.totalDeposits ?? 0)}
+                    >
                       {formatBRL(overviewData?.antiNoShowTotal ?? overviewData?.totalDeposits ?? 0)}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block">
@@ -383,12 +389,12 @@ export default function DashboardRelatoriosPage() {
                     </span>
                   </div>
 
-                  <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all col-span-2 md:col-span-1 flex flex-col justify-between min-h-[120px]">
+                  <div className="relative overflow-hidden p-3.5 sm:p-4 xl:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all col-span-2 md:col-span-1 flex flex-col justify-between min-h-[116px]">
                     <div className="absolute top-0 inset-x-0 h-1 bg-amber-500" />
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       NPS & Reputação
                     </span>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono" style={{ color: (overviewData?.npsReviewsCount || 0) > 0 ? tenantColor : '#94a3b8' }}>
+                    <div className="text-lg sm:text-xl xl:text-2xl font-black text-slate-900 tracking-tight" style={{ color: (overviewData?.npsReviewsCount || 0) > 0 ? tenantColor : '#94a3b8' }}>
                       {(overviewData?.npsReviewsCount || 0) > 0 ? `${overviewData.npsScore > 0 ? `+${overviewData.npsScore}` : overviewData.npsScore}` : '0'}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block">
@@ -548,7 +554,7 @@ export default function DashboardRelatoriosPage() {
                             <h3 className="text-sm font-bold text-slate-900">Serviços Campeões</h3>
                           </div>
                           <span className="text-xs font-bold font-mono px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/60">
-                            {servicesData?.summary?.totalServicesOffered ?? 0} ofertados
+                            {servicesData?.summary?.totalServicesSold ?? servicesData?.rankingByRevenue?.length ?? 0} realizados
                           </span>
                         </div>
 

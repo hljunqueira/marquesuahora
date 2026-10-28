@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Users, DollarSign, Repeat, AlertCircle, MessageCircle, Search, X } from 'lucide-react';
+import { Users, DollarSign, Repeat, AlertCircle, MessageCircle, Search, X, Info } from 'lucide-react';
 import { ReportBarChart } from '../charts/ReportBarChart';
 
 interface ClientItem {
@@ -50,20 +50,24 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
 
   const statusBadges = {
     VIP: {
-      label: 'VIP Diamante',
-      badgeClass: 'bg-amber-500/10 text-amber-700 border-amber-500/20',
+      label: 'Cliente Fiel',
+      badgeClass: 'bg-amber-50 text-amber-800 border-amber-200/90',
+      description: 'Cliente assídua (3 ou mais agendamentos realizados no período)',
     },
     FREQUENT: {
       label: 'Frequente',
-      badgeClass: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20',
+      badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200/90',
+      description: 'Cliente com retorno confirmado (2 agendamentos no período)',
     },
     NEW: {
-      label: 'Novo Cliente',
-      badgeClass: 'bg-blue-500/10 text-blue-700 border-blue-500/20',
+      label: 'Nova Cliente',
+      badgeClass: 'bg-blue-50 text-blue-800 border-blue-200/90',
+      description: 'Primeiro agendamento realizado no estabelecimento',
     },
     AT_RISK: {
-      label: 'Em Risco (>45d)',
-      badgeClass: 'bg-rose-500/10 text-rose-700 border-rose-500/20',
+      label: 'Em Risco',
+      badgeClass: 'bg-rose-50 text-rose-800 border-rose-200/90',
+      description: 'Sem retorno ou agendamentos há mais de 35 dias',
     },
   };
 
@@ -261,7 +265,12 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
                 <th className="py-3 px-4 text-center">Concluídos</th>
                 <th className="py-3 px-4 text-right">Total Investido (LTV)</th>
                 <th className="py-3 px-4 text-right">Ticket Médio</th>
-                <th className="py-3 px-4 text-center">Classificação</th>
+                <th className="py-3 px-4 text-center">
+                  <span className="inline-flex items-center gap-1 cursor-help" title="Fidelidade calculada: Cliente Fiel (3+ visitas), Frequente (2 visitas), Nova Cliente (1 visita) e Em Risco (>35 dias sem agendar)">
+                    <span>Classificação</span>
+                    <Info className="w-3 h-3 text-slate-400" />
+                  </span>
+                </th>
                 <th className="py-3 px-4 text-center">Ações</th>
               </tr>
             </thead>
@@ -310,7 +319,8 @@ export function ReportClientsTab({ data, tenantColor = '#5c0701' }: ReportClient
 
                       <td className="py-3 px-4 text-center">
                         <span
-                          className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-full border ${badge.badgeClass}`}
+                          className={`inline-block px-2.5 py-0.5 text-[10px] font-bold rounded-full border cursor-help ${badge.badgeClass}`}
+                          title={badge.description}
                         >
                           {badge.label}
                         </span>

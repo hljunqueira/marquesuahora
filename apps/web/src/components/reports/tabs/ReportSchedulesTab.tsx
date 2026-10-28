@@ -154,7 +154,7 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
               Canais de Origem
             </h3>
           </div>
-          <ReportDonutChart data={sourceChartData} centerLabel="Total" height={220} />
+          <ReportDonutChart data={sourceChartData} centerLabel="Canais" isCurrency={false} size={150} />
         </div>
 
         <div className="lg:col-span-2 p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs flex flex-col justify-between">

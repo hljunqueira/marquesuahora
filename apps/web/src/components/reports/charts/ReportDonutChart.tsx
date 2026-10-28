@@ -13,7 +13,7 @@ interface ReportDonutChartProps {
   items?: DonutItem[];
   data?: DonutItem[];
   centerLabel?: string;
-  centerSublabel?: string;
+  centerValue?: string;
   isCurrency?: boolean;
   size?: number;
   height?: number;
@@ -22,14 +22,14 @@ interface ReportDonutChartProps {
 export function ReportDonutChart({
   items,
   data,
-  centerLabel,
-  centerSublabel = 'Total',
+  centerLabel = 'TOTAL',
+  centerValue,
   isCurrency = false,
-  size = 190,
+  size = 150,
   height,
 }: ReportDonutChartProps) {
   const chartItems = (items || data || []).filter((item) => Number(item.value) > 0);
-  const chartSize = height || size;
+  const chartSize = size || 150;
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   const formatValue = (val: number) => {
@@ -50,7 +50,7 @@ export function ReportDonutChart({
   }
 
   // Geometria precisa do círculo SVG
-  const strokeWidth = 24;
+  const strokeWidth = 20;
   const radius = (chartSize - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const gapPx = chartItems.length > 1 ? 2.5 : 0;
@@ -58,10 +58,10 @@ export function ReportDonutChart({
   let accumulatedPercent = 0;
 
   return (
-    <div className="flex flex-col sm:flex-row items-center justify-center gap-6 w-full">
+    <div className="flex flex-col items-center justify-center gap-5 w-full">
       {/* Círculo SVG Donut */}
       <div
-        className="relative shrink-0 flex items-center justify-center"
+        className="relative shrink-0 flex items-center justify-center mx-auto"
         style={{ width: chartSize, height: chartSize }}
       >
         <svg
@@ -112,12 +112,15 @@ export function ReportDonutChart({
         </svg>
 
         {/* Centro do Donut */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none p-3 select-none">
-          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider truncate max-w-[110px] block">
-            {hoveredIdx !== null ? chartItems[hoveredIdx].label : centerSublabel}
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none p-2 select-none">
+          <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider truncate max-w-[95px] block">
+            {hoveredIdx !== null ? chartItems[hoveredIdx].label : centerLabel}
           </span>
-          <span className="text-sm sm:text-base font-extrabold text-slate-900 font-mono mt-0.5 leading-tight truncate max-w-[120px] block">
-            {hoveredIdx !== null ? formatValue(chartItems[hoveredIdx].value) : centerLabel || formatValue(total)}
+          <span
+            className="text-sm sm:text-base font-black text-slate-900 tracking-tight mt-0.5 leading-tight truncate max-w-[105px] block"
+            title={hoveredIdx !== null ? formatValue(chartItems[hoveredIdx].value) : (centerValue || formatValue(total))}
+          >
+            {hoveredIdx !== null ? formatValue(chartItems[hoveredIdx].value) : (centerValue || formatValue(total))}
           </span>
           {hoveredIdx !== null && (
             <span className="text-[10px] font-bold text-slate-500 font-mono mt-0.5">
@@ -127,8 +130,8 @@ export function ReportDonutChart({
         </div>
       </div>
 
-      {/* Legenda Lateral */}
-      <div className="flex-1 space-y-1.5 w-full max-w-xs">
+      {/* Legenda Abaixo do Gráfico (Largura total, sem cortes laterais) */}
+      <div className="w-full space-y-1.5 pt-1">
         {chartItems.map((item, idx) => {
           const pct = Math.round((item.value / total) * 100);
           const isHovered = hoveredIdx === idx;
@@ -154,11 +157,11 @@ export function ReportDonutChart({
                 </span>
               </div>
 
-              <div className="text-right shrink-0">
-                <span className="text-xs font-extrabold text-slate-900 font-mono block">
+              <div className="text-right shrink-0 flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-900 font-mono">
                   {formatValue(item.value)}
                 </span>
-                <span className="text-[10px] font-semibold text-slate-400 font-mono">
+                <span className="text-[10px] font-bold text-slate-500 font-mono bg-slate-100 px-1.5 py-0.5 rounded-md">
                   {pct}%
                 </span>
               </div>
