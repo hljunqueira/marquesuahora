@@ -388,11 +388,11 @@ export default function DashboardRelatoriosPage() {
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       NPS & Reputação
                     </span>
-                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono" style={{ color: tenantColor }}>
-                      +{overviewData?.npsScore ?? overviewData?.npsAverage ?? 0}
+                    <div className="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono" style={{ color: (overviewData?.npsReviewsCount || 0) > 0 ? tenantColor : '#94a3b8' }}>
+                      {(overviewData?.npsReviewsCount || 0) > 0 ? `${overviewData.npsScore > 0 ? `+${overviewData.npsScore}` : overviewData.npsScore}` : '0'}
                     </div>
                     <span className="text-[11px] font-medium text-slate-400 mt-1 block">
-                      Satisfação & recomendação
+                      {(overviewData?.npsReviewsCount || 0) > 0 ? `${overviewData.npsReviewsCount} avaliações` : 'Sem avaliações no período'}
                     </span>
                   </div>
                 </div>
@@ -703,18 +703,25 @@ export default function DashboardRelatoriosPage() {
                             </div>
                             <h3 className="text-sm font-bold text-slate-900">NPS & Reputação</h3>
                           </div>
-                          <span className="text-xs font-bold font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60">
-                            Excelente
+                          <span className="text-xs font-bold font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                            {(overviewData?.npsReviewsCount || 0) > 0 ? 'Avaliações Reais' : 'Aguardando'}
                           </span>
                         </div>
 
                         <div className="flex items-center gap-4 mb-4">
-                          <div className="text-3xl font-black font-mono" style={{ color: tenantColor }}>
-                            +{overviewData?.npsScore ?? 5}
+                          <div
+                            className="text-3xl font-black font-mono"
+                            style={{ color: (overviewData?.npsReviewsCount || 0) > 0 ? tenantColor : '#94a3b8' }}
+                          >
+                            {(overviewData?.npsReviewsCount || 0) > 0 ? `${overviewData.npsScore > 0 ? `+${overviewData.npsScore}` : overviewData.npsScore}` : '0'}
                           </div>
                           <div className="text-xs text-slate-500">
                             <div className="font-bold text-slate-900">Net Promoter Score</div>
-                            <div>Satisfação pós-atendimento</div>
+                            <div>
+                              {(overviewData?.npsReviewsCount || 0) > 0
+                                ? 'Satisfação pós-atendimento'
+                                : 'Sem avaliações no período'}
+                            </div>
                           </div>
                         </div>
 

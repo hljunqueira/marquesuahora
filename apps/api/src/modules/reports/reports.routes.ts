@@ -218,8 +218,8 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       totalRegisteredClients: clientsCount,
       topClient: topClient || { name: 'Nenhum', bookings: 0, spent: 0 },
       antiNoShowTotal: Math.round(antiNoShowTotal * 100) / 100,
-      npsScore: avgNps ? Math.round(avgNps * 10) / 10 : 5.0,
-      npsAverage: avgNps ? Math.round(avgNps * 10) / 10 : 5.0,
+      npsScore: countNps > 0 && avgNps ? Math.round(avgNps * 10) / 10 : 0,
+      npsAverage: countNps > 0 && avgNps ? Math.round(avgNps * 10) / 10 : 0,
       npsReviewsCount: countNps
     });
   });
@@ -938,17 +938,25 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     const tenantId = await enforceProGuard(request, reply);
     if (!tenantId) return;
 
+    const { startDate, endDate, professionalId } = dateFilterSchema.parse(request.query);
+
+    const dateFilter: any = {};
+    if (startDate) dateFilter.gte = new Date(`${startDate}T00:00:00.000Z`);
+    if (endDate) dateFilter.lte = new Date(`${endDate}T23:59:59.999Z`);
+
     const npsSchedules = await prisma.schedule.findMany({
       where: {
         tenantId,
-        npsScore: { not: null }
+        npsScore: { not: null },
+        ...(Object.keys(dateFilter).length > 0 ? { date: dateFilter } : {}),
+        ...(professionalId ? { professionalId } : {})
       },
       include: {
         client: { select: { name: true } },
         service: { select: { name: true } }
       },
       orderBy: { date: 'desc' },
-      take: 20
+      take: 50
     });
 
     const starCounts = [0, 0, 0, 0, 0]; // 1, 2, 3, 4, 5 estrelas
@@ -962,15 +970,15 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const reviewsCount = npsSchedules.length;
-    const averageScore = reviewsCount > 0 ? totalScore / reviewsCount : 5.0;
+    const averageScore = reviewsCount > 0 ? totalScore / reviewsCount : 0;
 
     const promotersCount = starCounts[4] + starCounts[3]; // 5 e 4 estrelas
     const passivesCount = starCounts[2]; // 3 estrelas
     const detractorsCount = starCounts[1] + starCounts[0]; // 2 e 1 estrelas
-    const promoterPercentage = reviewsCount > 0 ? Math.round((promotersCount / reviewsCount) * 100) : 100;
+    const promoterPercentage = reviewsCount > 0 ? Math.round((promotersCount / reviewsCount) * 100) : 0;
     const passivePercentage = reviewsCount > 0 ? Math.round((passivesCount / reviewsCount) * 100) : 0;
     const detractorPercentage = reviewsCount > 0 ? Math.round((detractorsCount / reviewsCount) * 100) : 0;
-    const npsScore = reviewsCount > 0 ? promoterPercentage - detractorPercentage : 100;
+    const npsScore = reviewsCount > 0 ? promoterPercentage - detractorPercentage : 0;
 
     const recentFeedbacks = npsSchedules.map((s) => ({
       id: s.id,

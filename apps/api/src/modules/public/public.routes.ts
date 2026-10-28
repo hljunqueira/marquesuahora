@@ -1013,8 +1013,89 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         depositAmount: Number(s.depositAmount || 0),
         depositPaid: s.depositPaid,
         arrivalPhotoUrl: s.arrivalPhotoUrl,
-        resultPhotoUrl: s.resultPhotoUrl
+        resultPhotoUrl: s.resultPhotoUrl,
+        npsScore: s.npsScore,
+        npsFeedback: s.npsFeedback
       }))
+    });
+  });
+
+  // POST /public/client-portal/:slug/schedules/:scheduleId/review - Avaliação real pós-atendimento pela Área da Cliente
+  app.post('/client-portal/:slug/schedules/:scheduleId/review', async (request, reply) => {
+    const { slug, scheduleId } = request.params as { slug: string; scheduleId: string };
+
+    const bodySchema = z.object({
+      phone: z.string().min(10, 'Telefone com DDD é obrigatório.'),
+      score: z.number().int().min(1, 'Nota mínima é 1 estrela.').max(5, 'Nota máxima é 5 estrelas.'),
+      feedback: z.string().max(500, 'Comentário muito longo (máximo 500 caracteres).').optional().nullable()
+    });
+
+    const parsed = bodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: 'VALIDATION_ERROR',
+        message: parsed.error.issues[0]?.message || 'Dados inválidos para avaliação.'
+      });
+    }
+
+    const { phone, score, feedback } = parsed.data;
+    const normalizedPhone = phone.replace(/\D/g, '');
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { slug: slug.toLowerCase() }
+    });
+
+    if (!tenant) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'Estabelecimento não localizado.' });
+    }
+
+    const client = await prisma.client.findFirst({
+      where: {
+        tenantId: tenant.id,
+        phone: normalizedPhone
+      }
+    });
+
+    if (!client) {
+      return reply.status(404).send({ error: 'CLIENT_NOT_FOUND', message: 'Cliente não localizada para este telefone.' });
+    }
+
+    const schedule = await prisma.schedule.findFirst({
+      where: {
+        id: scheduleId,
+        tenantId: tenant.id,
+        clientId: client.id
+      }
+    });
+
+    if (!schedule) {
+      return reply.status(404).send({ error: 'SCHEDULE_NOT_FOUND', message: 'Agendamento não encontrado para esta cliente.' });
+    }
+
+    if (schedule.status !== ScheduleStatus.COMPLETED) {
+      return reply.status(400).send({
+        error: 'NOT_COMPLETED',
+        message: 'Apenas atendimentos já finalizados podem ser avaliados.'
+      });
+    }
+
+    const updated = await prisma.schedule.update({
+      where: { id: scheduleId },
+      data: {
+        npsScore: score,
+        npsFeedback: feedback?.trim() || null
+      }
+    });
+
+    return reply.status(200).send({
+      success: true,
+      message: 'Avaliação registrada com sucesso! Agradecemos sua opinião.',
+      schedule: {
+        id: updated.id,
+        npsScore: updated.npsScore,
+        npsFeedback: updated.npsFeedback
+      },
+      googleReviewUrl: score >= 4 ? tenant.googleReviewUrl : null
     });
   });
 
