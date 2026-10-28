@@ -9,6 +9,162 @@ import { checkBrazilianHoliday } from '../../utils/brazilian-holidays';
 
 // Rotas públicas do tenant: vitrine, agendamento online e cursos livres
 
+export const DEFAULT_STANDARD_AFTERCARE_GUIDES = [
+  {
+    id: 'aftercare-unhas-gel',
+    title: 'Alongamento em Gel & Fibra de Vidro',
+    category: 'Unhas',
+    description: 'Recomendações fundamentais para manter suas unhas impecáveis, resistentes e saudáveis.',
+    items: [
+      'Evite usar as unhas como ferramentas para abrir latas, gavetas, caixas ou raspar superfícies rígidas.',
+      'Utilize luvas de proteção sempre que manusear produtos químicos de limpeza doméstica (cloro, água sanitária e detergentes concentrados).',
+      'Hidrate diariamente as cutículas com óleo vegetal ou sérum nutritivo para preservar a flexibilidade do gel e o brilho do top coat.',
+      'Respeite rigorosamente o período de manutenção (a cada 18 a 25 dias) para prevenir infiltrações, descolamentos e proteger a matriz natural da unha.',
+      'Nunca tente arrancar o alongamento ou morder o gel. Em caso de qualquer descolamento acidental, entre em contato imediatamente com o studio.'
+    ],
+    isActive: true
+  },
+  {
+    id: 'aftercare-esmaltacao-gel',
+    title: 'Esmaltação em Gel & Blindagem Diamond',
+    category: 'Unhas',
+    description: 'Cuidados essenciais para garantir brilho espelhado e durabilidade superior a 20 dias.',
+    items: [
+      'Evite banhos muito quentes e contato contínuo com água fervente nas primeiras 12 horas após a aplicação.',
+      'Não lixe as pontas das unhas em casa para não romper o selamento da borda livre feito em mesa.',
+      'Caso deseje retirar qualquer esmalte comum aplicado sobre a blindagem, use exclusivamente removedor sem acetona.'
+    ],
+    isActive: true
+  },
+  {
+    id: 'aftercare-cilios-lash',
+    title: 'Extensão de Cílios & Lash Lifting',
+    category: 'Cílios',
+    description: 'Orientações práticas para retenção máxima do adesivo e preservação dos fios naturais.',
+    items: [
+      'Evite molhar a área dos olhos, vapor quente, saunas ou atividades físicas de alta sudorese nas primeiras 24 horas.',
+      'Higienize os cílios diariamente a partir do segundo dia utilizando espuma micelar ou shampoo neutro diluído em água fria.',
+      'Penteie suavemente as extensões com a escovinha limpa fornecida ao acordar e após secar o rosto.',
+      'Não utilize máscaras de cílios (rímel) à prova d\'água nem demaquilantes à base de óleos na região dos olhos.'
+    ],
+    isActive: true
+  }
+];
+
+function computeTenantOperatingSchedule(tenant: any) {
+  const nowBRFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  const parts = nowBRFormatter.formatToParts(new Date());
+  const partMap: Record<string, string> = {};
+  for (const p of parts) {
+    partMap[p.type] = p.value;
+  }
+  const todayIso = `${partMap.year}-${partMap.month}-${partMap.day}`;
+  const currentTimeStr = `${partMap.hour}:${partMap.minute}`;
+
+  // Dia da semana de 0 (Domingo) a 6 (Sábado) na data do Brasil
+  const todayBRDate = new Date(`${todayIso}T12:00:00Z`);
+  const currentDayOfWeek = todayBRDate.getUTCDay();
+
+  // 1. Verifica se hoje é feriado nacional bloqueado pelo tenant
+  let isHolidayBlocked = false;
+  if (tenant.blockNationalHolidays) {
+    const exceptions: string[] = Array.isArray(tenant.holidayExceptions)
+      ? (tenant.holidayExceptions as string[])
+      : [];
+    if (!exceptions.includes(todayIso)) {
+      const holiday = checkBrazilianHoliday(todayIso);
+      if (holiday) {
+        isHolidayBlocked = true;
+      }
+    }
+  }
+
+  // 2. Regra da Grade Semanal de Atendimento (AvailabilityRule global do salão)
+  const generalRules = (tenant.availabilityRules || []).filter((r: any) => !r.professionalId);
+  const rulesToUse = generalRules.length > 0 ? generalRules : (tenant.availabilityRules || []);
+
+  const DAY_NAMES = [
+    'Domingo',
+    'Segunda-feira',
+    'Terça-feira',
+    'Quarta-feira',
+    'Quinta-feira',
+    'Sexta-feira',
+    'Sábado'
+  ];
+  const SHORT_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  const weeklySchedule = [0, 1, 2, 3, 4, 5, 6].map((day) => {
+    const rule = rulesToUse.find((r: any) => r.dayOfWeek === day);
+    const isOpen = rule ? rule.isActive : day !== 0;
+    const startTime = rule?.startTime || tenant.openingTime || '09:00';
+    const endTime = rule?.endTime || tenant.closingTime || '19:00';
+    return {
+      dayOfWeek: day,
+      dayName: DAY_NAMES[day],
+      shortName: SHORT_NAMES[day],
+      isOpen,
+      startTime,
+      endTime,
+      isToday: day === currentDayOfWeek
+    };
+  });
+
+  const todayRule = rulesToUse.find((r: any) => r.dayOfWeek === currentDayOfWeek);
+  let todayIsOpen = false;
+  let todayOpeningTime = tenant.openingTime || '09:00';
+  let todayClosingTime = tenant.closingTime || '19:00';
+
+  if (isHolidayBlocked) {
+    todayIsOpen = false;
+  } else if (todayRule) {
+    todayOpeningTime = todayRule.startTime;
+    todayClosingTime = todayRule.endTime;
+    todayIsOpen = todayRule.isActive;
+  } else {
+    todayIsOpen = currentDayOfWeek !== 0;
+  }
+
+  const isOpenNow = todayIsOpen && currentTimeStr >= todayOpeningTime && currentTimeStr < todayClosingTime;
+
+  let todayScheduleLabel = '';
+  if (isHolidayBlocked) {
+    todayScheduleLabel = 'Feriado (Fechado hoje)';
+  } else if (todayIsOpen) {
+    todayScheduleLabel = `${todayOpeningTime} às ${todayClosingTime}`;
+  } else {
+    todayScheduleLabel = 'Fechado hoje';
+  }
+
+  const openDaysList = weeklySchedule.filter((d) => d.isOpen);
+  let operatingHoursSummary = '';
+  if (openDaysList.length === 7) {
+    operatingHoursSummary = `Todos os dias das ${tenant.openingTime || '09:00'} às ${tenant.closingTime || '19:00'}`;
+  } else if (openDaysList.length > 0) {
+    operatingHoursSummary = openDaysList.map((d) => `${d.shortName}: ${d.startTime} às ${d.endTime}`).join(' · ');
+  } else {
+    operatingHoursSummary = 'Consulte horários na agenda';
+  }
+
+  return {
+    todayOpeningTime,
+    todayClosingTime,
+    isOpenNow,
+    todayIsOpen,
+    todayScheduleLabel,
+    weeklySchedule,
+    operatingHoursSummary
+  };
+}
+
 export const publicRoutes: FastifyPluginAsync = async (app) => {
   // GET /showcase/:slug ou /:slug - Dados completos da vitrine pública e link na bio
   const handleShowcase = async (slug: string, reply: any) => {
@@ -77,107 +233,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Horário e dia da semana precisos no fuso horário do Brasil (America/Sao_Paulo)
-    const nowBRFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Sao_Paulo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    });
-    const parts = nowBRFormatter.formatToParts(new Date());
-    const partMap: Record<string, string> = {};
-    for (const p of parts) {
-      partMap[p.type] = p.value;
-    }
-    const todayIso = `${partMap.year}-${partMap.month}-${partMap.day}`;
-    const currentTimeStr = `${partMap.hour}:${partMap.minute}`;
-
-    // Dia da semana de 0 (Domingo) a 6 (Sábado) na data do Brasil
-    const todayBRDate = new Date(`${todayIso}T12:00:00Z`);
-    const currentDayOfWeek = todayBRDate.getUTCDay();
-
-    // 1. Verifica se hoje é feriado nacional bloqueado pelo tenant
-    let isHolidayBlocked = false;
-    if (tenant.blockNationalHolidays) {
-      const exceptions: string[] = Array.isArray(tenant.holidayExceptions)
-        ? (tenant.holidayExceptions as string[])
-        : [];
-      if (!exceptions.includes(todayIso)) {
-        const holiday = checkBrazilianHoliday(todayIso);
-        if (holiday) {
-          isHolidayBlocked = true;
-        }
-      }
-    }
-
-    // 2. Regra da Grade Semanal de Atendimento (AvailabilityRule global do salão)
-    const generalRules = tenant.availabilityRules.filter((r) => !r.professionalId);
-    const rulesToUse = generalRules.length > 0 ? generalRules : tenant.availabilityRules;
-
-    const DAY_NAMES = [
-      'Domingo',
-      'Segunda-feira',
-      'Terça-feira',
-      'Quarta-feira',
-      'Quinta-feira',
-      'Sexta-feira',
-      'Sábado'
-    ];
-    const SHORT_NAMES = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-    const weeklySchedule = [0, 1, 2, 3, 4, 5, 6].map((day) => {
-      const rule = rulesToUse.find((r) => r.dayOfWeek === day);
-      const isOpen = rule ? rule.isActive : day !== 0;
-      const startTime = rule?.startTime || tenant.openingTime || '09:00';
-      const endTime = rule?.endTime || tenant.closingTime || '19:00';
-      return {
-        dayOfWeek: day,
-        dayName: DAY_NAMES[day],
-        shortName: SHORT_NAMES[day],
-        isOpen,
-        startTime,
-        endTime,
-        isToday: day === currentDayOfWeek
-      };
-    });
-
-    const todayRule = rulesToUse.find((r) => r.dayOfWeek === currentDayOfWeek);
-    let todayIsOpen = false;
-    let todayOpeningTime = tenant.openingTime || '09:00';
-    let todayClosingTime = tenant.closingTime || '19:00';
-
-    if (isHolidayBlocked) {
-      todayIsOpen = false;
-    } else if (todayRule) {
-      todayOpeningTime = todayRule.startTime;
-      todayClosingTime = todayRule.endTime;
-      todayIsOpen = todayRule.isActive;
-    } else {
-      todayIsOpen = currentDayOfWeek !== 0;
-    }
-
-    const isOpenNow = todayIsOpen && currentTimeStr >= todayOpeningTime && currentTimeStr < todayClosingTime;
-
-    let todayScheduleLabel = '';
-    if (isHolidayBlocked) {
-      todayScheduleLabel = 'Feriado (Fechado hoje)';
-    } else if (todayIsOpen) {
-      todayScheduleLabel = `${todayOpeningTime} às ${todayClosingTime}`;
-    } else {
-      todayScheduleLabel = 'Fechado hoje';
-    }
-
-    const openDaysList = weeklySchedule.filter((d) => d.isOpen);
-    let operatingHoursSummary = '';
-    if (openDaysList.length === 7) {
-      operatingHoursSummary = `Todos os dias das ${tenant.openingTime || '09:00'} às ${tenant.closingTime || '19:00'}`;
-    } else if (openDaysList.length > 0) {
-      operatingHoursSummary = openDaysList.map((d) => `${d.shortName}: ${d.startTime} às ${d.endTime}`).join(' · ');
-    } else {
-      operatingHoursSummary = 'Consulte horários na agenda';
-    }
+    const schedule = computeTenantOperatingSchedule(tenant);
 
     const allGalleryPhotos = (tenant.galleryPhotos && tenant.galleryPhotos.length > 0)
       ? tenant.galleryPhotos
@@ -190,9 +246,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       phone: tenant.phone,
       addressStreet: tenant.addressStreet,
       addressNumber: tenant.addressNumber,
+      addressComplement: tenant.addressComplement,
       addressNeighborhood: tenant.addressNeighborhood,
       addressCity: tenant.addressCity,
       addressState: tenant.addressState,
+      addressZip: tenant.addressZip,
       niche: tenant.niche,
       themeTemplate: tenant.themeTemplate,
       primaryColor: tenant.primaryColor,
@@ -204,15 +262,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       instagramUrl: tenant.instagramUrl,
       description: tenant.description,
       terminology: tenant.terminology,
-      openingTime: todayOpeningTime,
-      closingTime: todayClosingTime,
-      generalOpeningTime: tenant.openingTime || todayOpeningTime,
-      generalClosingTime: tenant.closingTime || todayClosingTime,
-      isOpenNow,
-      todayIsOpen,
-      todayScheduleLabel,
-      weeklySchedule,
-      operatingHoursSummary,
+      openingTime: schedule.todayOpeningTime,
+      closingTime: schedule.todayClosingTime,
+      generalOpeningTime: tenant.openingTime || schedule.todayOpeningTime,
+      generalClosingTime: tenant.closingTime || schedule.todayClosingTime,
+      isOpenNow: schedule.isOpenNow,
+      todayIsOpen: schedule.todayIsOpen,
+      todayScheduleLabel: schedule.todayScheduleLabel,
+      weeklySchedule: schedule.weeklySchedule,
+      operatingHoursSummary: schedule.operatingHoursSummary,
       galleryPhotos: allGalleryPhotos,
       depositRequired: tenant.depositRequired,
       depositType: tenant.depositType,
@@ -225,7 +283,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       pixKey: tenant.pixKey,
       pixKeyType: tenant.pixKeyType,
       pixKeyHolder: tenant.pixKeyHolder,
-      aftercareGuides: tenant.aftercareGuides || [],
+      aftercareGuides: (Array.isArray(tenant.aftercareGuides) && tenant.aftercareGuides.length > 0)
+        ? tenant.aftercareGuides
+        : DEFAULT_STANDARD_AFTERCARE_GUIDES,
       categories: tenant.categories.map((c) => ({
         id: c.id,
         name: c.name,
@@ -859,6 +919,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     const tenant = await prisma.tenant.findUnique({
       where: { slug: slug.toLowerCase() },
       include: {
+        availabilityRules: {
+          orderBy: [{ professionalId: 'asc' }, { dayOfWeek: 'asc' }]
+        },
         courses: {
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
@@ -890,6 +953,55 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(404).send({ error: 'Não encontrado', message: 'Estabelecimento não localizado.' });
     }
 
+    const schedule = computeTenantOperatingSchedule(tenant);
+    const resolvedAftercareGuides = (Array.isArray(tenant.aftercareGuides) && tenant.aftercareGuides.length > 0)
+      ? tenant.aftercareGuides
+      : DEFAULT_STANDARD_AFTERCARE_GUIDES;
+
+    const tenantPayload = {
+      name: tenant.name,
+      slug: tenant.slug,
+      phone: tenant.phone,
+      addressStreet: tenant.addressStreet,
+      addressNumber: tenant.addressNumber,
+      addressComplement: tenant.addressComplement,
+      addressNeighborhood: tenant.addressNeighborhood,
+      addressCity: tenant.addressCity,
+      addressState: tenant.addressState,
+      addressZip: tenant.addressZip,
+      openingTime: schedule.todayOpeningTime,
+      closingTime: schedule.todayClosingTime,
+      generalOpeningTime: tenant.openingTime || schedule.todayOpeningTime,
+      generalClosingTime: tenant.closingTime || schedule.todayClosingTime,
+      todayIsOpen: schedule.todayIsOpen,
+      todayScheduleLabel: schedule.todayScheduleLabel,
+      operatingHoursSummary: schedule.operatingHoursSummary,
+      weeklySchedule: schedule.weeklySchedule,
+      isOpenNow: schedule.isOpenNow,
+      pixKey: tenant.pixKey,
+      pixKeyType: tenant.pixKeyType,
+      pixKeyHolder: tenant.pixKeyHolder,
+      googleReviewUrl: tenant.googleReviewUrl,
+      instagramUrl: tenant.instagramUrl,
+      aftercareGuides: resolvedAftercareGuides,
+      courses: tenant.courses.map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description,
+        price: c.price ? Number(c.price) : null,
+        coverUrl: c.coverUrl
+      })),
+      products: tenant.products.map((p) => ({
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        description: p.description,
+        salePrice: Number(p.salePrice),
+        stockQuantity: p.stockQuantity,
+        imageUrl: p.imageUrl
+      }))
+    };
+
     const client = await prisma.client.findFirst({
       where: {
         tenantId: tenant.id,
@@ -911,39 +1023,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     if (!client) {
       return reply.send({
         client: null,
-        tenant: {
-          name: tenant.name,
-          slug: tenant.slug,
-          phone: tenant.phone,
-          addressStreet: tenant.addressStreet,
-          addressNumber: tenant.addressNumber,
-          addressNeighborhood: tenant.addressNeighborhood,
-          addressCity: tenant.addressCity,
-          addressState: tenant.addressState,
-          openingTime: tenant.openingTime,
-          closingTime: tenant.closingTime,
-          pixKey: tenant.pixKey,
-          pixKeyType: tenant.pixKeyType,
-          pixKeyHolder: tenant.pixKeyHolder,
-          googleReviewUrl: tenant.googleReviewUrl,
-          aftercareGuides: tenant.aftercareGuides || [],
-          courses: tenant.courses.map((c) => ({
-            id: c.id,
-            title: c.title,
-            description: c.description,
-            price: c.price ? Number(c.price) : null,
-            coverUrl: c.coverUrl
-          })),
-          products: tenant.products.map((p) => ({
-            id: p.id,
-            name: p.name,
-            category: p.category,
-            description: p.description,
-            salePrice: Number(p.salePrice),
-            stockQuantity: p.stockQuantity,
-            imageUrl: p.imageUrl
-          }))
-        },
+        tenant: tenantPayload,
         schedules: []
       });
     }
@@ -967,39 +1047,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         anamnesis: client.anamnesis,
         anamnesisToken: client.anamnesisToken
       },
-      tenant: {
-        name: tenant.name,
-        slug: tenant.slug,
-        phone: tenant.phone,
-        addressStreet: tenant.addressStreet,
-        addressNumber: tenant.addressNumber,
-        addressNeighborhood: tenant.addressNeighborhood,
-        addressCity: tenant.addressCity,
-        addressState: tenant.addressState,
-        openingTime: tenant.openingTime,
-        closingTime: tenant.closingTime,
-        pixKey: tenant.pixKey,
-        pixKeyType: tenant.pixKeyType,
-        pixKeyHolder: tenant.pixKeyHolder,
-        googleReviewUrl: tenant.googleReviewUrl,
-        aftercareGuides: tenant.aftercareGuides || [],
-        courses: tenant.courses.map((c) => ({
-          id: c.id,
-          title: c.title,
-          description: c.description,
-          price: c.price ? Number(c.price) : null,
-          coverUrl: c.coverUrl
-        })),
-        products: tenant.products.map((p) => ({
-          id: p.id,
-          name: p.name,
-          category: p.category,
-          description: p.description,
-          salePrice: Number(p.salePrice),
-          stockQuantity: p.stockQuantity,
-          imageUrl: p.imageUrl
-        }))
-      },
+      tenant: tenantPayload,
       schedules: client.schedules.map((s) => ({
         id: s.id,
         date: s.date.toISOString().slice(0, 10),

@@ -89,8 +89,8 @@ export const updateTenantSettingsSchema = z.object({
     .string()
     .nullable()
     .optional()
-    .transform((val) => (val ? onlyDigits(val) : '')),
-  instagramUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+    .transform((val) => (val === undefined ? undefined : (val ? onlyDigits(val) : ''))),
+  instagramUrl: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
   themeTemplate: z
     .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(themeTemplates).optional()),
   primaryColor: z
@@ -99,9 +99,9 @@ export const updateTenantSettingsSchema = z.object({
     .preprocess((v) => (v === '' || !v ? undefined : v), z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()),
   accentColor: z
     .preprocess((v) => (v === '' || !v ? undefined : v), z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional()),
-  logoUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
-  coverUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
-  googleReviewUrl: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+  logoUrl: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
+  coverUrl: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
+  googleReviewUrl: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
   npsFeedbackEnabled: z.boolean().optional(),
   depositRequired: z.boolean().optional(),
   depositType: z
@@ -112,10 +112,10 @@ export const updateTenantSettingsSchema = z.object({
     .preprocess((v) => (v === '' || !v ? undefined : v), z.enum(['FIXED', 'PERCENTAGE']).optional()),
   depositFirstBookingValue: z.number().min(0).optional(),
   depositFirstBookingPercent: z.number().min(0).max(100).optional(),
-  pixKey: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+  pixKey: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
   pixKeyType: z
-    .preprocess((v) => (v === '' || !v ? null : v), z.enum(['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'RANDOM']).optional().nullable()),
-  pixKeyHolder: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
+    .preprocess((v) => (v === undefined ? undefined : (v === '' || !v ? null : v)), z.enum(['CPF', 'CNPJ', 'PHONE', 'EMAIL', 'RANDOM']).optional().nullable()),
+  pixKeyHolder: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
   maxNoShowsAllowed: z.number().int().min(1).max(10).optional(),
   churnRecoveryEnabled: z.boolean().optional(),
   churnAlertDays: z.number().int().min(15).max(180).optional(),
@@ -132,13 +132,13 @@ export const updateTenantSettingsSchema = z.object({
   maxAdvanceBookingDays: z.number().int().min(1).max(90).optional(),
   blockNationalHolidays: z.boolean().optional(),
   holidayExceptions: z.array(z.string()).optional(),
-  addressStreet: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
-  addressNumber: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
-  addressComplement: z.string().optional().nullable().transform(v => (v && v.trim() !== '' ? v.trim() : null)),
-  addressNeighborhood: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
-  addressCity: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
-  addressState: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
-  addressZip: z.string().optional().nullable().transform(v => (v ? v.trim() : '')),
+  addressStreet: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v ? v.trim() : ''))),
+  addressNumber: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v ? v.trim() : ''))),
+  addressComplement: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v && v.trim() !== '' ? v.trim() : null))),
+  addressNeighborhood: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v ? v.trim() : ''))),
+  addressCity: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v ? v.trim() : ''))),
+  addressState: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v ? v.trim() : ''))),
+  addressZip: z.string().optional().nullable().transform(v => (v === undefined ? undefined : (v ? v.trim() : ''))),
   galleryPhotos: z.array(z.string()).optional(),
   aftercareGuides: z.any().optional()
 });

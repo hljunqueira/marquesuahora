@@ -120,7 +120,8 @@ export default function DashboardConfiguracoesPage() {
         addressNeighborhood: settings.addressNeighborhood ? settings.addressNeighborhood.trim() : null,
         addressCity: settings.addressCity ? settings.addressCity.trim() : null,
         addressState: settings.addressState ? settings.addressState.trim() : null,
-        addressZip: settings.addressZip ? settings.addressZip.trim() : null
+        addressZip: settings.addressZip ? settings.addressZip.trim() : null,
+        aftercareGuides: settings.aftercareGuides || []
       };
 
       const res = await api.put('/tenants/me/settings', payload);

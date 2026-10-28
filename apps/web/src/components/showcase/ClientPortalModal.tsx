@@ -18,7 +18,8 @@ import {
   Star,
   Package,
   Copy,
-  Check
+  Check,
+  MapPin
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { resolveImageUrl } from '@/lib/imageUrl';
@@ -29,6 +30,7 @@ interface ClientPortalModalProps {
   tenantName: string;
   tenantPhone?: string;
   brandColor?: string;
+  tenant?: any;
   onClose: () => void;
 }
 
@@ -60,6 +62,57 @@ interface PortalProduct {
   imageUrl?: string | null;
 }
 
+interface AftercareGuide {
+  id: string;
+  title: string;
+  category: string;
+  description?: string;
+  items: string[];
+  isActive?: boolean;
+}
+
+const DEFAULT_FALLBACK_AFTERCARE: AftercareGuide[] = [
+  {
+    id: 'aftercare-unhas-gel',
+    title: 'Alongamento em Gel & Fibra de Vidro',
+    category: 'Unhas',
+    description: 'Recomendações fundamentais para manter suas unhas impecáveis, resistentes e saudáveis.',
+    items: [
+      'Evite usar as unhas como ferramentas para abrir latas, gavetas, caixas ou raspar superfícies rígidas.',
+      'Utilize luvas de proteção sempre que manusear produtos químicos de limpeza doméstica (cloro, água sanitária e detergentes concentrados).',
+      'Hidrate diariamente as cutículas com óleo vegetal ou sérum nutritivo para preservar a flexibilidade do gel e o brilho do top coat.',
+      'Respeite rigorosamente o período de manutenção (a cada 18 a 25 dias) para prevenir infiltrações, descolamentos e proteger a matriz natural da unha.',
+      'Nunca tente arrancar o alongamento ou morder o gel. Em caso de qualquer descolamento acidental, entre em contato imediatamente com o studio.'
+    ],
+    isActive: true
+  },
+  {
+    id: 'aftercare-esmaltacao-gel',
+    title: 'Esmaltação em Gel & Blindagem Diamond',
+    category: 'Unhas',
+    description: 'Cuidados essenciais para garantir brilho espelhado e durabilidade superior a 20 dias.',
+    items: [
+      'Evite banhos muito quentes e contato contínuo com água fervente nas primeiras 12 horas após a aplicação.',
+      'Não lixe as pontas das unhas em casa para não romper o selamento da borda livre feito em mesa.',
+      'Caso deseje retirar qualquer esmalte comum aplicado sobre a blindagem, use exclusivamente removedor sem acetona.'
+    ],
+    isActive: true
+  },
+  {
+    id: 'aftercare-cilios-lash',
+    title: 'Extensão de Cílios & Lash Lifting',
+    category: 'Cílios',
+    description: 'Orientações práticas para retenção máxima do adesivo e preservação dos fios naturais.',
+    items: [
+      'Evite molhar a área dos olhos, vapor quente, saunas ou atividades físicas de alta sudorese nas primeiras 24 horas.',
+      'Higienize os cílios diariamente a partir do segundo dia utilizando espuma micelar ou shampoo neutro diluído em água fria.',
+      'Penteie suavemente as extensões com a escovinha limpa fornecida ao acordar e após secar o rosto.',
+      'Não utilize máscaras de cílios (rímel) à prova d\'água nem demaquilantes à base de óleos na região dos olhos.'
+    ],
+    isActive: true
+  }
+];
+
 interface PortalData {
   client: {
     id: string;
@@ -72,13 +125,30 @@ interface PortalData {
     name: string;
     slug: string;
     phone: string;
-    addressStreet: string;
-    addressNumber: string;
-    addressNeighborhood: string;
-    addressCity: string;
-    addressState: string;
-    openingTime: string;
-    closingTime: string;
+    addressStreet?: string | null;
+    addressNumber?: string | null;
+    addressComplement?: string | null;
+    addressNeighborhood?: string | null;
+    addressCity?: string | null;
+    addressState?: string | null;
+    addressZip?: string | null;
+    openingTime?: string;
+    closingTime?: string;
+    generalOpeningTime?: string;
+    generalClosingTime?: string;
+    todayIsOpen?: boolean;
+    todayScheduleLabel?: string;
+    operatingHoursSummary?: string;
+    weeklySchedule?: Array<{
+      dayOfWeek: number;
+      dayName: string;
+      shortName: string;
+      isOpen: boolean;
+      startTime: string;
+      endTime: string;
+      isToday: boolean;
+    }>;
+    isOpenNow?: boolean;
     pixKey?: string | null;
     pixKeyType?: string | null;
     pixKeyHolder?: string | null;
@@ -108,6 +178,7 @@ export function ClientPortalModal({
   tenantName,
   tenantPhone,
   brandColor = '#5c0701',
+  tenant,
   onClose
 }: ClientPortalModalProps) {
   const [phone, setPhone] = useState('');
@@ -875,9 +946,12 @@ export function ClientPortalModal({
 
                   {/* Seletor e Conteúdo Dinâmico por Guia de Cuidado */}
                   {(() => {
-                    const activeGuides = (portalData?.tenant.aftercareGuides || []).filter(
-                      (g) => g.isActive !== false
-                    );
+                    const rawGuides: AftercareGuide[] = (portalData?.tenant?.aftercareGuides && portalData.tenant.aftercareGuides.length > 0)
+                      ? (portalData.tenant.aftercareGuides as AftercareGuide[])
+                      : (tenant?.aftercareGuides && tenant.aftercareGuides.length > 0)
+                        ? (tenant.aftercareGuides as AftercareGuide[])
+                        : DEFAULT_FALLBACK_AFTERCARE;
+                    const activeGuides: AftercareGuide[] = rawGuides.filter((g: AftercareGuide) => g.isActive !== false);
 
                     if (activeGuides.length === 0) {
                       return (
@@ -1087,57 +1161,168 @@ export function ClientPortalModal({
               {/* ABA 6: Sobre o Salão & Chave PIX */}
               {activeTab === 'info' && (
                 <div className="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-4 text-xs">
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                      Localização
-                    </span>
-                    <p className="font-semibold text-slate-800">
-                      {portalData?.tenant.addressStreet}, {portalData?.tenant.addressNumber} — {portalData?.tenant.addressNeighborhood}
-                    </p>
-                    <p className="text-slate-500">
-                      {portalData?.tenant.addressCity} - {portalData?.tenant.addressState}
-                    </p>
-                  </div>
+                  {/* Localização Formatada */}
+                  {(() => {
+                    const currentTenant = portalData?.tenant || (tenant as any);
+                    const streetPart = [
+                      currentTenant?.addressStreet && currentTenant?.addressNumber
+                        ? `${currentTenant.addressStreet}, ${currentTenant.addressNumber}`
+                        : currentTenant?.addressStreet,
+                      currentTenant?.addressComplement
+                    ].filter(Boolean).join(' - ');
+
+                    const cityPart = [
+                      currentTenant?.addressNeighborhood,
+                      currentTenant?.addressCity && currentTenant?.addressState
+                        ? `${currentTenant.addressCity} - ${currentTenant.addressState}`
+                        : (currentTenant?.addressCity || currentTenant?.addressState)
+                    ].filter(Boolean).join(' — ');
+
+                    const fullAddress = [streetPart, cityPart].filter(Boolean).join(' · ');
+                    const mapsUrl = fullAddress
+                      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${currentTenant?.name || tenantName}, ${fullAddress}`)}`
+                      : null;
+
+                    return (
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                          Localização
+                        </span>
+                        {fullAddress ? (
+                          <div className="space-y-1">
+                            {streetPart && (
+                              <p className="font-semibold text-slate-800 text-xs">
+                                {streetPart}
+                              </p>
+                            )}
+                            {cityPart && (
+                              <p className="text-slate-500 text-xs">
+                                {cityPart}
+                              </p>
+                            )}
+                            {mapsUrl && (
+                              <a
+                                href={mapsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-purple-700 hover:text-purple-800 hover:underline pt-0.5"
+                              >
+                                <MapPin className="w-3.5 h-3.5 text-purple-600" />
+                                <span>Ver rota no Google Maps</span>
+                                <ExternalLink className="w-3 h-3 text-purple-400" />
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                            <p className="font-medium text-slate-600 text-[11px]">
+                              Endereço informado na confirmação do agendamento ou sob consulta.
+                            </p>
+                            {tenantPhone && (
+                              <a
+                                href={`https://wa.me/55${tenantPhone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                                  'Olá! Gostaria de consultar o endereço do salão para o meu atendimento.'
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 hover:text-emerald-700"
+                              >
+                                <MessageCircle className="w-3 h-3" />
+                                <span>Consultar endereço no WhatsApp</span>
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-slate-100">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                         Horário de Atendimento
                       </span>
-                      <p className="font-semibold text-slate-800">
-                        {(portalData?.tenant as any)?.operatingHoursSummary || (portalData?.tenant as any)?.todayScheduleLabel || `${portalData?.tenant.openingTime} às ${portalData?.tenant.closingTime}`}
-                      </p>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-slate-800 text-xs">
+                            {(() => {
+                              const currentTenant = portalData?.tenant || (tenant as any);
+                              if (currentTenant?.todayScheduleLabel) {
+                                return `Hoje: ${currentTenant.todayScheduleLabel}`;
+                              }
+                              if (currentTenant?.operatingHoursSummary) {
+                                return currentTenant.operatingHoursSummary;
+                              }
+                              if (currentTenant?.openingTime && currentTenant?.closingTime) {
+                                return `${currentTenant.openingTime} às ${currentTenant.closingTime}`;
+                              }
+                              return 'Consulte horários na agenda';
+                            })()}
+                          </p>
+                          {(() => {
+                            const currentTenant = portalData?.tenant || (tenant as any);
+                            if (currentTenant?.isOpenNow !== undefined) {
+                              return currentTenant.isOpenNow ? (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                  Aberto agora
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500">
+                                  Fechado agora
+                                </span>
+                              );
+                            }
+                            return null;
+                          })()}
+                        </div>
+                        {(() => {
+                          const currentTenant = portalData?.tenant || (tenant as any);
+                          if (currentTenant?.operatingHoursSummary && currentTenant?.todayScheduleLabel) {
+                            return (
+                              <p className="text-[11px] text-slate-500 leading-tight">
+                                {currentTenant.operatingHoursSummary}
+                              </p>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                     </div>
 
-                    {portalData?.tenant.pixKey && (
-                      <div className="space-y-1">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
-                          Chave PIX Oficial
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <p className="font-mono font-bold text-slate-900 break-all">
-                            {portalData.tenant.pixKey}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={handleCopyPix}
-                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors shrink-0"
-                            title="Copiar Chave PIX"
-                          >
-                            {copiedPix ? (
-                              <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
-                          </button>
+                    {(() => {
+                      const currentTenant = portalData?.tenant || (tenant as any);
+                      if (!currentTenant?.pixKey) return null;
+                      return (
+                        <div className="space-y-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                            Chave PIX Oficial
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <p className="font-mono font-bold text-slate-900 break-all text-xs">
+                              {currentTenant.pixKey}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={handleCopyPix}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors shrink-0 cursor-pointer"
+                              title="Copiar Chave PIX"
+                            >
+                              {copiedPix ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                          {currentTenant.pixKeyHolder && (
+                            <p className="text-[10px] text-slate-500">
+                              Favorecido: {currentTenant.pixKeyHolder}
+                            </p>
+                          )}
                         </div>
-                        {portalData.tenant.pixKeyHolder && (
-                          <p className="text-[10px] text-slate-500">
-                            Favorecido: {portalData.tenant.pixKeyHolder}
-                          </p>
-                        )}
-                      </div>
-                    )}
+                      );
+                    })()}
                   </div>
                 </div>
               )}

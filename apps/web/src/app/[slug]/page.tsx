@@ -312,6 +312,7 @@ export default function PublicShowcasePage() {
           tenantName={tenant.name}
           tenantPhone={tenant.phone}
           brandColor={brandColor}
+          tenant={tenant}
           onClose={() => setIsPortalOpen(false)}
         />
       )}
