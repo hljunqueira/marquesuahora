@@ -33,13 +33,13 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
   const dayChartData = (data?.byDayOfWeek || []).map((d) => ({
     label: d.day,
     value: d.count,
-    formattedValue: `${d.count} agendamentos`,
+    formattedValue: `${d.count} agendamento${d.count === 1 ? '' : 's'}`,
   }));
 
   const bracketChartData = (data?.byTimeBracket || []).map((b) => ({
     label: b.bracket,
     value: b.count,
-    formattedValue: `${b.count} agendamentos`,
+    formattedValue: `${b.count} agendamento${b.count === 1 ? '' : 's'}`,
   }));
 
   const sourceChartData = (data?.bySource || []).map((s, idx) => {
@@ -54,8 +54,9 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
   return (
     <div className="space-y-6">
       {/* Cards de Resumo */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 sm:gap-4">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1" style={{ backgroundColor: tenantColor }} />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Total Agendamentos</span>
             <Calendar className="w-4 h-4" style={{ color: tenantColor }} />
@@ -66,7 +67,8 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
           <span className="text-[11px] text-slate-400 mt-1 block">Volume no período</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-emerald-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Taxa de Conclusão</span>
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -79,7 +81,8 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
           </span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-rose-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Cancelamentos</span>
             <XCircle className="w-4 h-4 text-rose-600" />
@@ -92,7 +95,8 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
           </span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-amber-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Protegidos com Sinal PIX</span>
             <ShieldCheck className="w-4 h-4 text-amber-600" />
@@ -116,7 +120,12 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
             </h3>
             <span className="text-xs text-slate-400 font-medium">Pico de demanda</span>
           </div>
-          <ReportBarChart data={dayChartData} height={220} orientation="vertical" primaryColor={tenantColor} />
+          <ReportBarChart
+            data={dayChartData}
+            height={220}
+            orientation="vertical"
+            primaryColor={tenantColor}
+          />
         </div>
 
         <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
@@ -127,7 +136,12 @@ export function ReportSchedulesTab({ data, tenantColor = '#5c0701' }: ReportSche
             </h3>
             <span className="text-xs text-slate-400 font-medium">Faixas de atendimento</span>
           </div>
-          <ReportBarChart data={bracketChartData} height={220} orientation="vertical" primaryColor={tenantColor} />
+          <ReportBarChart
+            data={bracketChartData}
+            height={220}
+            orientation="horizontal"
+            primaryColor={tenantColor}
+          />
         </div>
       </div>
 

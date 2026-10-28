@@ -18,9 +18,9 @@ interface ReportTrendChartProps {
 
 export function ReportTrendChart({
   points = [],
-  height = 180,
+  height = 200,
   color = '#5c0701',
-  isCurrency = true
+  isCurrency = true,
 }: ReportTrendChartProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
@@ -34,32 +34,33 @@ export function ReportTrendChart({
   if (points.length < 2) {
     return (
       <div
-        style={{ height: `${height}px` }}
-        className="w-full flex items-center justify-center border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 text-slate-400 text-xs font-medium"
+        style={{ minHeight: `${height}px` }}
+        className="w-full flex items-center justify-center border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 text-slate-400 text-xs font-medium p-6"
       >
-        Pontos de dados insuficientes para traçar a curva de tendência.
+        Dados insuficientes no período para gerar a curva de tendência.
       </div>
     );
   }
 
   const width = 600;
   const paddingX = 40;
-  const paddingTop = 20;
-  const paddingBottom = 35;
+  const paddingTop = 25;
+  const paddingBottom = 40;
   const chartHeight = height - paddingTop - paddingBottom;
 
-  const maxVal = Math.max(...points.map((p) => p.value), 1);
+  const maxVal = Math.max(...points.map((p) => Number(p.value) || 0), 1);
   const minVal = 0;
 
-  // Calcula coordenadas dos pontos (x, y)
+  // Coordenadas calculadas
   const stepX = (width - paddingX * 2) / (points.length - 1);
   const coords = points.map((p, idx) => {
+    const numVal = Number(p.value) || 0;
     const x = paddingX + idx * stepX;
-    const y = paddingTop + chartHeight - ((p.value - minVal) / (maxVal - minVal)) * chartHeight;
+    const y = paddingTop + chartHeight - ((numVal - minVal) / (maxVal - minVal)) * chartHeight;
     return { x, y, point: p };
   });
 
-  // Gera o caminho suave em curva Bezier (Curved path)
+  // Caminho suave Bezier
   let linePath = `M ${coords[0].x} ${coords[0].y}`;
   for (let i = 0; i < coords.length - 1; i++) {
     const current = coords[i];
@@ -68,7 +69,6 @@ export function ReportTrendChart({
     linePath += ` C ${controlX} ${current.y}, ${controlX} ${next.y}, ${next.x} ${next.y}`;
   }
 
-  // Gera o caminho de preenchimento da área
   const areaPath = `${linePath} L ${coords[coords.length - 1].x} ${paddingTop + chartHeight} L ${coords[0].x} ${paddingTop + chartHeight} Z`;
 
   return (
@@ -80,18 +80,18 @@ export function ReportTrendChart({
       >
         <defs>
           <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.28" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.25" />
             <stop offset="100%" stopColor={color} stopOpacity="0.01" />
           </linearGradient>
         </defs>
 
-        {/* Linhas de grade sutis */}
+        {/* Linhas de grade horizontais sutis */}
         <line
           x1={paddingX}
           y1={paddingTop}
           x2={width - paddingX}
           y2={paddingTop}
-          stroke="#e2e8f0"
+          stroke="#f1f5f9"
           strokeDasharray="4 4"
         />
         <line
@@ -99,7 +99,7 @@ export function ReportTrendChart({
           y1={paddingTop + chartHeight / 2}
           x2={width - paddingX}
           y2={paddingTop + chartHeight / 2}
-          stroke="#e2e8f0"
+          stroke="#f1f5f9"
           strokeDasharray="4 4"
         />
         <line
@@ -107,13 +107,13 @@ export function ReportTrendChart({
           y1={paddingTop + chartHeight}
           x2={width - paddingX}
           y2={paddingTop + chartHeight}
-          stroke="#cbd5e1"
+          stroke="#e2e8f0"
         />
 
-        {/* Área preenchida com gradiente */}
+        {/* Área sombreada */}
         <path d={areaPath} fill="url(#trendGradient)" />
 
-        {/* Linha principal da curva */}
+        {/* Linha principal */}
         <path
           d={linePath}
           fill="none"
@@ -130,22 +130,21 @@ export function ReportTrendChart({
               <circle
                 cx={c.x}
                 cy={c.y}
-                r={isHovered ? 6 : 4}
+                r={isHovered ? 5.5 : 3.5}
                 fill="#ffffff"
                 stroke={color}
-                strokeWidth={isHovered ? 3 : 2}
+                strokeWidth={isHovered ? 2.5 : 1.5}
                 className="cursor-pointer transition-all duration-150"
                 onMouseEnter={() => setHoveredIdx(idx)}
                 onMouseLeave={() => setHoveredIdx(null)}
               />
 
-              {/* Rótulo no eixo X */}
               <text
                 x={c.x}
-                y={height - 8}
+                y={height - 10}
                 textAnchor="middle"
                 fontSize="10"
-                fontWeight="bold"
+                fontWeight="700"
                 fill="#64748b"
                 className="select-none"
               >
@@ -156,7 +155,7 @@ export function ReportTrendChart({
         })}
       </svg>
 
-      {/* Tooltip HTML absoluto */}
+      {/* Tooltip HTML centralizado */}
       <AnimatePresence>
         {hoveredIdx !== null && coords[hoveredIdx] && (
           <motion.div
@@ -165,9 +164,9 @@ export function ReportTrendChart({
             exit={{ opacity: 0, scale: 0.9, y: 2 }}
             style={{
               left: `${(coords[hoveredIdx].x / width) * 100}%`,
-              top: `${(coords[hoveredIdx].y / height) * 100}%`
+              top: `${(coords[hoveredIdx].y / height) * 100}%`,
             }}
-            className="absolute -translate-x-1/2 -translate-y-12 z-20 px-2.5 py-1 bg-slate-900 text-white rounded-lg shadow-xl text-center pointer-events-none whitespace-nowrap"
+            className="absolute -translate-x-1/2 -translate-y-11 z-30 px-2.5 py-1 bg-slate-900 text-white rounded-lg shadow-xl text-center pointer-events-none whitespace-nowrap"
           >
             <span className="text-[10px] text-slate-300 block font-medium">
               {coords[hoveredIdx].point.label}

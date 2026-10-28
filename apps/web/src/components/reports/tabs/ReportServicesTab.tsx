@@ -32,14 +32,14 @@ export function ReportServicesTab({ data, tenantColor = '#5c0701' }: ReportServi
   const formatBRL = (val: number) =>
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
-  const topVolumeChart = (data?.rankingByVolume || []).slice(0, 6).map((s) => ({
-    label: s.name.length > 18 ? s.name.slice(0, 16) + '...' : s.name,
+  const topVolumeChart = (data?.rankingByVolume || []).slice(0, 5).map((s) => ({
+    label: s.name,
     value: s.count,
     formattedValue: `${s.count} vezes`,
   }));
 
-  const topRevenueChart = (data?.rankingByRevenue || []).slice(0, 6).map((s) => ({
-    label: s.name.length > 18 ? s.name.slice(0, 16) + '...' : s.name,
+  const topRevenueChart = (data?.rankingByRevenue || []).slice(0, 5).map((s) => ({
+    label: s.name,
     value: s.totalRevenue,
     formattedValue: formatBRL(s.totalRevenue),
   }));
@@ -47,8 +47,9 @@ export function ReportServicesTab({ data, tenantColor = '#5c0701' }: ReportServi
   return (
     <div className="space-y-6">
       {/* KPIs de Serviços */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 sm:gap-4">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1" style={{ backgroundColor: tenantColor }} />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Serviços Executados</span>
             <Scissors className="w-4 h-4" style={{ color: tenantColor }} />
@@ -56,10 +57,11 @@ export function ReportServicesTab({ data, tenantColor = '#5c0701' }: ReportServi
           <div className="text-2xl font-black text-slate-900 font-mono">
             {data?.summary?.totalServicesSold || 0}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">Quantidade total de procedimentos</span>
+          <span className="text-[11px] text-slate-400 mt-1 block">Quantidade total de atendimentos</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-emerald-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Faturamento Serviços</span>
             <DollarSign className="w-4 h-4 text-emerald-600" />
@@ -67,10 +69,11 @@ export function ReportServicesTab({ data, tenantColor = '#5c0701' }: ReportServi
           <div className="text-2xl font-black text-emerald-600 font-mono">
             {formatBRL(data?.summary?.totalRevenue || 0)}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">Receita bruta de atendimentos</span>
+          <span className="text-[11px] text-slate-400 mt-1 block">Receita bruta de procedimentos</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-indigo-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Preço Médio</span>
             <TrendingUp className="w-4 h-4 text-indigo-600" />
@@ -78,10 +81,11 @@ export function ReportServicesTab({ data, tenantColor = '#5c0701' }: ReportServi
           <div className="text-2xl font-black text-slate-900 font-mono">
             {formatBRL(data?.summary?.averageTicket || 0)}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block font-mono">Ticket por procedimento</span>
+          <span className="text-[11px] text-slate-400 mt-1 block font-mono">Ticket por atendimento</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-amber-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Tempo em Atendimento</span>
             <Clock className="w-4 h-4 text-amber-600" />
@@ -89,24 +93,38 @@ export function ReportServicesTab({ data, tenantColor = '#5c0701' }: ReportServi
           <div className="text-2xl font-black text-slate-900 font-mono">
             {data?.summary?.totalHoursDelivered?.toFixed(1) || '0'}h
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block">Horas de bancada/cadeira</span>
+          <span className="text-[11px] text-slate-400 mt-1 block">Horas dedicadas a clientes</span>
         </div>
       </div>
 
       {/* Gráficos de Serviços */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
-          <h3 className="text-sm font-bold text-slate-900 mb-4">
-            Mais Realizados (Volume)
+          <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <Scissors className="w-4 h-4" style={{ color: tenantColor }} />
+            Procedimentos Mais Realizados (Volume)
           </h3>
-          <ReportBarChart data={topVolumeChart} height={200} orientation="horizontal" primaryColor={tenantColor} />
+          <ReportBarChart
+            data={topVolumeChart}
+            height={200}
+            orientation="horizontal"
+            primaryColor={tenantColor}
+            showRank={true}
+          />
         </div>
 
         <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
-          <h3 className="text-sm font-bold text-slate-900 mb-4">
-            Mais Rentáveis (Faturamento)
+          <h3 className="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-emerald-600" />
+            Procedimentos Mais Rentáveis (Faturamento)
           </h3>
-          <ReportBarChart data={topRevenueChart} height={200} orientation="horizontal" primaryColor={tenantColor} />
+          <ReportBarChart
+            data={topRevenueChart}
+            height={200}
+            orientation="horizontal"
+            primaryColor={tenantColor}
+            showRank={true}
+          />
         </div>
       </div>
 

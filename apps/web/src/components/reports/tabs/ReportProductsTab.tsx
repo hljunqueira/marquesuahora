@@ -36,43 +36,46 @@ export function ReportProductsTab({ data, tenantColor = '#5c0701' }: ReportProdu
     new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
 
   const topSoldChart = (data?.topSold || []).slice(0, 5).map((p) => ({
-    label: p.name.length > 18 ? p.name.slice(0, 16) + '...' : p.name,
+    label: p.name.length > 22 ? p.name.slice(0, 20) + '...' : p.name,
     value: p.totalSoldInPeriod,
     formattedValue: `${p.totalSoldInPeriod} un.`,
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Resumo de Estoque e Vendas de Produtos */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[112px]">
+          <div className="absolute top-0 inset-x-0 h-1" style={{ backgroundColor: tenantColor }} />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Unidades Vendidas</span>
             <Package className="w-4 h-4" style={{ color: tenantColor }} />
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono">
+          <div className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
             {data?.summary?.totalItemsSold || 0}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block">Venda no balcão e home care</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[112px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-emerald-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Faturamento Produtos</span>
             <DollarSign className="w-4 h-4 text-emerald-600" />
           </div>
-          <div className="text-2xl font-black text-emerald-600 font-mono">
+          <div className="text-2xl sm:text-3xl font-black text-emerald-600 font-mono">
             {formatBRL(data?.summary?.totalProductRevenue || 0)}
           </div>
-          <span className="text-[11px] text-slate-400 mt-1 block font-mono">Receita de revenda</span>
+          <span className="text-[11px] text-slate-400 mt-1 block">Receita de revenda</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[112px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-indigo-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Patrimônio em Estoque</span>
             <CheckCircle className="w-4 h-4 text-indigo-600" />
           </div>
-          <div className="text-2xl font-black text-slate-900 font-mono">
+          <div className="text-2xl sm:text-3xl font-black text-slate-900 font-mono">
             {formatBRL(data?.summary?.totalStockValuation || 0)}
           </div>
           <span className="text-[11px] text-slate-400 mt-1 block font-mono">
@@ -80,12 +83,13 @@ export function ReportProductsTab({ data, tenantColor = '#5c0701' }: ReportProdu
           </span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[112px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-rose-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Alerta de Reposição</span>
             <AlertTriangle className="w-4 h-4 text-rose-600" />
           </div>
-          <div className="text-2xl font-black text-rose-600 font-mono">
+          <div className="text-2xl sm:text-3xl font-black text-rose-600 font-mono">
             {data?.summary?.lowStockAlertCount || 0}
           </div>
           <span className="text-[11px] text-rose-700 font-semibold mt-1 block">
@@ -95,20 +99,38 @@ export function ReportProductsTab({ data, tenantColor = '#5c0701' }: ReportProdu
       </div>
 
       {/* Gráfico de Mais Vendidos */}
-      <div className="p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
-        <h3 className="text-sm font-bold text-slate-900 mb-4">
-          Produtos com Maior Saída
-        </h3>
-        <ReportBarChart data={topSoldChart} height={200} orientation="horizontal" primaryColor={tenantColor} />
+      <div className="p-5 sm:p-6 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Produtos com Maior Saída
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Itens com maior volume de unidades vendidas no período
+            </p>
+          </div>
+        </div>
+        <ReportBarChart
+          data={topSoldChart}
+          height={220}
+          orientation="horizontal"
+          primaryColor={tenantColor}
+          showRank={true}
+        />
       </div>
 
       {/* Tabela de Produtos com Estoque Crítico */}
       <div className="rounded-2xl bg-white border border-slate-200/90 shadow-2xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200/90 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-900">
-            Itens que Demandam Reposição
-          </h3>
-          <span className="text-xs text-rose-600 font-bold">
+        <div className="p-4 sm:p-5 border-b border-slate-200/90 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              Itens que Demandam Reposição
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Produtos com quantidade em estoque igual ou abaixo do estoque mínimo definido
+            </p>
+          </div>
+          <span className="text-xs text-rose-600 font-bold px-2.5 py-1 rounded-lg bg-rose-50 border border-rose-200">
             {data?.lowStockList?.length || 0} produtos abaixo do mínimo
           </span>
         </div>
@@ -126,7 +148,7 @@ export function ReportProductsTab({ data, tenantColor = '#5c0701' }: ReportProdu
             <tbody className="divide-y divide-slate-100">
               {(data?.lowStockList || []).length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-6 text-center text-slate-400 font-medium">
+                  <td colSpan={5} className="py-8 text-center text-slate-400 font-medium">
                     Nenhum produto em nível crítico de estoque no momento.
                   </td>
                 </tr>

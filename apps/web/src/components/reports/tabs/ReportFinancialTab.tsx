@@ -48,8 +48,9 @@ export function ReportFinancialTab({ data, tenantColor = '#5c0701' }: ReportFina
   return (
     <div className="space-y-6">
       {/* Cards de Resumo Financeiro */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5 sm:gap-4">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-emerald-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Faturamento Bruto</span>
             <DollarSign className="w-4 h-4 text-emerald-600" />
@@ -62,7 +63,8 @@ export function ReportFinancialTab({ data, tenantColor = '#5c0701' }: ReportFina
           </span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-indigo-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Ticket Médio</span>
             <Wallet className="w-4 h-4 text-indigo-600" />
@@ -73,7 +75,8 @@ export function ReportFinancialTab({ data, tenantColor = '#5c0701' }: ReportFina
           <span className="text-[11px] text-slate-400 mt-1 block font-mono">Média por atendimento</span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-amber-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Sinal Anti-Falta (PIX)</span>
             <ShieldCheck className="w-4 h-4 text-amber-600" />
@@ -86,7 +89,8 @@ export function ReportFinancialTab({ data, tenantColor = '#5c0701' }: ReportFina
           </span>
         </div>
 
-        <div className="p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all">
+        <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs hover:border-slate-300 transition-all flex flex-col justify-between min-h-[115px]">
+          <div className="absolute top-0 inset-x-0 h-1 bg-rose-500" />
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-semibold text-slate-500">Crédito / Fiado em Aberto</span>
             <CreditCard className="w-4 h-4 text-rose-600" />
@@ -113,7 +117,13 @@ export function ReportFinancialTab({ data, tenantColor = '#5c0701' }: ReportFina
           <h3 className="text-sm font-bold text-slate-900 mb-4">
             Valores por Método (R$)
           </h3>
-          <ReportBarChart data={methodBarData} height={220} orientation="horizontal" primaryColor={tenantColor} />
+          <ReportBarChart
+            data={methodBarData}
+            height={220}
+            orientation="horizontal"
+            primaryColor={tenantColor}
+            showRank={false}
+          />
         </div>
       </div>
 
