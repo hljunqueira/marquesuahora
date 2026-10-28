@@ -173,7 +173,7 @@ export function AgendaMonthGrid({
   };
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col">
+    <div className="bg-white flex flex-col w-full select-none">
       {/* Cabeçalho dos Dias da Semana */}
       <div className="grid grid-cols-7 bg-slate-50 border-b border-slate-200/80 text-center select-none">
         {WEEKDAYS.map((wd, idx) => (
@@ -239,11 +239,12 @@ export function AgendaMonthGrid({
                 <div className="flex items-center gap-1">
                   {isRuleClosed ? (
                     hasAppointments ? (
-                      <span className="text-[8.5px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300/80 px-1.5 py-0.5 rounded shadow-2xs">
-                        Fechado ({dayAppts.length})
+                      <span className="text-[8px] sm:text-[8.5px] font-extrabold text-amber-800 bg-amber-100/90 border border-amber-300/80 px-1 py-0.5 rounded shadow-2xs leading-[1.1] flex flex-col items-center text-center">
+                        <span>Fechado</span>
+                        <span className="text-[7.5px] font-black opacity-90">({dayAppts.length})</span>
                       </span>
                     ) : (
-                      <span className="text-[8.5px] font-bold text-slate-500 uppercase tracking-tight bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs">
+                      <span className="text-[8px] sm:text-[8.5px] font-bold text-slate-500 uppercase tracking-tight bg-slate-200/90 px-1.5 py-0.5 rounded shadow-2xs leading-none">
                         Fechado
                       </span>
                     )

@@ -28,7 +28,11 @@ export const blocksRoutes: FastifyPluginAsync = async (app) => {
     const blocks = await prisma.scheduleBlock.findMany({
       where: {
         tenantId,
-        ...(professionalId ? { professionalId } : {})
+        ...(professionalId
+          ? {
+              OR: [{ professionalId: null }, { professionalId }]
+            }
+          : {})
       },
       orderBy: [{ date: 'asc' }, { dayOfWeek: 'asc' }, { startTime: 'asc' }],
       include: {

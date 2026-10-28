@@ -450,6 +450,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
           churnAlertDays: data.churnAlertDays,
           welcomeMessageEnabled: data.welcomeMessageEnabled,
           welcomeMessageCustom: data.welcomeMessageCustom,
+          ...(data.aiAssistantEnabled !== undefined ? { aiAssistantEnabled: data.aiAssistantEnabled } : {}),
           birthdayMessageEnabled: data.birthdayMessageEnabled,
           birthdayMessageCustom: data.birthdayMessageCustom,
           bufferMinutes: data.bufferMinutes,

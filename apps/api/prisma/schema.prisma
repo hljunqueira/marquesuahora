@@ -185,6 +185,7 @@ model Tenant {
   holidayExceptions       Json          @default("[]") // Lista de datas YYYY-MM-DD em que o salão abre mesmo em feriado
   welcomeMessageEnabled   Boolean       @default(true) // Envio automático de boas-vindas no 1º contato WhatsApp
   welcomeMessageCustom    String?       // Mensagem customizada de boas-vindas do estabelecimento
+  aiAssistantEnabled      Boolean       @default(true) // Atendente IA no WhatsApp (desative para operar no modo Apenas Notificações sem auto-respostas)
   birthdayMessageEnabled  Boolean       @default(true)
   birthdayMessageCustom   String?
   googleReviewUrl         String?       // Link direto da página de avaliação do Google Meu Negócio

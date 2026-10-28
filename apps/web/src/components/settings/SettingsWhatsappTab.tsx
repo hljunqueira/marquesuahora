@@ -48,6 +48,9 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
   const [welcomeCustom, setWelcomeCustom] = useState(settings.welcomeMessageCustom ?? '');
   const [savingWelcome, setSavingWelcome] = useState(false);
   const [saveWelcomeSuccess, setSaveWelcomeSuccess] = useState(false);
+  const [aiAssistantEnabled, setAiAssistantEnabled] = useState(settings.aiAssistantEnabled ?? true);
+  const [savingAiToggle, setSavingAiToggle] = useState(false);
+  const [saveAiToggleSuccess, setSaveAiToggleSuccess] = useState(false);
 
   useEffect(() => {
     if (settings.welcomeMessageEnabled !== undefined) {
@@ -56,7 +59,33 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
     if (settings.welcomeMessageCustom !== undefined) {
       setWelcomeCustom(settings.welcomeMessageCustom ?? '');
     }
-  }, [settings.welcomeMessageEnabled, settings.welcomeMessageCustom]);
+    if (settings.aiAssistantEnabled !== undefined) {
+      setAiAssistantEnabled(settings.aiAssistantEnabled);
+    }
+  }, [settings.welcomeMessageEnabled, settings.welcomeMessageCustom, settings.aiAssistantEnabled]);
+
+  const handleToggleAiAssistant = async (enabled: boolean) => {
+    setSavingAiToggle(true);
+    setSaveAiToggleSuccess(false);
+    setErrorMsg(null);
+    try {
+      await api.put('/tenants/me/settings', {
+        aiAssistantEnabled: enabled
+      });
+      setAiAssistantEnabled(enabled);
+      if (onChange) {
+        onChange('aiAssistantEnabled', enabled);
+      }
+      setSaveAiToggleSuccess(true);
+      setTimeout(() => setSaveAiToggleSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Erro ao atualizar modo da Atendente IA:', err);
+      setErrorMsg('Falha ao atualizar modo da Atendente IA.');
+      setAiAssistantEnabled(!enabled);
+    } finally {
+      setSavingAiToggle(false);
+    }
+  };
 
   const handleSaveWelcome = async () => {
     setSavingWelcome(true);
@@ -622,95 +651,146 @@ export const SettingsWhatsappTab: React.FC<SettingsWhatsappTabProps> = ({
         )}
         {/* Seção da Atendente IA Autônoma no WhatsApp */}
         <div className="pt-6 border-t border-slate-100 space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-            <div>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex-1">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs uppercase tracking-wider font-semibold text-purple-700">
                   Inteligência Artificial Integrada
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                  Ativa no WhatsApp
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    aiAssistantEnabled
+                      ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                      : 'bg-slate-100 text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  {aiAssistantEnabled ? 'Ativa no WhatsApp' : 'Desativada (Modo Apenas Notificações)'}
                 </span>
               </div>
               <h3 className="text-lg font-bold text-slate-900 tracking-tight">
                 Atendente IA Autônoma no WhatsApp
               </h3>
               <p className="text-xs text-slate-500 mt-1 max-w-xl leading-relaxed">
-                Responde dúvidas sobre procedimentos, escuta mensagens de áudio, analisa referências e consulta horários disponíveis em tempo real.
+                {aiAssistantEnabled
+                  ? 'Responde dúvidas sobre procedimentos, escuta mensagens de áudio, analisa referências e consulta horários disponíveis em tempo real.'
+                  : 'O robô está silenciado para conversas recebidas. As confirmações e lembretes automáticos aos clientes continuam ativos, e você pode responder os clientes manualmente pelo celular.'}
               </p>
             </div>
-          </div>
 
-          {/* Grid de Superpoderes Ativos */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="font-bold text-slate-900 block">Compreensão de Áudio</span>
-              <span className="text-[11px] text-slate-500 leading-relaxed block">
-                Transcreve e interpreta mensagens de voz dos clientes de forma instantânea.
-              </span>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="font-bold text-slate-900 block">Visão Multimodal</span>
-              <span className="text-[11px] text-slate-500 leading-relaxed block">
-                Identifica fotos de referências (unhas, cortes) e comprovantes de PIX.
-              </span>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="font-bold text-slate-900 block">Agenda ao Vivo</span>
-              <span className="text-[11px] text-slate-500 leading-relaxed block">
-                Sugere apenas horários livres reais do expediente dos profissionais.
-              </span>
-            </div>
-
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
-              <span className="font-bold text-slate-900 block">Proteção Anti-Falta</span>
-              <span className="text-[11px] text-slate-500 leading-relaxed block">
-                Informa o valor de sinal e a chave PIX (incluindo regra da 1ª cliente).
-              </span>
-            </div>
-          </div>
-
-          {/* Formulário de Instruções Customizadas */}
-          <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <label htmlFor="aiInstructions" className="text-xs font-bold text-slate-900">
-                Instruções e Regras Específicas da Recepção
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={aiAssistantEnabled}
+                  disabled={savingAiToggle}
+                  onChange={(e) => handleToggleAiAssistant(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600" />
               </label>
-              <span className="text-[11px] text-slate-400">
-                A IA lerá estas orientações antes de responder aos clientes
-              </span>
-            </div>
-
-            <textarea
-              id="aiInstructions"
-              rows={3}
-              value={customInstructions}
-              onChange={(e) => setCustomInstructions(e.target.value)}
-              className="w-full p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all"
-            />
-
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-[11px] text-slate-500">
-                {saveSuccess ? (
-                  <span className="text-emerald-600 font-semibold">Instruções da IA salvas com sucesso!</span>
-                ) : (
-                  'Dica: Mencione pontos de referência, estacionamento ou regras de atraso.'
-                )}
-              </span>
-
-              <button
-                type="button"
-                disabled={savingInstructions}
-                onClick={handleSaveAiSettings}
-                className="px-4 py-2 rounded-xl text-xs font-semibold btn-primary-tenant transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-              >
-                {savingInstructions && <Loader2 className="w-3 h-3 animate-spin" />}
-                <span>{savingInstructions ? 'Salvando...' : 'Salvar Instruções da IA'}</span>
-              </button>
             </div>
           </div>
+
+          {saveAiToggleSuccess && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-xs text-emerald-800 font-semibold animate-in fade-in">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>Configuração da Atendente IA salva com sucesso.</span>
+            </div>
+          )}
+
+          {!aiAssistantEnabled ? (
+            <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200/90 space-y-2">
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-slate-200/80 text-slate-700 flex items-center justify-center shrink-0 mt-0.5">
+                  <Info className="w-4 h-4" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-xs font-bold text-slate-900">
+                    Modo Apenas Notificações Ativo
+                  </h4>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    Quando as clientes enviarem mensagens para o WhatsApp da sua recepção, o robô não responderá nem fará perguntas. Você e sua equipe têm total liberdade para conversar de forma manual pelo próprio aplicativo do WhatsApp no celular.
+                  </p>
+                  <p className="text-xs text-slate-500 pt-1">
+                    Suas notificações automáticas continuam 100% ativas: confirmações imediatas de agendamento, lembretes de 24h e 2h antes do horário, e links de PIX direto.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Grid de Superpoderes Ativos */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900 block">Compreensão de Áudio</span>
+                  <span className="text-[11px] text-slate-500 leading-relaxed block">
+                    Transcreve e interpreta mensagens de voz dos clientes de forma instantânea.
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900 block">Visão Multimodal</span>
+                  <span className="text-[11px] text-slate-500 leading-relaxed block">
+                    Identifica fotos de referências (unhas, cortes) e comprovantes de PIX.
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900 block">Agenda ao Vivo</span>
+                  <span className="text-[11px] text-slate-500 leading-relaxed block">
+                    Sugere apenas horários livres reais do expediente dos profissionais.
+                  </span>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1">
+                  <span className="font-bold text-slate-900 block">Proteção Anti-Falta</span>
+                  <span className="text-[11px] text-slate-500 leading-relaxed block">
+                    Informa o valor de sinal e a chave PIX (incluindo regra da 1ª cliente).
+                  </span>
+                </div>
+              </div>
+
+              {/* Formulário de Instruções Customizadas */}
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <label htmlFor="aiInstructions" className="text-xs font-bold text-slate-900">
+                    Instruções e Regras Específicas da Recepção
+                  </label>
+                  <span className="text-[11px] text-slate-400">
+                    A IA lerá estas orientações antes de responder aos clientes
+                  </span>
+                </div>
+
+                <textarea
+                  id="aiInstructions"
+                  rows={3}
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                  className="w-full p-3 rounded-xl bg-white border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent transition-all"
+                />
+
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-slate-500">
+                    {saveSuccess ? (
+                      <span className="text-emerald-600 font-semibold">Instruções da IA salvas com sucesso!</span>
+                    ) : (
+                      'Dica: Mencione pontos de referência, estacionamento ou regras de atraso.'
+                    )}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={savingInstructions}
+                    onClick={handleSaveAiSettings}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold btn-primary-tenant transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                  >
+                    {savingInstructions && <Loader2 className="w-3 h-3 animate-spin" />}
+                    <span>{savingInstructions ? 'Salvando...' : 'Salvar Instruções da IA'}</span>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

@@ -27,6 +27,32 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
 
 ## 2. Detalhamento Técnico das Implementações
 
+### A.-1. Sistema de Notificações no WhatsApp (Lembretes Automáticos 24h, Confirmação e Edição Sincronizados com Configurações)
+- **Contexto & Diagnóstico**:
+  - Anteriormente, os disparos manuais de WhatsApp nos modais de criação, edição e detalhes da Agenda utilizavam textos estáticos e hardcoded, ignorando completamente os templates personalizados salvos em `Configurações > Notificações & Mensagens` (`TenantNotificationRule`).
+  - Além disso, não havia um agendador automatizado no backend para monitorar e disparar os lembretes de agendamento 24 horas antes do horário marcado (`BOOKING_REMINDER_CLIENT`).
+- **Arquivos Backend Modificados/Criados**:
+  - `apps/api/src/modules/notifications/dispatcher.service.ts`: Implementação do método `prepareNotification` que centraliza a normalização de variáveis (`{{clientName}}`, `{{serviceName}}`, `{{date}}`, `{{time}}`, `{{professionalName}}`, etc.), consulta os templates customizados do tenant no banco e constrói o link do WhatsApp (`waLink`). O método `dispatch` foi refatorado para reaproveitar essa lógica.
+  - `apps/api/src/modules/notifications/notifications.routes.ts`: Criação do endpoint `GET /notifications/render-message` que recebe o gatilho (`BOOKING_CONFIRMATION_CLIENT`, `BOOKING_REMINDER_CLIENT`, `BOOKING_UPDATED_CLIENT`) e o ID do agendamento para renderizar o texto oficial e retornar o `waLink`.
+  - `apps/api/src/modules/schedules/schedules.routes.ts`:
+    - Adicionado suporte ao parâmetro `notifyClient` no schema de edição `PATCH /schedules/:id`.
+    - Disparo automático de `BOOKING_UPDATED_CLIENT` quando data/horário/serviço/profissional são alterados, retornando `waLink` e `whatsappText` formatados.
+    - Na rota de criação `POST /schedules`, o retorno agora inclui `waLink` e `whatsappText` baseados no template de confirmação ativo.
+    - Criação da rota `POST /schedules/:id/send-reminder-24h` para disparo do lembrete de 24 horas sob demanda com atualização de `reminder24hSentAt`.
+  - `apps/api/src/modules/automation/schedulers/reminder-24h.scheduler.ts`: Agendador autônomo que executa a cada 10 minutos varrendo agendamentos pendentes ou confirmados das próximas 25 horas sem lembrete enviado (`reminder24hSentAt IS NULL`).
+  - `apps/api/src/modules/automation/index.ts`: Inicialização do `Reminder24hScheduler` junto aos demais serviços de automação do monorepo.
+- **Arquivos Frontend Modificados**:
+  - `apps/web/src/components/agenda/types.ts`: Adicionado campo `reminder24hSentAt?: string | null` na interface `ScheduleAppointment`.
+  - `apps/web/src/components/agenda/AgendaAppointmentModal.tsx`:
+    - Checkbox de notificação ao editar agendamentos (`notifyClientOnEdit`).
+    - Integração de `waLink` no voucher/confirmação gerado a partir do template salvo em Configurações.
+    - Fallback dinâmico via `GET /notifications/render-message`.
+  - `apps/web/src/components/agenda/AgendaAppointmentDetailsModal.tsx`:
+    - `handleOpenWhatsApp` atualizado para buscar o template de confirmação dinâmico configurado pelo assinante.
+    - Botão e status de Lembrete 24h no banner da cliente (`Enviar Lembrete 24h` ou badge `Lembrete 24h Enviado`).
+    - Checkbox `Notificar cliente no WhatsApp com template de alteração configurado` na aba de edição.
+    - Feedback de sucesso após alteração com botão imediato "Avisar Alteração no WhatsApp".
+
 ### A.0. Relatório Integrado 360° com BI, Exportação Exclusiva em PDF e Sidebar Reorganizado
 - **Arquivos Backend**:
   - `apps/api/src/modules/reports/reports.routes.ts`
@@ -268,6 +294,77 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
     - As janelas livres do `AgendaWeeklyGrid.tsx` agora respeitam o horário configurado nas regras de funcionamento (`getDayWorkingHours`), em vez de iniciar compulsoriamente às 07:00.
     - Profissionais podem clicar em colunas de dias fechados para realizar encaixes manuais sem impedimento da interface.
 
+- **Fase 15: Otimização de Header da Agenda Mobile, Alinhamento de Ações, Eliminação de Bordas Duplas e Comprovante WhatsApp Instantâneo**:
+  - **Botão de Cores Compacto sem Rótulo Textual**:
+    - No componente `AgendaStatusColorPicker.tsx`, removido o rótulo textual `"Cores"` no mobile, preservando estritamente as bolinhas dos status (`🔴🟠🟡🔵🟣 ⌵`), reduzindo em mais de 60px a largura horizontal e evitando quebras de linha indesejadas.
+  - **Ações da Agenda Lado a Lado**:
+    - No `AgendaHeader.tsx`, os botões de `Cores`, `Bloquear` e `+ Novo` agora são renderizados lado a lado no mobile na mesma linha, eliminando a quebra isolada do botão de novo agendamento.
+  - **Navegação de Período Integrada e Ergonomia Mobile**:
+    - Seletores `[ Mês | Semana | Dia ]` e `[ Toda a Equipe ]` foram unificados ao lado da navegação `< Hoje >` com intervalo explícito por extenso (ex: `19 a 25 de outubro`), evitando que o usuário precise rolar a tela até o topo para trocar de visualização ou navegar entre semanas.
+  - **Eliminação de Bordas Duplas e Linha Vazia "dia todo"**:
+    - No `AgendaWeeklyGrid.tsx` e `AgendaMonthGrid.tsx`, removidas as bordas externas duplicadas e cantos arredondados redundantes, integrando a grade de forma contínua ao container da agenda.
+    - A linha `"dia todo"` foi condicionada para ser renderizada exclusivamente quando existirem bloqueios de dia inteiro (`allDayBlocks.length > 0`), eliminando a linha cinza vazia que sobrepunha os primeiros horários (`09:00`) na grade.
+  - **Fluxo Transacional de Comprovante via WhatsApp no Modal de Agendamento**:
+    - No `AgendaAppointmentModal.tsx`, a criação manual de agendamentos foi integrada a uma tela de confirmação imediata de sucesso, discriminando cliente, serviço, data/hora e profissional, acompanhada do botão de ação em destaque **`[ Enviar Comprovante no WhatsApp ]`** (via link direto `wa.me` com mensagem pré-formatada).
+    - No backend (`dispatcher.service.ts`), o gatilho `BOOKING_CONFIRMATION_CLIENT` foi parametrizado como notificação transacional prioritária, garantindo envio direto sem bloqueios indevidos por plano contratado.
+    - No `server.ts`, os workers da fila BullMQ (`whatsappWorker`, etc.) foram inicializados no boot do servidor.
+  - **Deploy com Sucesso na VPS de Produção**:
+    - Build de produção do Next.js 14 e Fastify compilados sem erros e implantados com sucesso na VPS Ubuntu (`23.80.89.116`), com healthcheck HTTP 200 nas portas `3040` (Web) e `3041` (API).
+
+- **Fase 16: Refinamento de Layout da Agenda, Quebra de Linha em Badges Fechado, Ajuste do Campo de Data e Nome de Profissional Único**:
+  - **Ações da Agenda Acima da Previsão Financeira no Mobile**:
+    - No componente [`AgendaHeader.tsx`](file:///c:/Users/Henrique%20-%20PC/Desktop/Projetos%20Dev/MarqueSuaHora/apps/web/src/components/agenda/AgendaHeader.tsx), os botões `[ Cores ]`, `[ Bloquear ]` e `[ + Novo ]` foram posicionados acima do badge de previsão financeira (`Previsão da semana`), respeitando a hierarquia de ações rápidas no mobile com `order-1 sm:order-2`.
+  - **Campo de Data Ajustado e Sem Truncamento**:
+    - Substituído o input nativo que apresentava texto cortado (`20 de out. de 202`) por um seletor compacto e responsivo com ícone `Calendar`, formatação brasileira legível (`DD/MM/AAAA`), abertura instantânea do datepicker nativo ao toque/clique e contenção horizontal com `truncate` no título do período.
+  - **Quebra de Linha no Badge "Fechado"**:
+    - No [`AgendaWeeklyGrid.tsx`](file:///c:/Users/Henrique%20-%20PC/Desktop/Projetos%20Dev/MarqueSuaHora/apps/web/src/components/agenda/AgendaWeeklyGrid.tsx) e [`AgendaMonthGrid.tsx`](file:///c:/Users/Henrique%20-%20PC/Desktop/Projetos%20Dev/MarqueSuaHora/apps/web/src/components/agenda/AgendaMonthGrid.tsx), os badges de dias fechados com agendamentos/encaixes (`Fechado (X)`) agora utilizam quebra de linha com `flex-col`, exibindo `Fechado` na linha 1 e `(X)` na linha 2. Isso garante que o elemento permaneça 100% contido dentro da largura de cada coluna sem transbordar para os dias vizinhos.
+  - **Exibição Personalizada para Profissional Solo**:
+    - Quando o estabelecimento possui apenas um profissional cadastrado (`professionals.length === 1`), o seletor no topo da agenda substitui a opção genérica "Toda a Equipe" pelo nome direto do profissional (ex: "Emanuelle Telles"), selecionando-o automaticamente ao carregar.
+  - **Deploy Contínuo em Produção**:
+    - Todas as alterações validadas com 0 erros de compilação TypeScript (`apps/api` e `apps/web`), 94/94 testes aprovados e deploy executado na VPS (`23.80.89.116`), com containers `marquesuahora-web` e `marquesuahora-api` em execução saudável (HTTP 200).
+
+- **Fase 17: Confirmação e Notificações Personalizadas de Mudança no WhatsApp, Encaixe Manual sem Bloqueio 409, Edição de Procedimento e Correção de Bloqueio de Horário**:
+  - **1. Notificações WhatsApp com Template Personalizado e Avisos de Mudança**:
+    - Refatorado o worker do WhatsApp (`apps/api/src/modules/automation/workers/whatsapp.worker.ts`) para eliminar textos estáticos hardcoded e utilizar o `NotificationDispatcherService.dispatch`. As mensagens de confirmação agora respeitam 100% o texto personalizado configurado pelo salão nas Configurações (`TenantNotificationRule.customWhatsappText`), contemplando regras de tolerância, reagendamento e cancelamento.
+    - Adicionado suporte a variáveis dinâmicas em português (`{cliente}`, `{primeiro_nome}`, `{servico}`, `{procedimento}`, `{profissional}`, `{data}`, `{horario}`, `{valor}`, `{duracao}`, `{endereco}`, `{nome_empresa}`) no `dispatcher.service.ts`.
+    - Adicionada trava de deduplicação idempotente de 30 segundos no `NotificationDispatcherService` para evitar duplicidade de mensagens entre disparos síncronos e assíncronos.
+    - Qualquer alteração em agendamento existente (mudança de horário, data, profissional ou procedimento) agora dispara automaticamente `BOOKING_UPDATED_CLIENT` via WhatsApp e e-mail.
+    - A confirmação de status (`ScheduleStatus.CONFIRMED`) e confirmação de sinal PIX (`POST /schedules/:id/confirm-deposit`) disparam imediatamente `BOOKING_CONFIRMATION_CLIENT`.
+  - **2. Encaixe / Sobreposição no Cadastro Manual (Imagem 01)**:
+    - No `apps/api/src/modules/schedules/booking.service.ts` e `schedules.routes.ts`, adicionado parâmetro `allowOverlap?: boolean`. Para agendamentos manuais da recepção/balcão (`source !== BookingSource.ONLINE`), o sistema não bloqueia mais com erro 409 de conflito de horário, permitindo o encaixe de clientes no mesmo horário.
+    - No modal `AgendaAppointmentModal.tsx`, removido o bloqueio impeditivo no envio do formulário quando há sobreposição. A interface agora exibe um badge âmbar informativo de horário compartilhado/encaixe sem travar a submissão.
+  - **3. Edição do Procedimento/Serviço nos Detalhes do Agendamento (Imagem 02)**:
+    - No modal `AgendaAppointmentDetailsModal.tsx`, adicionado o seletor de "Procedimento / Serviço" na seção "Remarcar ou Editar Atendimento", com sincronização automática do valor cobrado e recálculo da duração.
+    - No backend (`PATCH /schedules/:id`), adicionado suporte a `serviceId`: atualiza o serviço principal, os itens (`ScheduleItem`), recalcula o término (`endTime`) e notifica a cliente sobre a mudança do procedimento.
+  - **4. Correção Definitiva do Bloqueio de Horário**:
+    - No backend (`apps/api/src/modules/blocks/blocks.routes.ts`), corrigida a consulta Prisma em `GET /blocks`: ao filtrar por profissional (`professionalId`), agora utiliza `OR: [{ professionalId: null }, { professionalId }]`. Isso impede que bloqueios gerais do salão fiquem ocultos da grade quando o usuário filtra por um profissional específico.
+    - No modal `AgendaBlockModal.tsx`, corrigido o cálculo do horário final para avançar 1 hora automaticamente em relação ao início, prevenindo erros de validação (`startTime >= endTime`), e adicionado suporte a `initialProfessionalId`.
+    - Na página [`apps/web/src/app/dashboard/agenda/page.tsx`](file:///c:/Users/Henrique%20-%20PC/Desktop/Projetos%20Dev/MarqueSuaHora/apps/web/src/app/dashboard/agenda/page.tsx), os botões de bloqueio agora passam a data atualmente navegada (`currentDate`) e o profissional ativo, emitindo toast de confirmação imediato na interface.
+
+- **Fase 18: Forçar Agendamento Manual / Encaixes sem Bloqueio de Horário (Estilo Guru)**:
+  - **1. Liberação Completa de Agendamento Forçado no Backend**:
+    - Em `apps/api/src/modules/schedules/schedules.routes.ts`, adicionado `allowOverlap: z.boolean().optional()` no `createSchema` de `POST /schedules` e repassado explicitamente `allowOverlap: body.allowOverlap ?? true` na chamada de `bookingService.createBooking`.
+    - No `booking.service.ts`, condicionado o bloqueio de `conflictingBlock` (bloqueios manuais de expediente/folga) para que só barre agendamentos externos (`!canOverlap`). Agendamentos manuais internos de balcão/WhatsApp agora têm autonomia total para forçar horários sobrepostos ou bloqueados, sem que esses horários fiquem abertos para as clientes na vitrine pública.
+    - No `PATCH /schedules/:id`, condicionado `conflictingBlock` ao `!allowOverlap`.
+  - **2. Refinamento de UX no Modal de Agendamento (`AgendaAppointmentModal.tsx`)**:
+    - Eliminado aviso de conflito duplicado e atualizado o banner âmbar para "Encaixe / Horário Compartilhado", informando que o agendamento será forçado e salvo como encaixe normalmente sem abrir o horário na vitrine pública online.
+  - **3. Deploy em Produção**:
+    - Realizado deploy na VPS Ubuntu (`23.80.89.116`), com containers `marquesuahora-api` e `marquesuahora-web` operando com status HTTP 200.
+
+- **Fase 19: Modo Apenas Notificações e Chave de Desativação da Atendente IA no WhatsApp**:
+  - **1. Campo de Configuração `aiAssistantEnabled` no Banco e Schemas**:
+    - Adicionado campo `aiAssistantEnabled Boolean @default(true)` no modelo `Tenant` do Prisma (`schema.prisma`) e no schema Zod de validação `updateTenantSettingsSchema` em `@marquesuahora/shared`.
+    - Atualizada a rota `PUT /tenants/me/settings` no backend (`tenants.routes.ts`) para persistência e auditoria da alteração.
+  - **2. Silenciamento de Auto-Respostas Inbound no Webhook da Evolution API**:
+    - Em `apps/api/src/modules/automation/webhook.routes.ts`, implementada guarda no processamento de mensagens recebidas: quando `tenant.aiAssistantEnabled === false`, o webhook ignora a mensagem imediatamente com status `ignored_ai_assistant_disabled`, sem gerar respostas automáticas de IA, sem transcrição e sem envios de boas-vindas. O canal do WhatsApp no celular do estabelecimento fica 100% livre para atendimento humano.
+    - Todas as notificações ativas (confirmações imediatas, lembretes de 24h e 2h antes, sinal PIX e guias pós-atendimento) continuam operando normalmente via `NotificationDispatcherService`.
+  - **3. Interface de Controle no Painel do Assinante**:
+    - Em `apps/web/src/components/settings/SettingsWhatsappTab.tsx`, adicionado toggle visual para ligar/desligar a Atendente IA Autônoma com feedback instantâneo de salvamento.
+    - Quando desativada, a interface exibe o badge "Desativada (Modo Apenas Notificações)" e um card explicativo confirmando que o robô está silenciado e as notificações automáticas de agendamento permanecem ativas.
+  - **4. Testes e Validação de Tipagem**:
+    - TypeScript estrito validado com 0 erros em `apps/api` e `apps/web` (`npx tsc --noEmit`).
+    - Todos os testes unitários da API aprovados no Vitest (`12 passed, 99 tests`).
+
 ---
 
 ## 3. Estado Atual do Repositório Git
@@ -276,6 +373,6 @@ Durante as sessões de desenvolvimento, o sistema foi elevado a nível de produt
   - `packages/shared`: **0 erros**.
   - `apps/api`: **0 erros**.
   - `apps/web`: **0 erros**.
-- **Testes Unitários da API (`vitest run`)**: Todos os **94 testes unitários** aprovados com 100% de sucesso.
-- **Ambiente de Produção**: Pronto para deploy na VPS `23.80.89.116`.
+- **Testes Unitários da API (`vitest run`)**: Todos os **99 testes unitários** aprovados com 100% de sucesso.
+- **Ambiente de Produção**: Ativo e operando na VPS `23.80.89.116` (Web e API em HTTP 200).
 

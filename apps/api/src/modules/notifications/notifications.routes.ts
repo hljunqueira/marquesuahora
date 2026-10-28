@@ -4,6 +4,7 @@ import { NotificationCategory, NotificationPriority, NotificationTrigger, Tenant
 import { prisma } from '../../lib/prisma';
 import { NotificationsService } from './notifications.service';
 import { WhatsappTemplateEngine, TemplateMetadata } from './template-engine';
+import { NotificationDispatcherService } from './dispatcher.service';
 
 const listQuerySchema = z.object({
   category: z.nativeEnum(NotificationCategory).or(z.literal('ALL')).optional(),
@@ -259,5 +260,99 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
       defaultEmailSubject: metadata.defaultEmailSubject,
       defaultEmailBody: metadata.defaultEmailBody
     });
+  });
+
+  const renderMessageQuerySchema = z.object({
+    trigger: z.nativeEnum(NotificationTrigger),
+    scheduleId: z.string().uuid().optional(),
+    clientName: z.string().optional(),
+    clientPhone: z.string().optional(),
+    serviceName: z.string().optional(),
+    professionalName: z.string().optional(),
+    date: z.string().optional(),
+    time: z.string().optional(),
+    price: z.string().optional()
+  });
+
+  // GET /notifications/render-message - Renderizar mensagem oficial/personalizada para preview ou disparo manual
+  app.get('/render-message', async (request, reply) => {
+    const tenantId = request.user.tenantId;
+    if (!tenantId) {
+      return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+    }
+
+    const query = renderMessageQuerySchema.parse(request.query);
+    let scheduleData: Record<string, any> = {};
+
+    if (query.scheduleId) {
+      const schedule = await prisma.schedule.findFirst({
+        where: { id: query.scheduleId, tenantId },
+        include: {
+          client: true,
+          professional: true,
+          service: true,
+          items: { include: { service: true } }
+        }
+      });
+
+      if (!schedule) {
+        return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
+      }
+
+      const dateFormatted = schedule.date.toISOString().slice(0, 10).split('-').reverse().join('/');
+      const serviceNames = schedule.items && schedule.items.length > 0
+        ? schedule.items.map((it: any) => it.service?.name).filter(Boolean).join(', ')
+        : schedule.service?.name;
+
+      scheduleData = {
+        clientName: schedule.client?.name,
+        clientFirstName: schedule.client?.name?.trim().split(' ')[0],
+        clientPhone: schedule.client?.phone,
+        clientEmail: schedule.client?.email || undefined,
+        serviceName: serviceNames,
+        professionalName: schedule.professional?.name,
+        date: dateFormatted,
+        time: schedule.startTime,
+        duration: `${schedule.totalDurationMinutes} min`,
+        price: Number(schedule.totalPrice || schedule.service?.price || 0).toFixed(2),
+        depositAmount: schedule.depositAmount ? Number(schedule.depositAmount).toFixed(2) : undefined
+      };
+    }
+
+    const mergedData = {
+      ...scheduleData,
+      ...(query.clientName ? { clientName: query.clientName, clientFirstName: query.clientName.trim().split(' ')[0] } : {}),
+      ...(query.clientPhone ? { clientPhone: query.clientPhone } : {}),
+      ...(query.serviceName ? { serviceName: query.serviceName } : {}),
+      ...(query.professionalName ? { professionalName: query.professionalName } : {}),
+      ...(query.date ? { date: query.date } : {}),
+      ...(query.time ? { time: query.time } : {}),
+      ...(query.price ? { price: query.price } : {})
+    };
+
+    try {
+      const prepared = await NotificationDispatcherService.prepareNotification({
+        tenantId,
+        trigger: query.trigger,
+        scheduleId: query.scheduleId,
+        data: mergedData
+      });
+
+      return reply.send({
+        success: true,
+        trigger: prepared.metadata.trigger,
+        title: prepared.metadata.title,
+        whatsappText: prepared.whatsappText,
+        emailSubject: prepared.emailSubject,
+        emailBody: prepared.emailBody,
+        phone: prepared.clientPhone,
+        waLink: prepared.waLink,
+        whatsappEnabled: prepared.whatsappEnabled,
+        emailEnabled: prepared.emailEnabled,
+        isCustomized: prepared.isCustomized
+      });
+    } catch (err: any) {
+      return reply.status(400).send({ error: 'Erro ao renderizar mensagem', message: err.message });
+    }
   });
 };

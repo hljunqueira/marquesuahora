@@ -34,6 +34,7 @@ export interface TenantSettings {
   holidayExceptions?: string[];
   welcomeMessageEnabled?: boolean;
   welcomeMessageCustom?: string | null;
+  aiAssistantEnabled?: boolean;
   birthdayMessageEnabled: boolean;
   birthdayMessageCustom?: string | null;
   googleReviewUrl?: string | null;

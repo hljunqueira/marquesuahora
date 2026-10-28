@@ -9,3 +9,12 @@ export * from './workers/birthday.worker';
 export * from './workers/waitlist.worker';
 export * from './workers/nps.worker';
 export * from './workers/churn.worker';
+export * from './schedulers/reminder-24h.scheduler';
+
+import { Reminder24hScheduler } from './schedulers/reminder-24h.scheduler';
+
+// Inicializa o scheduler de lembretes automáticos de 24h
+if (process.env.NODE_ENV !== 'test') {
+  Reminder24hScheduler.start();
+}
+

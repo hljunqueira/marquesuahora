@@ -1,5 +1,6 @@
 import { env } from './config/env';
 import { buildApp } from './app';
+import './modules/automation';
 
 const server = buildApp();
 const PORT = env.PORT;

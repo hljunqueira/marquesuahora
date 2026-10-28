@@ -159,8 +159,8 @@ export function AgendaStatusColorPicker({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-2xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs hover:border-slate-300 transition-all cursor-pointer"
-        title="Personalizar as cores de todos os status na grade da agenda"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-2xl border border-slate-200/90 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs hover:border-slate-300 transition-all cursor-pointer shrink-0"
+        title="Personalizar as cores dos status na grade da agenda"
       >
         <div className="flex items-center -space-x-1">
           <span
@@ -194,8 +194,7 @@ export function AgendaStatusColorPicker({
             title="Cancelado"
           />
         </div>
-        <span className="text-slate-800 font-bold hidden sm:inline">Cores dos Status</span>
-        <span className="text-slate-800 font-bold sm:hidden">Cores</span>
+        <span className="text-slate-800 font-bold hidden md:inline text-[11px]">Cores</span>
         <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 

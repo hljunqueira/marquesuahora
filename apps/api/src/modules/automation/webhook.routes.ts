@@ -200,6 +200,13 @@ export const webhookRoutes: FastifyPluginAsync = async (app) => {
 
     const tenant = config.tenant;
 
+    // Se o salão estiver no Modo Apenas Notificações (Atendente IA desativada),
+    // o bot não responde a nenhuma mensagem recebida, mantendo o WhatsApp livre para atendimento humano.
+    if (tenant.aiAssistantEnabled === false) {
+      console.log(`[WhatsApp Inbound] Mensagem de ${clientPhone} ignorada: Modo Apenas Notificações ativo para ${tenant.name}.`);
+      return reply.status(200).send({ handled: true, status: 'ignored_ai_assistant_disabled' });
+    }
+
     // Deduplicação de Mensagem (Idempotência por key.id para evitar processar a mesma mensagem duas vezes)
     if (key.id) {
       const msgDedupKey = `msh:msg_processed:${key.id}`;

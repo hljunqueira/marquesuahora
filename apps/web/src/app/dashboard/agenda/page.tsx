@@ -53,7 +53,7 @@ export default function AgendaCompletaPage() {
         setTenantPrimaryColor(res.data.primaryColor);
         localStorage.setItem('tenant_primary_color', res.data.primaryColor);
       }
-    }).catch(() => {});
+    }).catch(() => { });
     const handleTenantSync = (e: any) => {
       if (e?.detail?.primaryColor) {
         setTenantPrimaryColor(e.detail.primaryColor);
@@ -75,7 +75,7 @@ export default function AgendaCompletaPage() {
       try {
         const saved = localStorage.getItem('marquesuahora_agenda_status_colors');
         if (saved) return JSON.parse(saved);
-      } catch {}
+      } catch { }
     }
     return getDefaultStatusColors(tenantPrimaryColor);
   });
@@ -160,9 +160,14 @@ export default function AgendaCompletaPage() {
       const pList = Array.isArray(profRes.data) ? profRes.data : (profRes.data?.data || []);
       const sList = Array.isArray(servRes.data) ? servRes.data : (servRes.data?.data || []);
       const rList = Array.isArray(rulesRes.data) ? rulesRes.data : (rulesRes.data?.data || rulesRes.data?.rules || []);
-      setProfessionals(Array.isArray(pList) ? pList : []);
+      const validProfessionals = Array.isArray(pList) ? pList : [];
+      setProfessionals(validProfessionals);
       setServices(Array.isArray(sList) ? sList : []);
       setAvailabilityRules(Array.isArray(rList) ? rList : []);
+
+      if (validProfessionals.length === 1) {
+        setSelectedProfessionalId(validProfessionals[0].id);
+      }
     });
   }, []);
 
@@ -297,8 +302,8 @@ export default function AgendaCompletaPage() {
         viewMode === 'day'
           ? 'Previsão do dia'
           : viewMode === 'month'
-          ? 'Previsão do mês'
-          : 'Previsão da semana'
+            ? 'Previsão do mês'
+            : 'Previsão da semana'
     };
   }, [appointments, viewMode, currentDate, visibleDates]);
 
@@ -466,6 +471,7 @@ export default function AgendaCompletaPage() {
         <AgendaAppointmentDetailsModal
           appointment={selectedAppointmentForDetails}
           professionals={professionals}
+          services={services}
           onClose={() => setSelectedAppointmentForDetails(null)}
           onSuccess={handleCalendarRefresh}
           onOpenCheckout={(appt) => setCheckoutAppointment(appt)}
@@ -474,11 +480,15 @@ export default function AgendaCompletaPage() {
 
       {isBlockModalOpen && (
         <AgendaBlockModal
-          initialDate={activeSlot?.date}
-          initialTime={activeSlot?.time}
+          initialDate={activeSlot?.date || formatLocalDateToYMD(currentDate)}
+          initialTime={activeSlot?.time || '12:00'}
+          initialProfessionalId={activeSlot?.professionalId || selectedProfessionalId}
           professionals={professionals}
           onClose={() => setIsBlockModalOpen(false)}
-          onSuccess={handleCalendarRefresh}
+          onSuccess={() => {
+            handleCalendarRefresh();
+            showToast('Horário bloqueado com sucesso!');
+          }}
         />
       )}
 

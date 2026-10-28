@@ -431,7 +431,8 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         clientPhone: z.string().min(10, 'Telefone do cliente é obrigatório.'),
         clientEmail: z.string().email().optional().nullable(),
         notes: z.string().max(500).optional().nullable(),
-        customTotalPrice: z.coerce.number().min(0, 'Valor total não pode ser negativo.').optional()
+        customTotalPrice: z.coerce.number().min(0, 'Valor total não pode ser negativo.').optional(),
+        allowOverlap: z.boolean().optional()
       });
 
       const body = createSchema.parse(request.body);
@@ -447,8 +448,42 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         clientEmail: body.clientEmail || undefined,
         notes: body.notes || undefined,
         customTotalPrice: body.customTotalPrice,
-        source: BookingSource.MANUAL_RECEPTION
+        source: BookingSource.MANUAL_RECEPTION,
+        allowOverlap: body.allowOverlap ?? true
       });
+
+      let confirmationWaLink: string | null = null;
+      let confirmationWhatsappText: string | null = null;
+
+      try {
+        const dateFormatted = body.dateStr.split('-').reverse().join('/');
+        const serviceNames = schedule.items && schedule.items.length > 0
+          ? schedule.items.map((it: any) => it.service?.name).filter(Boolean).join(', ')
+          : schedule.service?.name;
+
+        const prepared = await NotificationDispatcherService.prepareNotification({
+          tenantId,
+          trigger: 'BOOKING_CONFIRMATION_CLIENT',
+          scheduleId: schedule.id,
+          data: {
+            clientName: body.clientName,
+            clientFirstName: body.clientName.trim().split(' ')[0],
+            clientPhone: body.clientPhone,
+            clientEmail: body.clientEmail || undefined,
+            serviceName: serviceNames,
+            professionalName: schedule.professional?.name,
+            date: dateFormatted,
+            time: schedule.startTime,
+            duration: `${schedule.totalDurationMinutes} min`,
+            price: Number(schedule.totalPrice || schedule.service?.price || 0).toFixed(2)
+          }
+        });
+
+        confirmationWaLink = prepared.waLink;
+        confirmationWhatsappText = prepared.whatsappText;
+      } catch (prepErr) {
+        // Ignora erro pontual de preparação
+      }
 
       // Dispara confirmação no WhatsApp para a cliente se o WhatsApp do salão estiver conectado
       try {
@@ -460,7 +495,11 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         console.warn('[BullMQ] Aviso ao agendar envio do WhatsApp para agendamento manual:', err.message);
       }
 
-      return reply.status(201).send(schedule);
+      return reply.status(201).send({
+        ...schedule,
+        waLink: confirmationWaLink,
+        whatsappText: confirmationWhatsappText
+      });
     });
 
     // POST /schedules/:id/status - Alterar status do agendamento
@@ -580,6 +619,25 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
               time: updated.startTime
             }
           });
+        } else if (newStatus === ScheduleStatus.CONFIRMED && existing.status !== ScheduleStatus.CONFIRMED) {
+          // Notifica Cliente da Confirmação com as regras e texto oficial
+          await NotificationDispatcherService.dispatch({
+            tenantId,
+            trigger: 'BOOKING_CONFIRMATION_CLIENT',
+            scheduleId: updated.id,
+            data: {
+              clientName,
+              clientFirstName,
+              clientPhone: updated.client?.phone,
+              clientEmail: updated.client?.email || undefined,
+              serviceName,
+              professionalName: profName,
+              date: dateFormatted,
+              time: updated.startTime,
+              depositPaid: updated.depositPaid,
+              depositAmount: updated.depositAmount ? Number(updated.depositAmount) : undefined
+            }
+          });
         }
       } catch (e) {
         console.error('Erro ao notificar alteração de status:', e);
@@ -661,11 +719,106 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         return { updatedSchedule, financialEntry };
       });
 
+      try {
+        const clientName = result.updatedSchedule.client?.name || 'Cliente';
+        const clientFirstName = clientName.trim().split(' ')[0] || clientName;
+        const dateFormatted = result.updatedSchedule.date.toISOString().slice(0, 10).split('-').reverse().join('/');
+
+        await NotificationDispatcherService.dispatch({
+          tenantId,
+          trigger: 'BOOKING_CONFIRMATION_CLIENT',
+          scheduleId: result.updatedSchedule.id,
+          data: {
+            clientName,
+            clientFirstName,
+            clientPhone: result.updatedSchedule.client?.phone,
+            clientEmail: result.updatedSchedule.client?.email || undefined,
+            serviceName: result.updatedSchedule.service?.name,
+            professionalName: result.updatedSchedule.professional?.name,
+            date: dateFormatted,
+            time: result.updatedSchedule.startTime,
+            depositPaid: true,
+            depositAmount: depositAmountNumber
+          }
+        });
+      } catch (e) {
+        console.error('Erro ao notificar confirmação de sinal:', e);
+      }
+
       return reply.status(200).send({
         success: true,
         message: `Sinal de R$ ${depositAmountNumber.toFixed(2).replace('.', ',')} confirmado e horário garantido!`,
         schedule: result.updatedSchedule,
         financialEntry: result.financialEntry
+      });
+    });
+
+    // POST /schedules/:id/send-reminder-24h - Disparo sob demanda do lembrete de 24h
+    authScope.post('/:id/send-reminder-24h', async (request, reply) => {
+      const tenantId = request.user.tenantId;
+      if (!tenantId) {
+        return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
+      }
+
+      const { id } = request.params as { id: string };
+
+      const schedule = await prisma.schedule.findFirst({
+        where: { id, tenantId },
+        include: {
+          client: true,
+          professional: true,
+          service: true,
+          items: { include: { service: true } }
+        }
+      });
+
+      if (!schedule) {
+        return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
+      }
+
+      if (!schedule.client?.phone) {
+        return reply.status(400).send({ error: 'Sem telefone', message: 'Cliente não possui telefone cadastrado.' });
+      }
+
+      const dateStr = schedule.date instanceof Date
+        ? schedule.date.toISOString().slice(0, 10)
+        : String(schedule.date).slice(0, 10);
+      const dateFormatted = dateStr.split('-').reverse().join('/');
+      const serviceNames = schedule.items && schedule.items.length > 0
+        ? schedule.items.map((it: any) => it.service?.name).filter(Boolean).join(', ')
+        : schedule.service?.name;
+
+      const clientName = schedule.client.name || 'Cliente';
+      const clientFirstName = clientName.trim().split(' ')[0] || clientName;
+
+      const result = await NotificationDispatcherService.dispatch({
+        tenantId,
+        trigger: 'BOOKING_REMINDER_CLIENT',
+        scheduleId: schedule.id,
+        data: {
+          clientName,
+          clientFirstName,
+          clientPhone: schedule.client.phone,
+          clientEmail: schedule.client.email || undefined,
+          serviceName: serviceNames,
+          professionalName: schedule.professional?.name,
+          date: dateFormatted,
+          time: schedule.startTime,
+          duration: `${schedule.totalDurationMinutes} min`
+        }
+      });
+
+      const updated = await prisma.schedule.update({
+        where: { id: schedule.id },
+        data: { reminder24hSentAt: new Date() }
+      });
+
+      return reply.send({
+        success: true,
+        message: 'Lembrete de agendamento disparado com sucesso!',
+        reminder24hSentAt: updated.reminder24hSentAt,
+        waLink: result.waLink,
+        whatsappText: result.whatsappText
       });
     });
 
@@ -894,7 +1047,7 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
       });
     });
 
-    // PATCH /schedules/:id - Remarcar ou editar notas com recálculo de endTime e validação de conflitos
+    // PATCH /schedules/:id - Remarcar ou editar notas/serviço com recálculo de endTime e validação de conflitos
     authScope.patch('/:id', async (request, reply) => {
       const tenantId = request.user.tenantId;
       if (!tenantId) {
@@ -903,13 +1056,16 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
 
       const { id } = request.params as { id: string };
       const editSchema = z.object({
+        serviceId: z.string().uuid().optional(),
         dateStr: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
         professionalId: z.string().uuid().optional(),
         notes: z.string().max(500).optional().nullable(),
         totalPrice: z.coerce.number().min(0, 'Valor total não pode ser negativo.').optional(),
         arrivalPhotoUrl: z.string().nullable().optional(),
-        resultPhotoUrl: z.string().nullable().optional()
+        resultPhotoUrl: z.string().nullable().optional(),
+        allowOverlap: z.boolean().optional(),
+        notifyClient: z.boolean().optional().default(true)
       });
 
       const body = editSchema.parse(request.body);
@@ -923,21 +1079,37 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         return reply.status(404).send({ error: 'Não encontrado', message: 'Agendamento não localizado.' });
       }
 
+      let targetService = existing.service;
+      if (body.serviceId && body.serviceId !== existing.serviceId) {
+        const foundService = await prisma.service.findFirst({
+          where: { id: body.serviceId, tenantId }
+        });
+        if (!foundService) {
+          return reply.status(404).send({ error: 'Não encontrado', message: 'Serviço não localizado.' });
+        }
+        targetService = foundService;
+      }
+
       // Calcula novo horário e término com base na duração real dos serviços
       const targetDate = body.dateStr ? parseYMDToSafeUtcDate(body.dateStr).targetDate : existing.date;
       const targetDayOfWeek = parseYMDToSafeUtcDate(body.dateStr || existing.date.toISOString().slice(0, 10)).dayOfWeek;
       const targetStartTime = body.startTime || existing.startTime;
       const targetProfessionalId = body.professionalId || existing.professionalId;
-      const servicesDuration = existing.items && existing.items.length > 0
-        ? existing.items.reduce((acc, item) => acc + (item.service?.durationMinutes || 0), 0)
-        : (existing.service?.durationMinutes || existing.totalDurationMinutes || 30);
-      const duration = servicesDuration > 0 ? servicesDuration : (existing.totalDurationMinutes || 30);
+
+      const duration = body.serviceId && body.serviceId !== existing.serviceId
+        ? (targetService?.durationMinutes || 30)
+        : (existing.items && existing.items.length > 0
+            ? existing.items.reduce((acc, item) => acc + (item.service?.durationMinutes || 0), 0)
+            : (existing.service?.durationMinutes || existing.totalDurationMinutes || 30));
+      const effectiveDuration = duration > 0 ? duration : (existing.totalDurationMinutes || 30);
       const startMinutes = parseTimeToMinutes(targetStartTime);
-      const endMinutes = startMinutes + duration;
+      const endMinutes = startMinutes + effectiveDuration;
       const targetEndTime = formatMinutesToTime(endMinutes);
 
-      // Validação de conflito se data, horário ou profissional foram alterados
-      if (body.dateStr || body.startTime || body.professionalId) {
+      const allowOverlap = body.allowOverlap ?? true;
+
+      // Validação de conflito se data, horário ou profissional foram alterados e sobreposição NÃO foi permitida
+      if ((body.dateStr || body.startTime || body.professionalId || body.serviceId) && !allowOverlap) {
         const conflictingSchedule = await prisma.schedule.findFirst({
           where: {
             tenantId,
@@ -956,7 +1128,9 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
             message: 'Este horário já está ocupado por outro agendamento.'
           });
         }
+      }
 
+      if ((body.dateStr || body.startTime || body.professionalId || body.serviceId) && !allowOverlap) {
         const conflictingBlock = await prisma.scheduleBlock.findFirst({
           where: {
             tenantId,
@@ -977,6 +1151,20 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
+      if (body.serviceId && body.serviceId !== existing.serviceId && targetService) {
+        await prisma.scheduleItem.deleteMany({
+          where: { scheduleId: id }
+        });
+        await prisma.scheduleItem.create({
+          data: {
+            scheduleId: id,
+            serviceId: targetService.id,
+            price: body.totalPrice !== undefined ? body.totalPrice : targetService.price,
+            durationMinutes: targetService.durationMinutes
+          }
+        });
+      }
+
       const updated = await prisma.schedule.update({
         where: { id },
         data: {
@@ -984,21 +1172,32 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
           startTime: targetStartTime,
           endTime: targetEndTime,
           professionalId: targetProfessionalId,
+          ...(body.serviceId ? { serviceId: body.serviceId, totalDurationMinutes: effectiveDuration } : {}),
           ...(body.notes !== undefined ? { notes: body.notes?.trim() || null } : {}),
-          ...(body.totalPrice !== undefined ? { totalPrice: body.totalPrice } : {}),
+          ...(body.totalPrice !== undefined
+            ? { totalPrice: body.totalPrice }
+            : (body.serviceId && targetService ? { totalPrice: targetService.price } : {})),
           ...(body.arrivalPhotoUrl !== undefined ? { arrivalPhotoUrl: body.arrivalPhotoUrl } : {}),
           ...(body.resultPhotoUrl !== undefined ? { resultPhotoUrl: body.resultPhotoUrl } : {})
         },
         include: {
           client: true,
           professional: true,
-          service: true
+          service: true,
+          items: { include: { service: true } }
         }
       });
 
+      let dispatchResult: Awaited<ReturnType<typeof NotificationDispatcherService.dispatch>> | null = null;
+
       try {
-        if (body.dateStr || body.startTime) {
-          const dateFormatted = body.dateStr ? body.dateStr.split('-').reverse().join('/') : updated.date.toISOString().slice(0, 10).split('-').reverse().join('/');
+        const serviceChanged = body.serviceId && body.serviceId !== existing.serviceId;
+        const timeChanged = body.startTime && body.startTime !== existing.startTime;
+        const dateChanged = body.dateStr && body.dateStr !== existing.date.toISOString().slice(0, 10);
+        const profChanged = body.professionalId && body.professionalId !== existing.professionalId;
+
+        if (serviceChanged || timeChanged || dateChanged || profChanged) {
+          const dateFormatted = updated.date.toISOString().slice(0, 10).split('-').reverse().join('/');
           const clientName = updated.client?.name || 'Cliente';
           const clientFirstName = clientName.trim().split(' ')[0] || clientName;
 
@@ -1006,33 +1205,39 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
             tenantId,
             category: NotificationCategory.SCHEDULE,
             priority: NotificationPriority.MEDIUM,
-            title: 'Agendamento Remarcado',
-            message: `O agendamento de ${clientName} foi reagendado${dateFormatted ? ` para ${dateFormatted}` : ''}${body.startTime ? ` às ${body.startTime}` : ''}.`,
+            title: 'Agendamento Atualizado',
+            message: `O agendamento de ${clientName} foi alterado para ${dateFormatted} às ${updated.startTime} (${updated.service?.name}).`,
             link: '/dashboard/agendamentos'
           });
 
-          // Notifica Cliente sobre o reagendamento via WhatsApp e Email
-          await NotificationDispatcherService.dispatch({
-            tenantId,
-            trigger: 'BOOKING_UPDATED_CLIENT',
-            scheduleId: updated.id,
-            data: {
-              clientName,
-              clientFirstName,
-              clientPhone: updated.client?.phone,
-              clientEmail: updated.client?.email || undefined,
-              serviceName: updated.service?.name,
-              professionalName: updated.professional?.name,
-              date: dateFormatted,
-              time: updated.startTime
-            }
-          });
+          // Notifica Cliente sobre o reagendamento/alteração via WhatsApp e Email se notifyClient ativo
+          if (body.notifyClient !== false) {
+            dispatchResult = await NotificationDispatcherService.dispatch({
+              tenantId,
+              trigger: 'BOOKING_UPDATED_CLIENT',
+              scheduleId: updated.id,
+              data: {
+                clientName,
+                clientFirstName,
+                clientPhone: updated.client?.phone,
+                clientEmail: updated.client?.email || undefined,
+                serviceName: updated.service?.name,
+                professionalName: updated.professional?.name,
+                date: dateFormatted,
+                time: updated.startTime
+              }
+            });
+          }
         }
       } catch (e) {
         console.error('Erro ao notificar reagendamento:', e);
       }
 
-      return reply.send(updated);
+      return reply.send({
+        ...updated,
+        waLink: dispatchResult?.waLink || null,
+        whatsappText: dispatchResult?.whatsappText || null
+      });
     });
 
     // DELETE /schedules/:id - Excluir agendamento

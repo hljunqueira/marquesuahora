@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { prisma } from '../../lib/prisma';
-import { AvailabilityService } from '../schedules/availability.service';
 import { ConversationMemoryService } from './conversation-memory.service';
 import { HumanizerGuardrail } from './humanizer-guardrail';
+import { AvailabilityService } from '../schedules/availability.service';
+import { getBrazilTodayYMD, parseYMDToSafeUtcDate } from '../../utils/date-utils';
 
 export interface ProcessAssistantMessageParams {
   tenantId: string;
@@ -10,6 +11,24 @@ export interface ProcessAssistantMessageParams {
   clientName?: string | null;
   messageText: string;
 }
+
+export interface ExtractedTargetDate {
+  dateStr: string; // YYYY-MM-DD
+  formattedDate: string; // DD/MM
+  weekdayName: string; // ex: Sexta-feira
+  dayOfWeek: number; // 0..6
+  isExplicit: boolean;
+}
+
+const WEEKDAY_NAMES = [
+  'Domingo',
+  'Segunda-feira',
+  'Terça-feira',
+  'Quarta-feira',
+  'Quinta-feira',
+  'Sexta-feira',
+  'Sábado'
+];
 
 export class AiAssistantService {
   private static getApiKey(): string | undefined {
@@ -27,8 +46,8 @@ export class AiAssistantService {
   public static async processMessage(params: ProcessAssistantMessageParams): Promise<string> {
     const { tenantId, clientPhone, messageText } = params;
 
-    // 1. Carrega dados do estabelecimento, configurações de IA, serviços, produtos e cursos
-    const [tenant, aiSettings, activeServices, professionals, activeProducts, activeCourses] = await Promise.all([
+    // 1. Carrega dados do estabelecimento, configurações de IA, serviços, produtos, cursos e regras semanais
+    const [tenant, aiSettings, activeServices, professionals, activeProducts, activeCourses, availabilityRules] = await Promise.all([
       prisma.tenant.findUnique({
         where: { id: tenantId }
       }),
@@ -50,6 +69,9 @@ export class AiAssistantService {
       prisma.course.findMany({
         where: { tenantId, isActive: true },
         select: { id: true, title: true, price: true, description: true }
+      }),
+      prisma.availabilityRule.findMany({
+        where: { tenantId, professionalId: null }
       })
     ]);
 
@@ -64,6 +86,7 @@ export class AiAssistantService {
     const history = await ConversationMemoryService.getRecentHistory(tenantId, clientPhone);
 
     const rawLower = messageText.toLowerCase().trim();
+    const showcaseUrl = `https://marquesuahora.com.br/${tenant.slug}`;
 
     // 2. Transbordo para atendente humano se solicitado explicitamente
     if (
@@ -73,12 +96,38 @@ export class AiAssistantService {
       rawLower.includes('alguém humano') ||
       rawLower.includes('falar com alguem')
     ) {
-      const handoffReply = `Vou avisar nossa equipe da recepção agora mesmo para te atender por aqui pelo WhatsApp! Enquanto isso, se quiser conferir nossos horários e serviços online, nosso link é: https://marquesuahora.com.br/${tenant.slug}`;
+      const handoffReply = `Vou avisar nossa equipe da recepção agora mesmo para te atender por aqui pelo WhatsApp! Enquanto isso, se quiser conferir nossos horários e serviços online, nosso link é: ${showcaseUrl}`;
       await ConversationMemoryService.addMessage(tenantId, clientPhone, 'assistant', handoffReply);
       return handoffReply;
     }
 
-    // 3. Tenta identificar se o cliente está buscando agendar ou consultar horários
+    // 2.1 Tratamento de agradecimentos e confirmações simples: evita loop de reenvio de confirmação longa
+    const cleanTokens = rawLower.replace(/[!.,;:?]/g, ' ').trim().split(/\s+/).filter(Boolean);
+    const ackWords = new Set([
+      'ok', 'okay', 'obrigada', 'obrigado', 'de', 'nada', 'valeu', 'combinado',
+      'show', 'beleza', 'perfeito', 'ta', 'tá', 'bom', 'combinadissimo', 'combinadíssimo',
+      'ate', 'até', 'logo', 'mais', 'sexta', 'segunda', 'terca', 'terça', 'quarta', 'quinta', 'sabado', 'sábado', 'domingo', 'amanha', 'amanhã', 'la', 'lá', 'sim', 'isso', 'otimo', 'ótimo'
+    ]);
+    const isSimpleAck = cleanTokens.length > 0 && cleanTokens.length <= 4 && cleanTokens.every(w => ackWords.has(w));
+    const lastAssistantMessage = history.filter(h => h.role === 'assistant').pop()?.content || '';
+    const isRecentConfirmation = lastAssistantMessage.includes('confirmado') || lastAssistantMessage.includes('reservado');
+
+    if (isSimpleAck && (isRecentConfirmation || history.length > 2)) {
+      const quickReplies = [
+        'Imagina! Te espero com todo carinho. Até logo! 😊',
+        'Combinado! Qualquer dúvida antes é só me chamar. Até breve! 😊',
+        'Por nada! Vai ser um prazer te atender. Até logo! 😊'
+      ];
+      const quickReply = quickReplies[Math.floor(Math.random() * quickReplies.length)];
+      await ConversationMemoryService.addMessage(tenantId, clientPhone, 'assistant', quickReply);
+      return quickReply;
+    }
+
+    // 3. Calendário dinâmico dos próximos 7 dias no fuso de Brasília
+    const todayYMD = getBrazilTodayYMD();
+    const weeklyCalendarText = this.buildWeeklyCalendarOverview(todayYMD, availabilityRules, tenant);
+
+    // 4. Identificação de intenção de agendamento ou horários
     const isBookingIntent =
       rawLower.includes('agendar') ||
       rawLower.includes('marcar') ||
@@ -99,16 +148,15 @@ export class AiAssistantService {
       rawLower.includes('terca') ||
       rawLower.includes('quarta') ||
       rawLower.includes('quinta') ||
-      rawLower.includes('semana que vem');
+      rawLower.includes('semana que vem') ||
+      rawLower.includes('proxima semana') ||
+      rawLower.includes('próxima semana');
 
     let availabilityContext = '';
 
     if (isBookingIntent && activeServices.length > 0) {
-      // Extrai data aproximada da mensagem
-      const targetDate = this.extractDateFromMessage(rawLower);
-      const dateStr = targetDate.toISOString().slice(0, 10);
-      const [y, m, d] = dateStr.split('-');
-      const formattedDate = `${d}/${m}/${y}`;
+      // Extrai data pretendida com validação de dias da semana
+      const targetDateInfo = this.extractTargetDate(rawLower, todayYMD);
 
       // Histórico recente + mensagem atual para identificar se um serviço foi explicitado
       const combinedContext = [...history.map(h => h.content), rawLower].join(' ').toLowerCase();
@@ -141,42 +189,55 @@ export class AiAssistantService {
 
       if (isAmbiguousMaintenance) {
         availabilityContext = `A cliente perguntou sobre "manutenção", mas o estúdio oferece opções com duração e preços diferentes: Manutenção de Alongamento em Fibra (R$ 135) e Manutenção de Banho de Gel (R$ 110). Pergunte com carinho qual das duas ela gostaria de agendar para verificar o horário ideal.`;
-      } else if (matchedService) {
+      } else {
         try {
+          const serviceToQuery = matchedService || activeServices[0];
           const slotsData = await AvailabilityService.getAvailableSlots({
             tenantId,
-            serviceIds: [matchedService.id],
-            dateStr
+            serviceIds: [serviceToQuery.id],
+            dateStr: targetDateInfo.dateStr
           });
 
-          const allAvailable = [
-            ...slotsData.slots.morning.filter(s => s.available).map(s => s.time),
-            ...slotsData.slots.afternoon.filter(s => s.available).map(s => s.time),
-            ...slotsData.slots.night.filter(s => s.available).map(s => s.time)
-          ];
-
-          const cleanName = matchedService.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim();
-
-          if (allAvailable.length > 0) {
-            const sampleSlots = allAvailable.slice(0, 3).join(' ou ');
-            availabilityContext = `Para ${formattedDate} (${cleanName}), temos horários livres às ${sampleSlots}. Pergunte qual deles fica melhor para ela.`;
+          if (!slotsData.isOpen) {
+            // DIA FECHADO!
+            const reason = slotsData.reason || 'estamos fechados neste dia da semana';
+            availabilityContext = `ALERTA DE DIA FECHADO: Em ${targetDateInfo.weekdayName} (${targetDateInfo.formattedDate}), o estúdio está FECHADO (${reason}). NUNCA diga que temos horários neste dia! Avise com carinho que neste dia estamos fechados, informe os próximos dias abertos disponíveis no calendário acima, e passe o link do site: ${showcaseUrl} para ela escolher outra data.`;
           } else {
-            availabilityContext = `Para ${formattedDate}, os horários para ${cleanName} já foram preenchidos. Pergunte se ela gostaria de ver horários para outro dia.`;
+            const allAvailable = [
+              ...slotsData.slots.morning.filter((s: { available: boolean }) => s.available).map((s: { time: string }) => s.time),
+              ...slotsData.slots.afternoon.filter((s: { available: boolean }) => s.available).map((s: { time: string }) => s.time),
+              ...slotsData.slots.night.filter((s: { available: boolean }) => s.available).map((s: { time: string }) => s.time)
+            ];
+
+            if (matchedService) {
+              const cleanName = matchedService.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim();
+              if (allAvailable.length > 0) {
+                const sampleSlots = allAvailable.slice(0, 3).join(' ou ');
+                availabilityContext = `Para ${targetDateInfo.weekdayName}, dia ${targetDateInfo.formattedDate} (${cleanName}), temos horários livres às ${sampleSlots}. Ofereça essas opções e informe que ela pode escolher por aqui ou ver todos os horários e agendar no site: ${showcaseUrl}.`;
+              } else {
+                availabilityContext = `Para ${targetDateInfo.weekdayName}, dia ${targetDateInfo.formattedDate}, os horários para ${cleanName} já foram preenchidos. Convide-a com carinho a ver os próximos dias disponíveis no site: ${showcaseUrl} ou pergunte se prefere outro dia por aqui.`;
+              }
+            } else {
+              // Cliente não especificou serviço, mas o dia está aberto
+              const sampleServices = activeServices
+                .slice(0, 3)
+                .map(s => s.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim())
+                .join(', ');
+
+              if (allAvailable.length > 0) {
+                availabilityContext = `Para ${targetDateInfo.weekdayName}, dia ${targetDateInfo.formattedDate}, o estúdio está ABERTO e temos vagas livres sim. Como ela ainda não informou o serviço, pergunte com carinho qual procedimento ela gostaria de agendar (dê como exemplo: ${sampleServices}) e informe que ela também pode conferir tudo no site: ${showcaseUrl}.`;
+              } else {
+                availabilityContext = `Para ${targetDateInfo.weekdayName}, dia ${targetDateInfo.formattedDate}, os horários já estão esgotados. Convide-a a ver as próximas datas pelo site: ${showcaseUrl}.`;
+              }
+            }
           }
         } catch (err: any) {
           console.warn('[AiAssistant] Erro ao consultar disponibilidade:', err.message);
         }
-      } else {
-        // Cliente perguntou de data/horário mas NÃO indicou qual serviço quer fazer
-        const sampleServices = activeServices
-          .slice(0, 3)
-          .map(s => s.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim())
-          .join(', ');
-        availabilityContext = `O cliente perguntou sobre horários para ${formattedDate}, mas NÃO informou qual procedimento deseja realizar. NUNCA adivinhe. Responda confirmando que temos horários disponíveis sim e pergunte com carinho qual procedimento ela gostaria de agendar (dê como exemplo: ${sampleServices}), para checar a duração certinha.`;
       }
     }
 
-    // 4. Regra de Sinal Anti-Falta (específica para 1ª cliente ou geral)
+    // 5. Regra de Sinal Anti-Falta (específica para 1ª cliente ou geral)
     let depositInfo = '';
     let previousBookingsCount = 0;
     try {
@@ -204,7 +265,7 @@ export class AiAssistantService {
       } via PIX direto. Chave PIX: ${tenant.pixKey || ''}${tenant.pixKeyHolder ? ` (${tenant.pixKeyHolder})` : ''}.`;
     }
 
-    // 5. Monta o Prompt com Padrão Humanizer
+    // 6. Monta o Prompt com Padrão Humanizer
     const apiKey = this.getApiKey();
     if (!apiKey || apiKey.includes('sua_chave')) {
       const fallback = this.generateFallbackResponse(tenant, activeServices, availabilityContext, params.clientName);
@@ -236,43 +297,51 @@ export class AiAssistantService {
 
     const openingHours = `${tenant.openingTime || '09:00'} às ${tenant.closingTime || '20:00'}`;
 
-    const systemPrompt = `Você é a recepcionista acolhedora, atenciosa e educada do estúdio "${tenant.name}".
-Seu objetivo é conversar com a cliente de forma humana e calorosa pelo WhatsApp, esclarecer dúvidas com segurança e conduzir o agendamento passo a passo.
+    const systemPrompt = `Você é a recepcionista oficial do estúdio "${tenant.name}".
+Seu objetivo é conversar com a cliente de forma humana, simpática e ÁGIL pelo WhatsApp, conduzindo o agendamento de forma leve, acolhedora e prestativa.
 
 DADOS DO ESTABELECIMENTO:
 - Estabelecimento: ${tenant.name}
 - Endereço: ${fullAddress || 'Centro'}
-- Horário de Atendimento: ${openingHours}
+- Horário Padrão: ${openingHours}
 - Profissional Responsável: ${professionalsList}
+- Link Oficial da Vitrine e Agendamento Online: ${showcaseUrl}
+
+CALENDÁRIO OFICIAL DOS PRÓXIMOS DIAS (HORÁRIO DE BRASÍLIA):
+${weeklyCalendarText}
 ${depositInfo ? `\nPOLÍTICA DE SINAL ANTI-FALTA:\n${depositInfo}\n` : ''}
-${availabilityContext ? `\nDISPONIBILIDADE / SITUAÇÃO DE HORÁRIOS:\n${availabilityContext}\n` : ''}
-SERVIÇOS DO ESTABELECIMENTO:
+${availabilityContext ? `\nDISPONIBILIDADE REAL DE HORÁRIOS:\n${availabilityContext}\n` : ''}
+SERVIÇOS DISPONÍVEIS:
 ${servicesList}
+${productsList ? `\nPRODUTOS À VENDA:\n${productsList}` : ''}
+${coursesList ? `\nCURSOS E TREINAMENTOS:\n${coursesList}` : ''}
 
-PRODUTOS À VENDA:
-${productsList}
-
-CURSOS E TREINAMENTOS:
-${coursesList}
-${aiSettings?.customInstructions ? `\nINSTRUÇÕES ESPECÍFICAS DO SALÃO:\n${aiSettings.customInstructions}\n` : ''}
+${aiSettings?.customInstructions ? `\nINSTRUÇÕES E DIRETRIZES ESPECÍFICAS DO SALÃO (SIGA RIGOROSAMENTE - PRIORIDADE MÁXIMA):\n${aiSettings.customInstructions}\n` : ''}
 
 REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP (SIGA RIGOROSAMENTE):
-1. TOM ACOLHEDOR E NATURAL: Fale de forma simpática e educada, como uma profissional de atendimento de beleza. Trate sempre a cliente no feminino ("Seja bem-vinda"). NUNCA chame a pessoa de "cliente".
-2. REGRA DO LINK DO SITE (EXTREMAMENTE IMPORTANTE):
-   - NUNCA envie links do site no início ou no meio da conversa!
-   - NUNCA termine mensagens com frases automáticas como "Se preferir, agende pelo link oficial...". Isso parece robô e desvaloriza o atendimento.
-   - Envie o link (https://marquesuahora.com.br/${tenant.slug}) APENAS se a cliente pedir expressamente ("tem site?", "qual o link?") ou no momento final da conversa para pagamento do sinal de reserva.
-3. CONDUÇÃO DINÂMICA DO AGENDAMENTO:
-   - Se a cliente perguntou por horários sem citar o procedimento: confirme que temos horários livres e pergunte qual procedimento ela deseja fazer (cite 2 a 3 exemplos naturais, ex: alongamento em fibra, banho de gel ou manutenção).
-   - Se a cliente disse um termo genérico (ex: apenas "manutenção"): pergunte primeiro se é manutenção de alongamento ou de banho de gel para saber a duração correta.
-   - Se o procedimento já estiver claro e você tiver os horários: ofereça 2 opções diretas (ex: "Temos às 11:30 ou às 14:00. Qual desses dois fica melhor para você?").
-4. RESPOSTAS CURTAS (PADRÃO WHATSAPP):
-   - Responda em no máximo 2 a 3 frases curtas. Mensagens longas não são lidas no WhatsApp.
-   - Sempre termine com uma pergunta direta convidando a cliente a responder.
-   - Remova caracteres de sistema: nunca escreva barras verticais ("|"). Use linguagem natural.
-5. TRAVAS:
-   - Não use frases robóticas ("Como uma IA...", "Certamente!", "Com certeza!").
-   - Não exagere em emojis. Use no máximo 1 emoji discreto por mensagem.`;
+1. RESPOSTAS CURTAS E DIRETAS (MÁXIMO 2 A 3 FRASES CURTAS):
+   - Nunca envie parágrafos longos ou textos gigantes. No WhatsApp as pessoas querem agilidade.
+   - Trate sempre a cliente no feminino ("Seja bem-vinda"). NUNCA chame a pessoa de "cliente".
+   - Use no máximo 1 emoji discreto por mensagem.
+
+2. DUALIDADE: SITE OU WHATSAPP (SEMPRE INFORMAR AMBAS AS OPÇÕES):
+   - Em conversas sobre agendamento, horários ou dúvidas de serviços, SEMPRE informe o link da vitrine para que ela possa ver todos os horários e agendar online, OU ofereça para continuar por aqui mesmo pelo WhatsApp.
+   - Exemplo: "Você pode ver todos os nossos horários e agendar direto no site: ${showcaseUrl} ou, se preferir, pode me dizer o horário que fica melhor que eu já reservo por aqui!"
+
+3. SEGUIR FIELMENTE AS CONFIGURAÇÕES DO SALÃO:
+   - Siga rigorosamente as instruções personalizadas do estabelecimento cadastradas acima (valores, diferenciação de fibra vs gel, regras de sinal e chave PIX).
+
+4. PRECISÃO ABSOLUTA DE DATAS E DIAS DA SEMANA:
+   - NUNCA invente datas ou dias da semana! Use rigorosamente o CALENDÁRIO OFICIAL acima.
+   - Se um dia estiver marcado como FECHADO no calendário ou na disponibilidade, NUNCA diga que temos vaga nesse dia. Avise com carinho que estamos fechados e sugira o próximo dia aberto.
+   - Se a disponibilidade indicar horários específicos, cite apenas esses horários reais.
+
+5. QUANDO A CLIENTE APENAS AGRADECER OU DIZER "OK":
+   - Responda apenas um encerramento breve e afetuoso (ex: "Imagina, te espero com carinho! Até lá! 😊").
+   - NUNCA repita toda a confirmação de endereço, valores e procedimentos em loop!
+
+6. NUNCA ALUCINAR AÇÕES INTERNAS DO SISTEMA:
+   - Nunca invente que vai "desativar a secretária", "desligar a IA" ou "modificar o sistema". NUNCA use clichês robóticos ("Como assistente virtual...", "Certamente!").`;
 
     try {
       const conversationMessages = history.map(turn => ({
@@ -320,24 +389,105 @@ REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP (SIGA RIGOROSAMENTE):
   }
 
   /**
-   * Extrai a data pretendida a partir de termos em português (hoje, amanhã, etc.).
+   * Constrói visão geral dos próximos 7 dias com datas reais e status de funcionamento.
    */
-  private static extractDateFromMessage(raw: string): Date {
-    const now = new Date();
+  private static buildWeeklyCalendarOverview(
+    todayYMD: string,
+    rules: Array<{ dayOfWeek: number; isActive?: boolean; isOpen?: boolean; startTime: string; endTime: string }>,
+    tenant: any
+  ): string {
+    const { targetDate: baseDate } = parseYMDToSafeUtcDate(todayYMD);
+    const lines: string[] = [];
+
+    const totalRules = rules.length;
+    const ruleMap = new Map<number, { isActive?: boolean; isOpen?: boolean; startTime: string; endTime: string }>();
+    for (const r of rules) {
+      ruleMap.set(r.dayOfWeek, r);
+    }
+
+    for (let offset = 0; offset < 7; offset++) {
+      const current = new Date(baseDate.getTime() + offset * 86400000);
+      const y = current.getUTCFullYear();
+      const m = String(current.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(current.getUTCDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
+      const dow = current.getUTCDay();
+      const dowName = WEEKDAY_NAMES[dow];
+
+      let label = `${dowName}, ${d}/${m}`;
+      if (offset === 0) label = `HOJE (${dowName}, ${d}/${m})`;
+      else if (offset === 1) label = `AMANHÃ (${dowName}, ${d}/${m})`;
+
+      const rule = ruleMap.get(dow);
+      if (totalRules > 0) {
+        const isDayOpen = rule ? (rule.isActive !== undefined ? rule.isActive : rule.isOpen ?? true) : false;
+        if (!isDayOpen) {
+          lines.push(`• ${label}: FECHADO`);
+        } else {
+          lines.push(`• ${label}: ABERTO (${rule?.startTime || tenant.openingTime || '09:00'} às ${rule?.endTime || tenant.closingTime || '20:00'})`);
+        }
+      } else {
+        // Sem regras cadastradas: domingo fechado, outros dias horário padrão
+        if (dow === 0) {
+          lines.push(`• ${label}: FECHADO`);
+        } else {
+          lines.push(`• ${label}: ABERTO (${tenant.openingTime || '09:00'} às ${tenant.closingTime || '20:00'})`);
+        }
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Extrai a data pretendida a partir de termos em português com precisão de calendário.
+   */
+  public static extractTargetDate(raw: string, todayYMD: string): ExtractedTargetDate {
+    const { targetDate: baseDate, dayOfWeek: todayDow } = parseYMDToSafeUtcDate(todayYMD);
+
+    // 1. Termos relativos diretos
+    if (raw.includes('depois de amanha') || raw.includes('depois de amanhã')) {
+      const target = new Date(baseDate.getTime() + 2 * 86400000);
+      return this.formatDateOutput(target, true);
+    }
 
     if (raw.includes('amanha') || raw.includes('amanhã')) {
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow;
+      const target = new Date(baseDate.getTime() + 1 * 86400000);
+      return this.formatDateOutput(target, true);
     }
 
-    if (raw.includes('depois de amanha') || raw.includes('depois de amanhã')) {
-      const next = new Date(now);
-      next.setDate(next.getDate() + 2);
-      return next;
+    if (raw.includes('hoje')) {
+      return this.formatDateOutput(baseDate, true);
     }
 
-    // Dias da semana
+    // 2. Formato numérico explícito: "dia 23", "dia 27", "23/10", "27/10"
+    const slashMatch = raw.match(/\b([0-3]?[0-9])\/(0?[1-9]|1[0-2])\b/);
+    if (slashMatch) {
+      const day = parseInt(slashMatch[1], 10);
+      const month = parseInt(slashMatch[2], 10);
+      const year = baseDate.getUTCFullYear();
+      const target = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+      return this.formatDateOutput(target, true);
+    }
+
+    const dayNumberMatch = raw.match(/\bdia\s+([0-3]?[0-9])\b/);
+    if (dayNumberMatch) {
+      const day = parseInt(dayNumberMatch[1], 10);
+      let month = baseDate.getUTCMonth();
+      let year = baseDate.getUTCFullYear();
+      // Se o dia mencionado já passou mais de 10 dias em relação a hoje, assume próximo mês
+      if (day < baseDate.getUTCDate() - 3) {
+        month += 1;
+        if (month > 11) {
+          month = 0;
+          year += 1;
+        }
+      }
+      const target = new Date(Date.UTC(year, month, day, 12, 0, 0));
+      return this.formatDateOutput(target, true);
+    }
+
+    // 3. Dias da semana
     const weekMap: Record<string, number> = {
       domingo: 0,
       segunda: 1,
@@ -350,18 +500,39 @@ REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP (SIGA RIGOROSAMENTE):
       sábado: 6
     };
 
-    for (const [dayName, targetDay] of Object.entries(weekMap)) {
+    for (const [dayName, targetDow] of Object.entries(weekMap)) {
       if (raw.includes(dayName)) {
-        const result = new Date(now);
-        const currentDay = result.getDay();
-        let diff = targetDay - currentDay;
-        if (diff <= 0) diff += 7; // Próximo dia correspondente
-        result.setDate(result.getDate() + diff);
-        return result;
+        let diff = targetDow - todayDow;
+        if (raw.includes('que vem') || raw.includes('próxima') || raw.includes('proxima')) {
+          if (diff <= 0) diff += 7;
+        } else if (diff < 0) {
+          diff += 7; // Próxima ocorrência daquele dia
+        } else if (diff === 0 && !raw.includes('hoje')) {
+          // Ex: hoje é quinta e a pessoa diz "quinta": se for durante o dia, é hoje, se disser que vem é +7
+          diff = 0;
+        }
+        const target = new Date(baseDate.getTime() + diff * 86400000);
+        return this.formatDateOutput(target, true);
       }
     }
 
-    return now;
+    // Fallback padrão: se hoje ainda não passou da metade do expediente, hoje; senão amanhã
+    return this.formatDateOutput(baseDate, false);
+  }
+
+  private static formatDateOutput(date: Date, isExplicit: boolean): ExtractedTargetDate {
+    const y = date.getUTCFullYear();
+    const m = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(date.getUTCDate()).padStart(2, '0');
+    const dow = date.getUTCDay();
+
+    return {
+      dateStr: `${y}-${m}-${d}`,
+      formattedDate: `${d}/${m}`,
+      weekdayName: WEEKDAY_NAMES[dow],
+      dayOfWeek: dow,
+      isExplicit
+    };
   }
 
   /**
@@ -375,35 +546,32 @@ REGRAS OBRIGATÓRIAS DE COMUNICAÇÃO NO WHATSAPP (SIGA RIGOROSAMENTE):
   ): string {
     const firstName = clientName ? clientName.trim().split(' ')[0] : '';
     const greeting = firstName ? `Olá, ${firstName}!` : 'Olá!';
+    const showcaseUrl = `https://marquesuahora.com.br/${tenant.slug || 'studio-elegance'}`;
 
-    if (availabilityContext && availabilityContext.includes('NÃO informou qual serviço')) {
-      const sample = services
-        .slice(0, 3)
-        .map(s => s.name.replace(/\s*\|\s*/g, ' - ').replace(/\s+/g, ' ').trim())
-        .join(', ');
-
+    if (availabilityContext && availabilityContext.includes('FECHADO')) {
       return (
-        `${greeting} Temos horários disponíveis sim!\n\n` +
-        `Para eu verificar as opções certinhas com a duração ideal, qual procedimento você gostaria de realizar? (Por exemplo: ${sample}).`
+        `${greeting} ${availabilityContext}\n\n` +
+        `Você pode escolher outro dia direto pelo site: ${showcaseUrl} ou me falar por aqui mesmo qual dia prefere!`
       );
     }
 
     if (availabilityContext && availabilityContext.includes('manutenção')) {
       return (
-        `${greeting} Claro! Você gostaria de fazer a manutenção de Alongamento em Fibra ou de Banho de Gel?`
+        `${greeting} Você gostaria de fazer Manutenção de Alongamento em Fibra ou Banho de Gel?\n\n` +
+        `Se preferir ver todas as opções e horários livres, acesse: ${showcaseUrl} ou me responda por aqui!`
       );
     }
 
     if (availabilityContext) {
       return (
         `${greeting} ${availabilityContext}\n\n` +
-        `Algum desses horários fica bom para você?`
+        `Você pode agendar direto no site: ${showcaseUrl} ou me dizer por aqui qual horário fica melhor!`
       );
     }
 
     return (
       `${greeting} Seja muito bem-vinda ao estúdio *${tenant.name}*!\n\n` +
-      `Como posso te ajudar hoje? Me conte qual procedimento você gostaria de agendar.`
+      `Você pode conferir todos os horários e serviços pelo link: ${showcaseUrl} ou me falar por aqui o que gostaria de agendar!`
     );
   }
 }

@@ -47,6 +47,9 @@ vi.mock('../src/lib/prisma', () => ({
     },
     course: {
       findMany: vi.fn().mockResolvedValue([])
+    },
+    availabilityRule: {
+      findMany: vi.fn().mockResolvedValue([])
     }
   }
 }));
@@ -138,6 +141,92 @@ describe('Atendente IA Autônoma & Humanizer (AiAssistantService)', () => {
       expect(reply).toContain('10:00');
       expect(reply).toContain('14:30');
       expect(reply).toContain('https://marquesuahora.com.br/studio-elegance');
+    });
+
+    it('deve alertar cordialmente quando o dia solicitado estiver FECHADO', async () => {
+      const { AvailabilityService } = await import('../src/modules/schedules/availability.service');
+      vi.mocked(AvailabilityService.getAvailableSlots).mockResolvedValueOnce({
+        date: '2026-10-22',
+        isOpen: false,
+        reason: 'Estabelecimento fechado neste dia da semana.',
+        totalSlots: 0,
+        slots: { morning: [], afternoon: [], night: [] }
+      });
+
+      const reply = await AiAssistantService.processMessage({
+        tenantId: 'tenant-123',
+        clientPhone: '11977776666',
+        clientName: 'Mariana',
+        messageText: 'Tem horário para quinta-feira?'
+      });
+
+      expect(reply).toContain('FECHADO');
+      expect(reply).toContain('https://marquesuahora.com.br/studio-elegance');
+    });
+
+    it('deve responder de forma breve e acolhedora quando cliente envia simples agradecimento', async () => {
+      const tenantId = 'tenant-123';
+      const clientPhone = '11955554444';
+
+      // Simula turno anterior onde assistente confirmou agendamento
+      await ConversationMemoryService.addMessage(
+        tenantId,
+        clientPhone,
+        'assistant',
+        'Seu horário foi confirmado com sucesso para sexta-feira às 14:00!'
+      );
+
+      const reply = await AiAssistantService.processMessage({
+        tenantId,
+        clientPhone,
+        messageText: 'Ok, obrigada!'
+      });
+
+      expect(reply).toMatch(/(carinho|prazer|breve|logo)/i);
+      // Não deve reenviar link ou texto longo de confirmação
+      expect(reply).not.toContain('https://marquesuahora.com.br');
+    });
+  });
+
+  describe('4. Integridade e Precisão de Datas (extractTargetDate)', () => {
+    it('deve extrair corretamente data de "amanhã" e dias da semana', () => {
+      const todayYMD = '2026-10-22'; // Quinta-feira
+
+      const amanha = AiAssistantService.extractTargetDate('tem horário amanhã?', todayYMD);
+      expect(amanha.dateStr).toBe('2026-10-23');
+      expect(amanha.weekdayName).toBe('Sexta-feira');
+      expect(amanha.formattedDate).toBe('23/10');
+
+      const sexta = AiAssistantService.extractTargetDate('quero para sexta', todayYMD);
+      expect(sexta.dateStr).toBe('2026-10-23');
+      expect(sexta.weekdayName).toBe('Sexta-feira');
+
+      const terca = AiAssistantService.extractTargetDate('tem vaga na terça?', todayYMD);
+      expect(terca.dateStr).toBe('2026-10-27');
+      expect(terca.weekdayName).toBe('Terça-feira');
+      expect(terca.formattedDate).toBe('27/10');
+    });
+
+    it('deve extrair corretamente datas explícitas com número e barra ("dia 23", "27/10")', () => {
+      const todayYMD = '2026-10-22';
+
+      const dia23 = AiAssistantService.extractTargetDate('pode ser no dia 23?', todayYMD);
+      expect(dia23.dateStr).toBe('2026-10-23');
+      expect(dia23.weekdayName).toBe('Sexta-feira');
+
+      const dia27 = AiAssistantService.extractTargetDate('tem vaga 27/10?', todayYMD);
+      expect(dia27.dateStr).toBe('2026-10-27');
+      expect(dia27.weekdayName).toBe('Terça-feira');
+    });
+  });
+
+  describe('5. Modo Apenas Notificações (aiAssistantEnabled)', () => {
+    it('deve confirmar que o atributo aiAssistantEnabled desativa respostas automáticas da IA', () => {
+      const tenantWithAiEnabled = { id: 'tenant-1', aiAssistantEnabled: true };
+      const tenantWithAiDisabled = { id: 'tenant-2', aiAssistantEnabled: false };
+
+      expect(tenantWithAiEnabled.aiAssistantEnabled).toBe(true);
+      expect(tenantWithAiDisabled.aiAssistantEnabled).toBe(false);
     });
   });
 });

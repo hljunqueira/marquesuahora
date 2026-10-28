@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Trash2, Loader2 } from 'lucide-react';
+import { X, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
 import { ConfirmModal } from '@/components/ui/ConfirmModal';
 import { api } from '@/lib/api';
 import { formatLocalDateToYMD } from '@/lib/dateUtils';
 import { InputMask } from '@/components/ui/InputMask';
+import { WhatsAppIcon } from '@/components/icons/WhatsAppIcon';
 import { ScheduleAppointment, ProfessionalItem, ServiceOption } from './types';
 
 interface AgendaAppointmentModalProps {
@@ -77,6 +78,20 @@ export function AgendaAppointmentModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
+  const [notifyClientOnEdit, setNotifyClientOnEdit] = useState(true);
+  const [savedAppointmentData, setSavedAppointmentData] = useState<{
+    id?: string;
+    isEdit?: boolean;
+    clientName: string;
+    clientPhone: string;
+    serviceName: string;
+    dateFormatted: string;
+    startTime: string;
+    professionalName: string;
+    totalPrice: number;
+    waLink?: string | null;
+    whatsappText?: string | null;
+  } | null>(null);
 
   // Horários disponíveis para a data e profissional selecionados
   const [availableSlots, setAvailableSlots] = useState<{ morning: any[]; afternoon: any[]; night: any[] }>({
@@ -301,13 +316,6 @@ export function AgendaAppointmentModal({
       return;
     }
 
-    if (conflictSchedule) {
-      setError(
-        `Horário Indisponível: O período selecionado (${startTime} às ${summary.calculatedEndTime}) colide com o agendamento de ${conflictSchedule.client?.name || 'outra cliente'} (${conflictSchedule.startTime} às ${conflictSchedule.endTime}). Por favor, escolha outro horário livre.`
-      );
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
@@ -324,15 +332,44 @@ export function AgendaAppointmentModal({
       }
 
       if (isEditing) {
-        await api.patch(`/schedules/${existingAppointment.id}`, {
+        const patchRes = await api.patch(`/schedules/${existingAppointment.id}`, {
           dateStr,
           startTime,
           professionalId: selectedProfessionalId || undefined,
           notes: notes.trim() || null,
-          totalPrice: finalPriceToSend
+          totalPrice: finalPriceToSend,
+          allowOverlap: true,
+          notifyClient: notifyClientOnEdit
         });
+
+        if (notifyClientOnEdit && patchRes.data?.waLink) {
+          const [y, m, d] = dateStr.split('-');
+          const formattedDate = `${d}/${m}/${y}`;
+          const mainService =
+            services.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
+          const profObj = professionals.find((p) => p.id === selectedProfessionalId);
+
+          setSavedAppointmentData({
+            id: existingAppointment.id,
+            isEdit: true,
+            clientName: clientName.trim(),
+            clientPhone: clientPhone.trim(),
+            serviceName: mainService,
+            dateFormatted: formattedDate,
+            startTime,
+            professionalName: profObj?.name || 'Profissional',
+            totalPrice: finalPriceToSend || summary.totalPrice,
+            waLink: patchRes.data?.waLink,
+            whatsappText: patchRes.data?.whatsappText
+          });
+          onSuccess();
+          return;
+        }
+
+        onSuccess();
+        onClose();
       } else {
-        await api.post('/schedules', {
+        const res = await api.post('/schedules', {
           serviceIds: allSelectedServiceIds,
           professionalId: selectedProfessionalId || undefined,
           dateStr,
@@ -340,12 +377,32 @@ export function AgendaAppointmentModal({
           clientName: clientName.trim(),
           clientPhone: clientPhone.trim(),
           notes: notes.trim() || undefined,
-          customTotalPrice: finalPriceToSend
+          customTotalPrice: finalPriceToSend,
+          allowOverlap: true
         });
-      }
 
-      onSuccess();
-      onClose();
+        const [y, m, d] = dateStr.split('-');
+        const formattedDate = `${d}/${m}/${y}`;
+        const mainService =
+          services.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
+        const profObj = professionals.find((p) => p.id === selectedProfessionalId);
+
+        setSavedAppointmentData({
+          id: res.data?.id,
+          isEdit: false,
+          clientName: clientName.trim(),
+          clientPhone: clientPhone.trim(),
+          serviceName: mainService,
+          dateFormatted: formattedDate,
+          startTime,
+          professionalName: profObj?.name || 'Profissional',
+          totalPrice: finalPriceToSend || summary.totalPrice,
+          waLink: res.data?.waLink,
+          whatsappText: res.data?.whatsappText
+        });
+
+        onSuccess();
+      }
     } catch (err: any) {
       const apiMsg =
         err?.response?.data?.message ||
@@ -377,8 +434,25 @@ export function AgendaAppointmentModal({
     }
   };
 
-  // Abertura de WhatsApp com mensagem limpa e pronta
-  const handleOpenWhatsApp = () => {
+  // Abertura de WhatsApp com template dinâmico das configurações
+  const handleOpenWhatsApp = async () => {
+    if (existingAppointment?.id) {
+      try {
+        const res = await api.get('/notifications/render-message', {
+          params: {
+            trigger: isEditing ? 'BOOKING_UPDATED_CLIENT' : 'BOOKING_CONFIRMATION_CLIENT',
+            scheduleId: existingAppointment.id
+          }
+        });
+        if (res.data?.waLink) {
+          window.open(res.data.waLink, '_blank');
+          return;
+        }
+      } catch {
+        // fallback
+      }
+    }
+
     const cleanPhone = clientPhone.replace(/\D/g, '');
     const phoneWithDdd =
       cleanPhone.length === 11 || cleanPhone.length === 10
@@ -396,6 +470,126 @@ export function AgendaAppointmentModal({
   };
 
   if (!mounted) return null;
+
+  // TELA DE SUCESSO COM DISPARO DO COMPROVANTE VIA WHATSAPP COM TEMPLATE DAS CONFIGURAÇÕES
+  if (savedAppointmentData) {
+    const handleSendVoucher = async () => {
+      if (savedAppointmentData.waLink) {
+        window.open(savedAppointmentData.waLink, '_blank');
+        return;
+      }
+
+      if (savedAppointmentData.id) {
+        try {
+          const trigger = savedAppointmentData.isEdit ? 'BOOKING_UPDATED_CLIENT' : 'BOOKING_CONFIRMATION_CLIENT';
+          const res = await api.get('/notifications/render-message', {
+            params: {
+              trigger,
+              scheduleId: savedAppointmentData.id
+            }
+          });
+          if (res.data?.waLink) {
+            window.open(res.data.waLink, '_blank');
+            return;
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      const cleanPhone = savedAppointmentData.clientPhone.replace(/\D/g, '');
+      const phoneWithDdd =
+        cleanPhone.length === 11 || cleanPhone.length === 10
+          ? `55${cleanPhone}`
+          : cleanPhone;
+
+      const tenantStored = typeof window !== 'undefined'
+        ? (JSON.parse(localStorage.getItem('tenant_data') || '{}')?.name || 'nosso espaço')
+        : 'nosso espaço';
+
+      const msg = encodeURIComponent(
+        `Agendamento Confirmado!\n\n` +
+        `Olá, ${savedAppointmentData.clientName}!\n` +
+        `Seu horário no *${tenantStored}* está confirmado com sucesso.\n\n` +
+        `• Serviço: ${savedAppointmentData.serviceName}\n` +
+        `• Profissional: ${savedAppointmentData.professionalName}\n` +
+        `• Data: ${savedAppointmentData.dateFormatted}\n` +
+        `• Horário: ${savedAppointmentData.startTime}\n` +
+        `• Valor: R$ ${savedAppointmentData.totalPrice.toFixed(2).replace('.', ',')}\n\n` +
+        `Te esperamos! Se precisar remarcar ou tiver dúvidas, basta responder por aqui.`
+      );
+      window.open(`https://wa.me/${phoneWithDdd}?text=${msg}`, '_blank');
+    };
+
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+        <div className="relative max-w-md w-full bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden shadow-2xl border border-slate-200 p-6 flex flex-col gap-5 text-center animate-in zoom-in-95 duration-150">
+          <div className="mx-auto w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 shadow-xs">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-900 tracking-tight">
+              {savedAppointmentData.isEdit ? 'Agendamento Alterado!' : 'Agendamento Confirmado!'}
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              {savedAppointmentData.isEdit
+                ? 'As alterações foram registradas na agenda. Você pode enviar o aviso oficial direto no WhatsApp da cliente:'
+                : 'O horário foi registrado na agenda. Você pode enviar o comprovante oficial direto no WhatsApp da cliente:'}
+            </p>
+          </div>
+
+          {/* Resumo do Comprovante */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-left space-y-2 text-xs">
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+              <span className="text-slate-500 font-medium">Cliente:</span>
+              <span className="font-bold text-slate-900">{savedAppointmentData.clientName}</span>
+            </div>
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+              <span className="text-slate-500 font-medium">WhatsApp:</span>
+              <span className="font-bold text-slate-700">{savedAppointmentData.clientPhone}</span>
+            </div>
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+              <span className="text-slate-500 font-medium">Serviço:</span>
+              <span className="font-bold text-slate-900">{savedAppointmentData.serviceName}</span>
+            </div>
+            <div className="flex justify-between items-center pb-2 border-b border-slate-200/60">
+              <span className="text-slate-500 font-medium">Data e Horário:</span>
+              <span className="font-bold text-slate-900">{savedAppointmentData.dateFormatted} às {savedAppointmentData.startTime}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-500 font-medium">Profissional:</span>
+              <span className="font-bold text-slate-900">{savedAppointmentData.professionalName}</span>
+            </div>
+          </div>
+
+          {/* Ações */}
+          <div className="flex flex-col gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={handleSendVoucher}
+              className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-98 text-white font-bold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+            >
+              <WhatsAppIcon variant="official" size={18} />
+              {savedAppointmentData.isEdit ? 'Enviar Alteração no WhatsApp' : 'Enviar Comprovante no WhatsApp'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSavedAppointmentData(null);
+                onClose();
+              }}
+              className="w-full py-2.5 px-4 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 active:scale-98 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+            >
+              Concluir
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -726,6 +920,7 @@ export function AgendaAppointmentModal({
             </div>
           </div>
 
+
           {/* Chips de Horários Disponíveis no Dia Selecionado */}
           <div className="pt-2 pb-1 border-t border-slate-100">
             <div className="flex items-center justify-between mb-1.5">
@@ -796,19 +991,19 @@ export function AgendaAppointmentModal({
             )}
           </div>
 
-          {/* Alerta Educativo de Conflito de Horário */}
+          {/* Alerta Informativo de Encaixe / Horário Compartilhado */}
           {conflictSchedule && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex flex-col gap-1 shadow-2xs">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs flex flex-col gap-1.5 shadow-2xs">
               <span className="font-bold text-amber-900 flex items-center gap-1.5">
-                Horário Ocupado neste Período
+                Encaixe / Horário Compartilhado
               </span>
               <span className="text-slate-700">
                 O intervalo das <strong>{startTime}</strong> às <strong>{summary.calculatedEndTime}</strong> colide com o atendimento de{' '}
                 <strong className="text-amber-950">{conflictSchedule.client?.name || 'outra cliente'}</strong>{' '}
                 ({conflictSchedule.startTime} às {conflictSchedule.endTime}).
               </span>
-              <span className="text-[11px] text-amber-700">
-                Selecione outro horário livre ou adeque os minutos de atendimento para confirmar.
+              <span className="text-[11px] text-amber-800 font-medium bg-amber-100/60 p-2 rounded-xl">
+                Como este é um agendamento manual interno, ele será forçado e salvo como encaixe na sua agenda sem abrir esse horário para as clientes na vitrine pública.
               </span>
             </div>
           )}
@@ -825,6 +1020,28 @@ export function AgendaAppointmentModal({
               className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-medium outline-hidden focus:border-purple-600 resize-none"
             />
           </div>
+
+          {/* Opção de Notificação na Alteração */}
+          {isEditing && (
+            <div className="p-3 bg-purple-50/60 border border-purple-100 rounded-xl">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={notifyClientOnEdit}
+                  onChange={(e) => setNotifyClientOnEdit(e.target.checked)}
+                  className="w-4 h-4 rounded text-tenant-primary focus:ring-purple-500 border-slate-300 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <span className="font-bold text-slate-800 block">
+                    Notificar cliente sobre a alteração no WhatsApp
+                  </span>
+                  <span className="text-[11px] text-slate-500">
+                    Utiliza o modelo configurado em Alteração de Agendamento.
+                  </span>
+                </div>
+              </label>
+            </div>
+          )}
 
           {/* Ações de Status (se for edição) */}
           {isEditing && (

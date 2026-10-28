@@ -1,7 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import { redis } from '../../../lib/redis';
 import { prisma } from '../../../lib/prisma';
-import { EvolutionService } from '../evolution.service';
+import { NotificationDispatcherService } from '../../notifications/dispatcher.service';
 
 export interface WhatsAppJobData {
   scheduleId: string;
@@ -19,7 +19,12 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
         tenant: true,
         client: true,
         professional: true,
-        service: true
+        service: true,
+        items: {
+          include: {
+            service: true
+          }
+        }
       }
     });
 
@@ -27,19 +32,54 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
       return { skipped: true, reason: 'Agendamento não encontrado ou cancelado' };
     }
 
-    const { tenant, client, professional, service } = schedule;
+    const { tenant, client, professional, service, items } = schedule;
     const dateStr = schedule.date instanceof Date ? schedule.date.toISOString().slice(0, 10) : String(schedule.date).slice(0, 10);
     const [year, month, day] = dateStr.split('-');
     const formattedDate = `${day}/${month}/${year}`;
+    const serviceNames = items && items.length > 0
+      ? items.map((it: any) => it.service?.name).filter(Boolean).join(', ')
+      : service.name;
 
     if (type === 'IMMEDIATE_CONFIRMATION') {
-      const addressDisplay = tenant.addressStreet
-        ? `${tenant.addressStreet}, ${tenant.addressNumber} - ${tenant.addressNeighborhood}, ${tenant.addressCity}`
-        : 'Consulte nossa recepção';
+      // 1. Mensagem oficial de confirmação para a cliente usando o template do estabelecimento
+      await NotificationDispatcherService.dispatch({
+        tenantId: tenant.id,
+        trigger: 'BOOKING_CONFIRMATION_CLIENT',
+        scheduleId: schedule.id,
+        data: {
+          clientName: client.name,
+          clientFirstName: client.name.trim().split(' ')[0],
+          clientPhone: client.phone,
+          clientEmail: client.email || undefined,
+          serviceName: serviceNames,
+          professionalName: professional.name,
+          date: formattedDate,
+          time: schedule.startTime,
+          duration: `${schedule.totalDurationMinutes} min`,
+          price: Number(schedule.totalPrice || service.price).toFixed(2)
+        }
+      });
 
-      const message = `Olá, ${client.name}. Seu horário no ${tenant.name} está confirmado.\n\nData: ${formattedDate}\nHorário: ${schedule.startTime}\nServiço: ${service.name}\nProfissional: ${professional.name}\nEndereço: ${addressDisplay}\n\nSe precisar remarcar, basta responder por aqui. Até logo!`;
-
-      await EvolutionService.sendTextMessage(tenant.id, client.phone, message);
+      // 2. Se o agendamento foi realizado pela cliente (Vitrine Online ou WhatsApp IA), notifica a equipe
+      if (schedule.source === 'ONLINE' || schedule.source === 'WHATSAPP_AI') {
+        await NotificationDispatcherService.dispatch({
+          tenantId: tenant.id,
+          trigger: 'BOOKING_NEW_TEAM',
+          scheduleId: schedule.id,
+          data: {
+            clientName: client.name,
+            clientFirstName: client.name.trim().split(' ')[0],
+            clientPhone: client.phone,
+            serviceName: serviceNames,
+            professionalName: professional.name,
+            professionalPhone: professional.phone || undefined,
+            date: formattedDate,
+            time: schedule.startTime,
+            duration: `${schedule.totalDurationMinutes} min`,
+            price: Number(schedule.totalPrice || service.price).toFixed(2)
+          }
+        });
+      }
 
       await prisma.schedule.update({
         where: { id: schedule.id },
@@ -50,9 +90,22 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
     }
 
     if (type === 'REMINDER_24H') {
-      const message = `Olá, ${client.name}. Lembramos do seu horário amanhã no ${tenant.name}:\n\nHorário: ${schedule.startTime}\nServiço: ${service.name}\nProfissional: ${professional.name}\n\nPodemos confirmar sua presença?\nResponda 1 para confirmar ou 2 se precisar remarcar.`;
-
-      await EvolutionService.sendTextMessage(tenant.id, client.phone, message);
+      await NotificationDispatcherService.dispatch({
+        tenantId: tenant.id,
+        trigger: 'BOOKING_REMINDER_CLIENT',
+        scheduleId: schedule.id,
+        data: {
+          clientName: client.name,
+          clientFirstName: client.name.trim().split(' ')[0],
+          clientPhone: client.phone,
+          clientEmail: client.email || undefined,
+          serviceName: serviceNames,
+          professionalName: professional.name,
+          date: formattedDate,
+          time: schedule.startTime,
+          duration: `${schedule.totalDurationMinutes} min`
+        }
+      });
 
       await prisma.schedule.update({
         where: { id: schedule.id },
@@ -63,9 +116,22 @@ export const whatsappWorker = new Worker<WhatsAppJobData>(
     }
 
     if (type === 'REMINDER_12H') {
-      const message = `Olá, ${client.name}. Seu atendimento no ${tenant.name} é hoje às ${schedule.startTime} com ${professional.name}. Se tiver qualquer imprevisto, avise por aqui.`;
-
-      await EvolutionService.sendTextMessage(tenant.id, client.phone, message);
+      await NotificationDispatcherService.dispatch({
+        tenantId: tenant.id,
+        trigger: 'BOOKING_REMINDER_CLIENT',
+        scheduleId: schedule.id,
+        data: {
+          clientName: client.name,
+          clientFirstName: client.name.trim().split(' ')[0],
+          clientPhone: client.phone,
+          clientEmail: client.email || undefined,
+          serviceName: serviceNames,
+          professionalName: professional.name,
+          date: formattedDate,
+          time: schedule.startTime,
+          duration: `${schedule.totalDurationMinutes} min`
+        }
+      });
 
       await prisma.schedule.update({
         where: { id: schedule.id },

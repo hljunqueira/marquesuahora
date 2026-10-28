@@ -10,6 +10,7 @@ import { ProfessionalItem } from './types';
 interface AgendaBlockModalProps {
   initialDate?: string;
   initialTime?: string;
+  initialProfessionalId?: string;
   professionals: ProfessionalItem[];
   onClose: () => void;
   onSuccess: () => void;
@@ -17,9 +18,16 @@ interface AgendaBlockModalProps {
 
 const PRESET_REASONS = ['Almoço', 'Intervalo', 'Folga', 'Reunião', 'Treinamento', 'Consulta'];
 
+function computeNextHour(timeStr: string): string {
+  const [h, m] = (timeStr || '12:00').split(':').map(Number);
+  const nextH = Math.min(23, (h || 0) + 1);
+  return `${String(nextH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+}
+
 export function AgendaBlockModal({
   initialDate,
   initialTime,
+  initialProfessionalId,
   professionals,
   onClose,
   onSuccess
@@ -30,15 +38,37 @@ export function AgendaBlockModal({
     setMounted(true);
   }, []);
 
-  const [professionalId, setProfessionalId] = useState<string>('');
+  const [professionalId, setProfessionalId] = useState<string>(
+    initialProfessionalId || ''
+  );
   const [dateStr, setDateStr] = useState<string>(
     initialDate || formatLocalDateToYMD(new Date())
   );
   const [isRecurrent, setIsRecurrent] = useState(false);
   const [dayOfWeek, setDayOfWeek] = useState<number>(1); // 1 = Segunda
   const [startTime, setStartTime] = useState<string>(initialTime || '12:00');
-  const [endTime, setEndTime] = useState<string>('13:00');
+  const [endTime, setEndTime] = useState<string>(
+    initialTime ? computeNextHour(initialTime) : '13:00'
+  );
   const [reason, setReason] = useState<string>('Almoço');
+
+  useEffect(() => {
+    if (initialDate) setDateStr(initialDate);
+    if (initialTime) {
+      setStartTime(initialTime);
+      setEndTime(computeNextHour(initialTime));
+    }
+    if (initialProfessionalId !== undefined) {
+      setProfessionalId(initialProfessionalId || '');
+    }
+  }, [initialDate, initialTime, initialProfessionalId]);
+
+  const handleStartTimeChange = (val: string) => {
+    setStartTime(val);
+    if (val >= endTime) {
+      setEndTime(computeNextHour(val));
+    }
+  };
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +251,7 @@ export function AgendaBlockModal({
               <input
                 type="time"
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
+                onChange={(e) => handleStartTimeChange(e.target.value)}
                 required
                 className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold outline-hidden focus:border-purple-600 cursor-pointer"
               />

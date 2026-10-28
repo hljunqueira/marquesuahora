@@ -121,6 +121,7 @@ export const updateTenantSettingsSchema = z.object({
   churnAlertDays: z.number().int().min(15).max(180).optional(),
   welcomeMessageEnabled: z.boolean().optional(),
   welcomeMessageCustom: z.string().max(2000).optional().nullable(),
+  aiAssistantEnabled: z.boolean().optional(),
   birthdayMessageEnabled: z.boolean().optional(),
   birthdayMessageCustom: z.string().max(1000).optional().nullable(),
   bufferMinutes: z.number().int().min(0).max(60).optional(),

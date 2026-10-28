@@ -709,7 +709,7 @@ export function AgendaWeeklyGrid({
   const isWeekMode = viewMode === 'week';
 
   return (
-    <div className="bg-white rounded-3xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col select-none">
+    <div className="bg-white flex flex-col select-none w-full">
       {/* ========================================================================= */}
       {/* 1. CABEÇALHO SUPERIOR DE DIAS (COM CONTAGEM DE AGENDAMENTOS E BLOQUEIOS)  */}
       {/* ========================================================================= */}
@@ -812,27 +812,28 @@ export function AgendaWeeklyGrid({
                 </div>
 
                 {/* Quantidade de Agendamentos Embaixo do Dia (ou badge Bloqueado/Fechado) */}
-                <div className="mt-1 flex items-center justify-center">
+                <div className="mt-1 flex items-center justify-center min-h-[18px]">
                   {isBlockedByBlock ? (
-                    <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-600 uppercase tracking-tight">
+                    <span className="text-[8px] sm:text-[8.5px] font-bold px-1 py-0.5 rounded-md bg-slate-200 text-slate-600 uppercase tracking-tight leading-none text-center">
                       Bloqueado
                     </span>
                   ) : isRuleClosed ? (
                     colApptsCount > 0 ? (
-                      <span className="text-[8.5px] sm:text-[9px] font-extrabold px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs whitespace-nowrap">
-                        Fechado ({colApptsCount})
+                      <span className="text-[8px] sm:text-[8.5px] font-extrabold px-1 py-0.5 rounded-lg bg-amber-100 text-amber-800 border border-amber-300 shadow-2xs leading-[1.1] flex flex-col items-center max-w-full text-center">
+                        <span>Fechado</span>
+                        <span className="text-[7.5px] font-black opacity-90">({colApptsCount})</span>
                       </span>
                     ) : (
-                      <span className="text-[8.5px] sm:text-[9px] font-bold px-1.5 py-0.2 rounded-md bg-slate-200 text-slate-500 uppercase tracking-tight">
+                      <span className="text-[8px] sm:text-[8.5px] font-bold px-1 py-0.5 rounded-md bg-slate-200 text-slate-500 uppercase tracking-tight leading-none text-center">
                         Fechado
                       </span>
                     )
                   ) : colApptsCount > 0 ? (
-                    <span className="text-[9px] sm:text-[9.5px] font-extrabold px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap">
+                    <span className="text-[8.5px] sm:text-[9px] font-extrabold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs leading-none text-center">
                       {colApptsCount} {colApptsCount === 1 ? 'agend.' : 'agend.'}
                     </span>
                   ) : (
-                    <span className="text-[9px] text-slate-300 font-medium">
+                    <span className="text-[8.5px] text-slate-300 font-medium leading-none text-center">
                       0 agend.
                     </span>
                   )}
@@ -846,44 +847,46 @@ export function AgendaWeeklyGrid({
       {/* ========================================================================= */}
       {/* 2. LINHA "DIA TODO" (ALL-DAY ROW) SE HOUVER BLOQUEIOS DE DIA INTEIRO      */}
       {/* ========================================================================= */}
-      <div className="flex border-b border-slate-200 bg-slate-50/70 min-h-[26px]">
-        <div className="w-10 sm:w-14 shrink-0 border-r border-slate-200 flex items-center justify-center px-1">
-          <span className="text-[9px] text-slate-400 font-semibold leading-tight text-center">
-            dia todo
-          </span>
-        </div>
-        <div className="flex-1 flex min-w-0">
-          {activeColumns.map((col, idx) => {
-            const dateStr = formatLocalDateToYMD(col.date);
-            const dayOfWeek = col.date.getDay();
+      {allDayBlocks.length > 0 && (
+        <div className="flex border-b border-slate-200 bg-slate-50/70 min-h-[26px]">
+          <div className="w-10 sm:w-14 shrink-0 border-r border-slate-200 flex items-center justify-center px-1">
+            <span className="text-[9px] text-slate-400 font-semibold leading-tight text-center">
+              dia todo
+            </span>
+          </div>
+          <div className="flex-1 flex min-w-0">
+            {activeColumns.map((col, idx) => {
+              const dateStr = formatLocalDateToYMD(col.date);
+              const dayOfWeek = col.date.getDay();
 
-            const allDayForCol = allDayBlocks.filter((b) => {
-              const bDateStr = b.date ? formatLocalDateToYMD(b.date) : null;
-              const matchesDate = bDateStr === dateStr || b.dayOfWeek === dayOfWeek;
-              const matchesProf = col.professionalId ? b.professionalId === col.professionalId : true;
-              return matchesDate && matchesProf;
-            });
+              const allDayForCol = allDayBlocks.filter((b) => {
+                const bDateStr = b.date ? formatLocalDateToYMD(b.date) : null;
+                const matchesDate = bDateStr === dateStr || b.dayOfWeek === dayOfWeek;
+                const matchesProf = col.professionalId ? b.professionalId === col.professionalId : true;
+                return matchesDate && matchesProf;
+              });
 
-            return (
-              <div
-                key={idx}
-                className="flex-1 min-w-0 border-r last:border-r-0 border-slate-200 p-0.5 flex flex-wrap gap-1 items-center justify-center"
-              >
-                {allDayForCol.map((b) => (
-                  <span
-                    key={b.id}
-                    onClick={() => onBlockClick?.(b)}
-                    className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 truncate cursor-pointer hover:bg-slate-300 transition-colors"
-                    title={b.reason}
-                  >
-                    {b.reason ? `${b.reason.slice(0, 4)}...` : 'Bloq...'}
-                  </span>
-                ))}
-              </div>
-            );
-          })}
+              return (
+                <div
+                  key={idx}
+                  className="flex-1 min-w-0 border-r last:border-r-0 border-slate-200 p-0.5 flex flex-wrap gap-1 items-center justify-center"
+                >
+                  {allDayForCol.map((b) => (
+                    <span
+                      key={b.id}
+                      onClick={() => onBlockClick?.(b)}
+                      className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 truncate cursor-pointer hover:bg-slate-300 transition-colors"
+                      title={b.reason}
+                    >
+                      {b.reason ? `${b.reason.slice(0, 4)}...` : 'Bloq...'}
+                    </span>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 3. TIMELINE VERTICAL CONTÍNUA DE HORÁRIOS CONFIGURADOS DINAMICAMENTE       */}

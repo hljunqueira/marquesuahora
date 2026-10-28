@@ -33,6 +33,7 @@ export interface ScheduleAppointment {
   arrivalPhotoUrl?: string | null;
   resultPhotoUrl?: string | null;
   source?: string | null;
+  reminder24hSentAt?: string | null;
   additionalServices?: any;
   items?: Array<{
     service?: {

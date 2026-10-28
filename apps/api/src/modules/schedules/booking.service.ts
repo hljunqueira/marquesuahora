@@ -22,6 +22,7 @@ export interface CreateBookingInput {
   couponCode?: string;
   discountAmount?: number;
   customTotalPrice?: number;
+  allowOverlap?: boolean;
 }
 
 export class BookingService {
@@ -42,7 +43,8 @@ export class BookingService {
       source = BookingSource.ONLINE,
       couponCode,
       discountAmount = 0,
-      customTotalPrice
+      customTotalPrice,
+      allowOverlap
     } = input;
 
     // Normalização de telefone (apenas números)
@@ -167,7 +169,7 @@ export class BookingService {
       const lockKey = `booking:${tenantId}:${selectedProfessionalId}:${dateStr}`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 
-      // 4. Verifica conflito de horário dentro da trava
+      // 4. Verifica conflito de horário dentro da trava (apenas para vitrine online ou quando sobreposição não for permitida)
       const conflictingSchedule = await tx.schedule.findFirst({
         where: {
           tenantId,
@@ -181,7 +183,9 @@ export class BookingService {
         }
       });
 
-      if (conflictingSchedule) {
+      const canOverlap = source !== BookingSource.ONLINE || allowOverlap === true;
+
+      if (conflictingSchedule && !canOverlap) {
         const err = new Error(
           'Este horário acabou de ser reservado por outra cliente. Por favor, escolha outro horário.'
         );
@@ -189,7 +193,7 @@ export class BookingService {
         throw err;
       }
 
-      // Verifica conflito com bloqueios
+      // Verifica conflito com bloqueios (apenas para vitrine online ou quando sobreposição não for permitida)
       const conflictingBlock = await tx.scheduleBlock.findFirst({
         where: {
           tenantId,
@@ -207,7 +211,7 @@ export class BookingService {
         }
       });
 
-      if (conflictingBlock) {
+      if (conflictingBlock && !canOverlap) {
         const err = new Error(`Este horário está bloqueado (${conflictingBlock.reason}). Escolha outro horário.`);
         (err as any).statusCode = 409;
         throw err;
