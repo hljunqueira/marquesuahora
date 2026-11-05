@@ -47,43 +47,6 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
       return reply.status(403).send({ error: 'Proibido', message: 'Sem estabelecimento vinculado.' });
     }
 
-    // Auto-sincroniza agendamentos concluídos que ainda não possuem lançamento no caixa
-    try {
-      const completedUnsynced = await prisma.schedule.findMany({
-        where: {
-          tenantId,
-          status: ScheduleStatus.COMPLETED,
-          totalPrice: { gt: 0 },
-          financialEntry: null
-        },
-        include: {
-          client: true,
-          service: true,
-          professional: true
-        }
-      });
-
-      if (completedUnsynced.length > 0) {
-        for (const sch of completedUnsynced) {
-          await prisma.financialEntry.create({
-            data: {
-              tenantId,
-              scheduleId: sch.id,
-              professionalId: sch.professionalId,
-              type: TransactionType.INCOME,
-              amount: sch.totalPrice,
-              depositDeducted: sch.depositPaid ? sch.depositAmount : 0,
-              description: `Atendimento: ${sch.service?.name || 'Serviço'} - ${sch.client?.name || 'Cliente'}`,
-              paymentMethod: sch.depositPaid ? PaymentMethod.PIX : PaymentMethod.CREDIT_CARD,
-              paidAt: sch.date || new Date()
-            }
-          }).catch(() => {});
-        }
-      }
-    } catch (err) {
-      console.error('[FINANCIAL AUTO-SYNC ERROR]', err);
-    }
-
     const entries = await prisma.financialEntry.findMany({
       where: { tenantId },
       orderBy: { paidAt: 'desc' },
@@ -197,6 +160,13 @@ export const financialRoutes: FastifyPluginAsync = async (app) => {
         ...(data.paidAt ? { paidAt: new Date(data.paidAt) } : {})
       }
     });
+
+    if (existing.scheduleId && data.amount !== undefined) {
+      await prisma.schedule.update({
+        where: { id: existing.scheduleId },
+        data: { totalPrice: data.amount }
+      }).catch(() => {});
+    }
 
     return reply.send(updated);
   });

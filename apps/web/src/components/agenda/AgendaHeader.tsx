@@ -216,10 +216,30 @@ export function AgendaHeader({
         </div>
       </div>
 
-      {/* TIER 2: Ações Rápidas (ACIMA da Previsão no Mobile) e Previsão Financeira */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
-        {/* Ações da Agenda: Cores dos Status + Bloquear Horário + Novo Agendamento (ACIMA NO MOBILE) */}
-        <div className="flex items-center gap-1.5 sm:gap-2 justify-end order-1 sm:order-2 shrink-0">
+      {/* TIER 2: Previsão Financeira e Ações Rápidas na MESMA linha (Mobile e Desktop) */}
+      <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-2 pt-2 border-t border-slate-100 overflow-x-auto scrollbar-none">
+        {/* Previsão Financeira Dinâmica (Dia / Semana / Mês) */}
+        <div className="flex items-center gap-1.5 sm:gap-2 text-xs shrink-0">
+          {stats && (
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-emerald-700 bg-emerald-50 px-2 sm:px-2.5 py-1 rounded-lg border border-emerald-200/70 text-[10.5px] sm:text-[11.5px] shadow-2xs whitespace-nowrap">
+                <span className="hidden sm:inline">
+                  {stats.periodLabel || (viewMode === 'day' ? 'Previsão do dia' : viewMode === 'month' ? 'Previsão do mês' : 'Previsão da semana')}:{' '}
+                </span>
+                <span className="sm:hidden font-extrabold">
+                  {viewMode === 'day' ? 'Prev. Dia' : viewMode === 'month' ? 'Prev. Mês' : 'Prev. Sem'}:{' '}
+                </span>
+                R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-slate-400 font-medium text-[10px] sm:text-[11px] whitespace-nowrap hidden md:inline">
+                ({stats.totalAppointments} {stats.totalAppointments === 1 ? 'atendimento' : 'atendimentos'})
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Ações da Agenda: Cores dos Status + Bloquear Horário + Novo Agendamento (Alinhados na mesma linha) */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {statusColors && onUpdateStatusColors && (
             <AgendaStatusColorPicker
               tenantPrimaryColor={tenantPrimaryColor || '#5c0701'}
@@ -230,33 +250,18 @@ export function AgendaHeader({
 
           <button
             onClick={onNewBlockClick}
-            className="px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold shadow-2xs transition-colors active:scale-95 cursor-pointer whitespace-nowrap"
+            className="px-2 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-[11px] sm:text-xs font-bold shadow-2xs transition-colors active:scale-95 cursor-pointer whitespace-nowrap"
           >
             Bloquear
           </button>
 
           <button
             onClick={onNewBookingClick}
-            className="px-3 sm:px-4 py-1.5 rounded-xl btn-primary-tenant text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm shrink-0 whitespace-nowrap"
+            className="px-2.5 sm:px-4 py-1.5 rounded-xl btn-primary-tenant text-[11px] sm:text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm shrink-0 whitespace-nowrap"
             style={tenantPrimaryColor ? { backgroundColor: tenantPrimaryColor, borderColor: tenantPrimaryColor } : undefined}
           >
             + Novo
           </button>
-        </div>
-
-        {/* Previsão Financeira e Total de Atendimentos: ABAIXO dos botões no Mobile */}
-        <div className="flex items-center gap-2 text-xs order-2 sm:order-1">
-          {stats && (
-            <>
-              <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200/70 text-[10.5px] sm:text-[11px] shadow-2xs whitespace-nowrap">
-                {stats.periodLabel || (viewMode === 'day' ? 'Previsão do dia' : viewMode === 'month' ? 'Previsão do mês' : 'Previsão da semana')}: R$ {stats.totalRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-              <span className="text-slate-300 hidden xs:inline">•</span>
-              <span className="text-slate-500 font-semibold text-[10.5px] sm:text-[11px] whitespace-nowrap hidden xs:inline">
-                {stats.totalAppointments} {stats.totalAppointments === 1 ? 'atendimento' : 'atendimentos'}
-              </span>
-            </>
-          )}
         </div>
       </div>
     </div>

@@ -154,8 +154,8 @@ export default function AdminSaloesPage() {
   const handleOpenPlanModal = (tenant: TenantItem) => {
     setTargetPlanModal(tenant);
     setSelectedPlanCode(tenant.plan?.code || 'SOLO');
-    setIsGratuity(tenant.billingStatus === 'GRATUITY');
-    setGratuityReason(tenant.blockedReason || 'Parceria / Cortesia autorizada');
+    setIsGratuity(tenant.billingStatus === 'GRATUITY' || tenant.plan?.code === 'VIP_PRO');
+    setGratuityReason(tenant.blockedReason || (tenant.plan?.code === 'VIP_PRO' ? 'Plano VIP Vitalício' : 'Parceria / Cortesia autorizada'));
   };
 
   const handleSavePlan = async () => {
@@ -456,7 +456,11 @@ export default function AdminSaloesPage() {
                       </td>
 
                       <td className="p-4">
-                        {isGratuity ? (
+                        {t.plan?.code === 'FREE' && !isGratuity ? (
+                          <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                            Plano Gratuito
+                          </span>
+                        ) : isGratuity || t.plan?.code === 'VIP_PRO' ? (
                           <div className="inline-flex flex-col">
                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-300">
                               Cortesia VIP
@@ -576,19 +580,26 @@ export default function AdminSaloesPage() {
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-600">
                   Plano Atribuído
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
                     { code: 'FREE', name: 'Gratuito', price: 'R$ 0,00' },
                     { code: 'SOLO', name: 'Solo', price: 'R$ 49,99/mês' },
-                    { code: 'EQUIPE_PRO', name: 'Equipe Pro', price: 'R$ 99,99/mês' }
+                    { code: 'EQUIPE_PRO', name: 'Equipe Pro', price: 'R$ 99,99/mês' },
+                    { code: 'VIP_PRO', name: 'Plano VIP', price: 'Vitalício' }
                   ].map((p) => {
-                    const isSelected = selectedPlanCode === p.code;
+                    const isSelected = selectedPlanCode === p.code || (p.code === 'VIP_PRO' && selectedPlanCode === 'VIP');
                     return (
                       <button
                         key={p.code}
                         type="button"
-                        onClick={() => setSelectedPlanCode(p.code)}
-                        className={`p-3 rounded-2xl border text-left transition-all ${
+                        onClick={() => {
+                          setSelectedPlanCode(p.code);
+                          if (p.code === 'VIP_PRO') {
+                            setIsGratuity(true);
+                            setGratuityReason((prev) => prev || 'Plano VIP Vitalício');
+                          }
+                        }}
+                        className={`p-3 rounded-2xl border text-left transition-all cursor-pointer ${
                           isSelected
                             ? 'border-purple-600 bg-purple-50/40 ring-2 ring-purple-600/20'
                             : 'border-slate-200 hover:border-slate-300'

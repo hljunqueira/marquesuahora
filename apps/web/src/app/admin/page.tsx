@@ -82,7 +82,7 @@ export default function SuperAdminOverviewPage() {
                 Lojas & Espaços
               </span>
               <span className="text-3xl font-mono font-bold text-slate-900 mt-3 block">
-                {metrics.activeTenants + metrics.gratuityTenants}{' '}
+                {metrics.activeTenants + metrics.gratuityTenants + metrics.trialTenants}{' '}
                 <span className="text-xs text-slate-400 font-normal">/ {metrics.totalTenants} total</span>
               </span>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">

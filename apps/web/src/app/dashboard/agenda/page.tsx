@@ -284,8 +284,8 @@ export default function AgendaCompletaPage() {
       }
 
       if (viewMode === 'month') {
-        const d = new Date(a.date);
-        return d.getMonth() === currentDate.getMonth() && d.getFullYear() === currentDate.getFullYear();
+        const [aYear, aMonth] = aDateStr.split('-').map(Number);
+        return aMonth - 1 === currentDate.getMonth() && aYear === currentDate.getFullYear();
       }
 
       // Semana: apenas agendamentos da semana ativa

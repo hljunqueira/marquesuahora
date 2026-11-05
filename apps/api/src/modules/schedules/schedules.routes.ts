@@ -553,6 +553,28 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
         }
       });
 
+      // Se o agendamento foi concluído e ainda não tem lançamento financeiro, cria uma única vez
+      if (newStatus === ScheduleStatus.COMPLETED && existing.status !== ScheduleStatus.COMPLETED) {
+        const existingFin = await prisma.financialEntry.findUnique({
+          where: { scheduleId: id }
+        });
+        if (!existingFin && Number(updated.totalPrice) > 0) {
+          await prisma.financialEntry.create({
+            data: {
+              tenantId,
+              scheduleId: id,
+              professionalId: updated.professionalId,
+              type: TransactionType.INCOME,
+              amount: updated.totalPrice,
+              depositDeducted: updated.depositPaid ? updated.depositAmount : 0,
+              description: `Atendimento: ${updated.service?.name || 'Serviço'} - ${updated.client?.name || 'Cliente'}`,
+              paymentMethod: updated.depositPaid ? PaymentMethod.PIX : PaymentMethod.CREDIT_CARD,
+              paidAt: updated.date || new Date()
+            }
+          }).catch(() => {});
+        }
+      }
+
       try {
         const clientName = updated.client?.name || 'Cliente';
         const clientFirstName = clientName.trim().split(' ')[0] || clientName;
@@ -948,10 +970,13 @@ export const schedulesRoutes: FastifyPluginAsync = async (app) => {
           }
         }
 
-        // 3. Processa cada pagamento
+        // 3. Processa cada pagamento (substitui lançamento provisório se já existia)
         const createdEntries = [];
         const createdCreditAccounts = [];
-        let usedScheduleIdForFirstEntry = Boolean(existingFinancial);
+        if (existingFinancial) {
+          await tx.financialEntry.delete({ where: { id: existingFinancial.id } });
+        }
+        let usedScheduleIdForFirstEntry = false;
 
         for (const pay of data.payments) {
           if (pay.method === 'CREDIT_ACCOUNT') {

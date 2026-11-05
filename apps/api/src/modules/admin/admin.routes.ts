@@ -14,19 +14,28 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
   app.get('/overview', async (_request, reply) => {
     const [
       totalTenants,
-      activeTenants,
-      trialTenants,
-      gratuityTenants,
       blockedTenants,
+      gratuityTenants,
+      allTenants,
       totalSchedules,
       openTickets,
       plansWithCount
     ] = await Promise.all([
       prisma.tenant.count(),
-      prisma.tenant.count({ where: { billingStatus: 'ACTIVE' } }),
-      prisma.tenant.count({ where: { billingStatus: 'TRIAL' } }),
-      prisma.tenant.count({ where: { billingStatus: 'GRATUITY' } }),
       prisma.tenant.count({ where: { billingStatus: 'BLOCKED' } }),
+      prisma.tenant.count({ where: { billingStatus: 'GRATUITY' } }),
+      prisma.tenant.findMany({
+        select: {
+          id: true,
+          billingStatus: true,
+          plan: {
+            select: {
+              code: true,
+              monthlyPrice: true
+            }
+          }
+        }
+      }),
       prisma.schedule.count(),
       prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS', 'WAITING_CLIENT'] } } }),
       prisma.plan.findMany({
@@ -39,17 +48,31 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       })
     ]);
 
+    // Pagantes reais: status ACTIVE com plano pago (preço > 0)
+    const payingTenants = allTenants.filter(
+      (t) => t.billingStatus === 'ACTIVE' && Number(t.plan?.monthlyPrice || 0) > 0
+    ).length;
+
+    // Lojas no Plano Gratuito (código FREE ou preço 0 que não sejam cortesias)
+    const freeTenants = allTenants.filter(
+      (t) =>
+        t.billingStatus !== 'BLOCKED' &&
+        t.billingStatus !== 'GRATUITY' &&
+        (t.plan?.code === 'FREE' || Number(t.plan?.monthlyPrice || 0) === 0)
+    ).length;
+
     // Calcula MRR estimado com base nos planos contratados pelas lojas ativas pagantes
-    const estimatedMRR = plansWithCount.reduce(
-      (acc, p) => acc + Number(p.monthlyPrice) * p._count.tenants,
-      0
-    );
+    const estimatedMRR = allTenants
+      .filter((t) => t.billingStatus === 'ACTIVE')
+      .reduce((acc, t) => acc + Number(t.plan?.monthlyPrice || 0), 0);
 
     return reply.send({
       tenants: {
         total: totalTenants,
-        active: activeTenants,
-        trial: trialTenants,
+        active: payingTenants,
+        paying: payingTenants,
+        trial: freeTenants,
+        free: freeTenants,
         gratuity: gratuityTenants,
         blocked: blockedTenants
       },

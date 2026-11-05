@@ -41,6 +41,30 @@ export function AgendaAppointmentModal({
   }, []);
 
   // Estados de criação
+  // Listas locais de serviços e profissionais (permite adição rápida sem sair do formulário)
+  const [localServices, setLocalServices] = useState<ServiceOption[]>(services);
+  const [localProfessionals, setLocalProfessionals] = useState<ProfessionalItem[]>(professionals);
+
+  useEffect(() => {
+    if (services.length > 0) setLocalServices(services);
+  }, [services]);
+
+  useEffect(() => {
+    if (professionals.length > 0) setLocalProfessionals(professionals);
+  }, [professionals]);
+
+  // Modais rápidos de Novo Serviço e Novo Profissional
+  const [isQuickServiceOpen, setIsQuickServiceOpen] = useState(false);
+  const [quickServiceName, setQuickServiceName] = useState('');
+  const [quickServicePrice, setQuickServicePrice] = useState('');
+  const [quickServiceDuration, setQuickServiceDuration] = useState('60');
+  const [savingQuickService, setSavingQuickService] = useState(false);
+
+  const [isQuickProfessionalOpen, setIsQuickProfessionalOpen] = useState(false);
+  const [quickProfName, setQuickProfName] = useState('');
+  const [quickProfPhone, setQuickProfPhone] = useState('');
+  const [savingQuickProf, setSavingQuickProf] = useState(false);
+
   const [selectedServiceId, setSelectedServiceId] = useState<string>(
     existingAppointment?.serviceId || (services[0]?.id || '')
   );
@@ -164,6 +188,77 @@ export function AgendaAppointmentModal({
     if (initialProfessionalId) setSelectedProfessionalId(initialProfessionalId);
   }, [initialDate, initialTime, initialProfessionalId]);
 
+  const handleCreateQuickService = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickServiceName.trim()) return;
+    const priceNum = parseFloat(quickServicePrice.replace(',', '.')) || 0;
+    const durationNum = parseInt(quickServiceDuration, 10) || 60;
+
+    try {
+      setSavingQuickService(true);
+      setError(null);
+      const res = await api.post('/services', {
+        name: quickServiceName.trim(),
+        price: priceNum,
+        durationMinutes: durationNum,
+        category: 'Geral',
+        allowOnlineBooking: true
+      });
+
+      const newSrv: ServiceOption = {
+        id: res.data.id,
+        name: res.data.name,
+        price: Number(res.data.price),
+        durationMinutes: res.data.durationMinutes,
+        color: res.data.color || null
+      };
+
+      setLocalServices((prev) => [newSrv, ...prev]);
+      setSelectedServiceId(newSrv.id);
+      setIsQuickServiceOpen(false);
+      setQuickServiceName('');
+      setQuickServicePrice('');
+      setQuickServiceDuration('60');
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Erro ao cadastrar novo serviço.');
+    } finally {
+      setSavingQuickService(false);
+    }
+  };
+
+  const handleCreateQuickProfessional = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickProfName.trim()) return;
+    const cleanPhone = quickProfPhone.replace(/\D/g, '');
+
+    try {
+      setSavingQuickProf(true);
+      setError(null);
+      const res = await api.post('/professionals', {
+        name: quickProfName.trim(),
+        phone: cleanPhone.length >= 10 ? cleanPhone : '11999999999'
+      });
+
+      const newProf: ProfessionalItem = {
+        id: res.data.id,
+        name: res.data.name,
+        phone: res.data.phone || '',
+        avatarUrl: res.data.avatarUrl || null,
+        color: res.data.color || null
+      };
+
+      setLocalProfessionals((prev) => [newProf, ...prev]);
+      setSelectedProfessionalId(newProf.id);
+      setIsQuickProfessionalOpen(false);
+      setQuickProfName('');
+      setQuickProfPhone('');
+    } catch (err: any) {
+      setError(err?.response?.data?.message || 'Erro ao cadastrar novo profissional.');
+    } finally {
+      setSavingQuickProf(false);
+    }
+  };
+
   // Busca rápida de clientes existentes ao digitar nome
   useEffect(() => {
     if (isEditing || !clientName || clientName.length < 2) {
@@ -235,7 +330,7 @@ export function AgendaAppointmentModal({
   }, [selectedServiceId, extraServiceIds]);
 
   const summary = useMemo(() => {
-    const active = services.filter((s) => allSelectedServiceIds.includes(s.id));
+    const active = localServices.filter((s) => allSelectedServiceIds.includes(s.id));
     const totalPrice = active.reduce((acc, s) => acc + Number(s.price), 0);
     const totalDuration = active.reduce((acc, s) => acc + (s.durationMinutes || 30), 0);
 
@@ -251,7 +346,7 @@ export function AgendaAppointmentModal({
     }
 
     return { totalPrice, totalDuration, calculatedEndTime };
-  }, [services, allSelectedServiceIds, startTime]);
+  }, [localServices, allSelectedServiceIds, startTime]);
 
   // Detecção em tempo real de colisão com horários já ocupados
   const conflictSchedule = useMemo(() => {
@@ -346,8 +441,8 @@ export function AgendaAppointmentModal({
           const [y, m, d] = dateStr.split('-');
           const formattedDate = `${d}/${m}/${y}`;
           const mainService =
-            services.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
-          const profObj = professionals.find((p) => p.id === selectedProfessionalId);
+            localServices.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
+          const profObj = localProfessionals.find((p) => p.id === selectedProfessionalId);
 
           setSavedAppointmentData({
             id: existingAppointment.id,
@@ -384,8 +479,8 @@ export function AgendaAppointmentModal({
         const [y, m, d] = dateStr.split('-');
         const formattedDate = `${d}/${m}/${y}`;
         const mainService =
-          services.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
-        const profObj = professionals.find((p) => p.id === selectedProfessionalId);
+          localServices.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
+        const profObj = localProfessionals.find((p) => p.id === selectedProfessionalId);
 
         setSavedAppointmentData({
           id: res.data?.id,
@@ -461,7 +556,7 @@ export function AgendaAppointmentModal({
     const [y, m, d] = dateStr.split('-');
     const formattedDate = `${d}/${m}/${y}`;
     const mainService =
-      services.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
+      localServices.find((s) => s.id === selectedServiceId)?.name || 'seu atendimento';
 
     const msg = encodeURIComponent(
       `Olá, ${clientName}! Passando para confirmar seu horário para ${mainService} no dia ${formattedDate} às ${startTime}. Estamos te esperando!`
@@ -735,38 +830,78 @@ export function AgendaAppointmentModal({
           <div className="pt-2 border-t border-slate-100 space-y-2.5">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Serviço Principal *
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                    Serviço Principal *
+                  </label>
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickServiceOpen(true)}
+                      className="text-[11px] font-bold text-tenant-primary hover:underline cursor-pointer flex items-center gap-0.5"
+                    >
+                      + Novo
+                    </button>
+                  )}
+                </div>
                 <select
                   disabled={isEditing}
                   value={selectedServiceId}
                   onChange={(e) => setSelectedServiceId(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold outline-hidden focus:border-purple-600 disabled:bg-slate-50 cursor-pointer"
                 >
-                  {services.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} (R$ {Number(s.price).toFixed(0)})
-                    </option>
-                  ))}
+                  {localServices.length === 0 ? (
+                    <option value="">Nenhum serviço cadastrado (+ Novo)</option>
+                  ) : (
+                    localServices.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} (R$ {Number(s.price).toFixed(0)})
+                      </option>
+                    ))
+                  )}
                 </select>
+                {localServices.length === 0 && (
+                  <p className="text-[11px] text-amber-700 mt-1 font-medium">
+                    Nenhum serviço disponível. Clique em <strong>+ Novo</strong> acima para cadastrar.
+                  </p>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">
-                  Profissional
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                    Profissional
+                  </label>
+                  {!isEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setIsQuickProfessionalOpen(true)}
+                      className="text-[11px] font-bold text-tenant-primary hover:underline cursor-pointer flex items-center gap-0.5"
+                    >
+                      + Novo
+                    </button>
+                  )}
+                </div>
                 <select
                   value={selectedProfessionalId}
                   onChange={(e) => setSelectedProfessionalId(e.target.value)}
                   className="w-full px-3 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold outline-hidden focus:border-purple-600 cursor-pointer"
                 >
-                  {professionals.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
+                  {localProfessionals.length === 0 ? (
+                    <option value="">Nenhum profissional cadastrado (+ Novo)</option>
+                  ) : (
+                    localProfessionals.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))
+                  )}
                 </select>
+                {localProfessionals.length === 0 && (
+                  <p className="text-[11px] text-amber-700 mt-1 font-medium">
+                    Nenhum profissional disponível. Clique em <strong>+ Novo</strong> acima para cadastrar.
+                  </p>
+                )}
               </div>
             </div>
 
@@ -780,7 +915,7 @@ export function AgendaAppointmentModal({
                   <button
                     type="button"
                     onClick={() => {
-                      const available = services.find(
+                      const available = localServices.find(
                         (s) => !allSelectedServiceIds.includes(s.id)
                       );
                       if (available) {
@@ -807,7 +942,7 @@ export function AgendaAppointmentModal({
                       }}
                       className="flex-1 px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold outline-hidden focus:border-purple-600"
                     >
-                      {services.map((s) => (
+                      {localServices.map((s) => (
                         <option key={s.id} value={s.id}>
                           {s.name} (R$ {Number(s.price).toFixed(0)})
                         </option>
@@ -1123,6 +1258,163 @@ export function AgendaAppointmentModal({
         }}
         onClose={() => setIsCancelConfirmOpen(false)}
       />
+
+      {/* Modal Rápido de Novo Serviço */}
+      {isQuickServiceOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Novo Serviço Rápido</h3>
+                <p className="text-[11px] text-slate-500">Cadastre e selecione imediatamente no agendamento</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickServiceOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateQuickService} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  Nome do Serviço *
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="Ex: Alongamento em Gel, Corte Feminino"
+                  value={quickServiceName}
+                  onChange={(e) => setQuickServiceName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-hidden focus:border-purple-600"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Preço (R$) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="120,00"
+                    value={quickServicePrice}
+                    onChange={(e) => setQuickServicePrice(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-hidden focus:border-purple-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                    Duração (min) *
+                  </label>
+                  <input
+                    type="number"
+                    min="5"
+                    step="5"
+                    required
+                    placeholder="60"
+                    value={quickServiceDuration}
+                    onChange={(e) => setQuickServiceDuration(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-hidden focus:border-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickServiceOpen(false)}
+                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingQuickService || !quickServiceName.trim()}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {savingQuickService ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  <span>Cadastrar e Selecionar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Rápido de Novo Profissional */}
+      {isQuickProfessionalOpen && (
+        <div className="fixed inset-0 z-[60] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Novo Profissional Rápido</h3>
+                <p className="text-[11px] text-slate-500">Cadastre e vincule imediatamente ao agendamento</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsQuickProfessionalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateQuickProfessional} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  Nome do Profissional *
+                </label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  placeholder="Ex: Carla Silva, Marcos Oliveira"
+                  value={quickProfName}
+                  onChange={(e) => setQuickProfName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-hidden focus:border-purple-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
+                  Telefone / WhatsApp *
+                </label>
+                <InputMask
+                  mask="phone"
+                  value={quickProfPhone}
+                  onChangeValue={(val) => setQuickProfPhone(val)}
+                  placeholder="(00) 00000-0000"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-semibold outline-hidden focus:border-purple-600"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickProfessionalOpen(false)}
+                  className="px-3 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingQuickProf || !quickProfName.trim()}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {savingQuickProf ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  <span>Cadastrar e Selecionar</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>,
     document.body
   );

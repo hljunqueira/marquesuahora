@@ -31,6 +31,8 @@ export class PlansService {
         codeToSearch = 'EQUIPE_PRO';
       } else if (codeToSearch === 'GRATUITO' || codeToSearch === 'GRATIS') {
         codeToSearch = 'FREE';
+      } else if (codeToSearch === 'VIP' || codeToSearch === 'VIP_AI') {
+        codeToSearch = 'VIP_PRO';
       }
 
       const planByCode = await prisma.plan.findUnique({ where: { code: codeToSearch } });
