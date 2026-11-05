@@ -169,6 +169,8 @@ export default function DashboardPage() {
     loading: true
   });
 
+  const [todaySummaryForecast, setTodaySummaryForecast] = useState<number>(0);
+
   const formatBRL = (val: number) => {
     return new Intl.NumberFormat('pt-BR', {
       style: 'currency',
@@ -302,6 +304,14 @@ export default function DashboardPage() {
         cancelledRate: Math.round(cancelledRate * 10) / 10,
         loading: false
       });
+
+      // 3. Previsão de Hoje (soma dos agendamentos válidos do dia)
+      const todayIso = formatLocalDateToYMD(new Date());
+      const todayAppts = list.filter(
+        (a: any) => a.status !== 'CANCELLED' && formatLocalDateToYMD(a.date) === todayIso
+      );
+      const todaySum = todayAppts.reduce((acc: number, a: any) => acc + (Number(a.totalPrice) || 0), 0);
+      setTodaySummaryForecast(todaySum);
     } catch {
       setMonthFinancial((prev) => ({ ...prev, loading: false }));
       setMonthOperational((prev) => ({ ...prev, loading: false }));
@@ -353,6 +363,27 @@ export default function DashboardPage() {
     }
     return map;
   }, [appointments]);
+
+  const todayDateStr = useMemo(() => formatLocalDateToYMD(new Date()), []);
+
+  // Previsão do dia selecionado
+  const selectedDayForecast = useMemo(() => {
+    return dayAppointments
+      .filter((appt) => appt.status !== 'CANCELLED')
+      .reduce((acc, appt) => acc + (Number(appt.totalPrice) || 0), 0);
+  }, [dayAppointments]);
+
+  // Previsão de hoje (derivada de appointments da semana ativa ou do resumo do mês)
+  const currentWeekTodayForecast = useMemo(() => {
+    const list = Array.isArray(appointments) ? appointments : [];
+    const hasToday = list.some((a) => formatLocalDateToYMD(a.date) === todayDateStr);
+    if (!hasToday) return null;
+    return list
+      .filter((a) => a.status !== 'CANCELLED' && formatLocalDateToYMD(a.date) === todayDateStr)
+      .reduce((acc, a) => acc + (Number(a.totalPrice) || 0), 0);
+  }, [appointments, todayDateStr]);
+
+  const effectiveTodayForecast = currentWeekTodayForecast !== null ? currentWeekTodayForecast : todaySummaryForecast;
 
   // Extrai apenas o primeiro nome da cliente para visualização rápida no celular
   const getFirstName = (fullName: string) => {
@@ -422,9 +453,25 @@ export default function DashboardPage() {
         <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
             <h2 className="text-sm font-bold text-slate-900">Agenda Resumida</h2>
-            <p className="text-[11px] text-slate-500">
-              Selecione o dia para ver os atendimentos programados
-            </p>
+            <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+              <span className="inline-flex items-center text-[11px] sm:text-xs font-bold text-emerald-700 bg-emerald-50 px-2 sm:px-2.5 py-0.5 rounded-lg border border-emerald-200/80 shadow-2xs">
+                {selectedDateStr === todayDateStr ? 'Previsão de hoje' : 'Previsão do dia'}: R${' '}
+                {(selectedDateStr === todayDateStr ? effectiveTodayForecast : selectedDayForecast).toLocaleString('pt-BR', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+              {selectedDateStr !== todayDateStr && (
+                <span className="text-[10.5px] text-slate-500 font-medium">
+                  (Hoje: R${' '}
+                  {effectiveTodayForecast.toLocaleString('pt-BR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                  )
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1">
